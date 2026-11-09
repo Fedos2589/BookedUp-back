@@ -22,7 +22,8 @@ npm run typecheck
 npm run lint
 npm test
 npm run test:e2e
-npm run db:migrate       # после появления моделей
+npm run test:int         # интеграционные тесты на своём Postgres в Docker (Testcontainers)
+npm run db:migrate       # применить миграции к локальной базе
 
 docker compose --profile api up --build   # API тоже в контейнере
 ```
