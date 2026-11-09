@@ -1,5 +1,5 @@
 import { PasswordHasher } from '@nestjs/authentication';
-import { type INestApplication, StandardSchemaValidationPipe } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { inject } from 'vitest';
 
@@ -17,7 +17,6 @@ export async function createTestApp(): Promise<INestApplication> {
     .compile();
 
   const app = moduleRef.createNestApplication();
-  app.useGlobalPipes(new StandardSchemaValidationPipe());
   await app.init();
   return app;
 }

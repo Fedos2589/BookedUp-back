@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
-import { Module } from '@nestjs/common';
+import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AuthModule } from './auth/auth.module.js';
@@ -19,7 +20,8 @@ import { PrismaModule } from './prisma/prisma.module.js';
           pinoHttp:
             env === 'development'
               ? { transport: { target: 'pino-pretty' } }
-              : { level: env === 'test' ? 'silent' : 'info' },
+              : // Tests keep warnings and errors: an unexpected 500 shows its stack, not just the status.
+                { level: env === 'test' ? 'warn' : 'info' },
         };
       },
     }),
@@ -34,5 +36,10 @@ import { PrismaModule } from './prisma/prisma.module.js';
     AuthModule,
   ],
   controllers: [HealthController],
+  providers: [
+    // Request bodies and params are validated by the zod schemas on their decorators. Here,
+    // not in main.ts, so every way of starting the app (tests included) gets it.
+    { provide: APP_PIPE, useValue: new StandardSchemaValidationPipe() },
+  ],
 })
 export class AppModule {}

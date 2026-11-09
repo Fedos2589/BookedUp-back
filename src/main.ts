@@ -1,4 +1,3 @@
-import { StandardSchemaValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -11,8 +10,6 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
   app.enableShutdownHooks();
-  // Request bodies and params are validated by the zod schemas on their decorators.
-  app.useGlobalPipes(new StandardSchemaValidationPipe());
 
   // The front generates its API client from /api/docs-json (Orval).
   const document = SwaggerModule.createDocument(
