@@ -22,3 +22,35 @@ Validation works with Zod, Valibot, ArkType or any other Standard Schema library
 `NodeAdapter` from `@nestjs/platform-node` is the fastest HTTP adapter, ahead of Fastify (https://docs.nestjs.com/http/performance.md).
 
 Nest's packages are ESM only, and this project is ESM too: relative imports end in `.js`, `__dirname` doesn't exist (use `import.meta.dirname`), and tests run on Vitest, so mocks are `vi.fn()`, not `jest.fn()`.
+
+## BookedUp
+
+API сервиса онлайн-записи для малого бизнеса (спортшколы, бьюти). Фронт — репозиторий BookedUp-front; он генерирует клиент из `/api/docs-json` через Orval, поэтому Swagger-описание — это контракт: у каждого эндпоинта `@ApiTags`, типизированные ответы (`@ApiOkResponse` с DTO), иначе на фронте получится `unknown`.
+
+### Три правила с первого дня
+
+1. **Мультиарендность.** У каждой таблицы с данными бизнеса есть `businessId`, и каждый запрос фильтруется по нему. Доступ проверяет guard, а не каждый сервис по-своему. Запрос без `businessId` в `where` к такой таблице — баг.
+2. **Время.** В базе всё в UTC (`timestamptz`). У `Business` свой часовой пояс (IANA, `Europe/Moscow`), слоты и рабочие часы считаются в нём. Не использовать часовой пояс сервера.
+3. **Двойная запись невозможна на уровне Postgres.** На записи мастера — ограничение `EXCLUDE USING gist` по диапазону времени (`tstzrange`) для `staffId` (расширение `btree_gist`). Prisma этого не выражает — ограничение пишется SQL-ом в миграции. Проверка в коде — только для понятной ошибки, не вместо ограничения.
+
+### Что где
+
+- `src/config/env.ts` — env, проверяется zod при старте. Переменные читаются только через `ConfigService<Env, true>`, не через `process.env`. Новая переменная — в схему и в `.env.example`.
+- `prisma/schema.prisma` — модель данных; клиент генерируется в `src/generated/prisma` (не коммитится, не правится). Миграции — `npm run db:migrate`.
+- `src/prisma/` — `PrismaService`, глобальный модуль.
+- Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
+- Логи — `nestjs-pino`, не `console.log`.
+
+### Проверки
+
+Перед каждым коммитом:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run test:e2e
+npm run build
+```
+
+Postgres и Redis локально — `docker compose up -d`.
