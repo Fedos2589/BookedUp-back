@@ -1,0 +1,13 @@
+// Data model lives here. Every tenant-owned table gets a `businessId`;
+// all timestamps are stored in UTC.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
