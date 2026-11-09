@@ -95,3 +95,42 @@ ALTER TABLE "users" ADD CONSTRAINT "users_email_lowercase" CHECK ("email" = lowe
 -- unique index case-insensitive, like the email's.
 ALTER TABLE "businesses" ADD CONSTRAINT "businesses_slug_format"
   CHECK ("slug" ~ '^[a-z0-9]+(-[a-z0-9]+)*$');
+
+-- Exactly one owner per business.
+-- At most one: a partial unique index.
+CREATE UNIQUE INDEX "memberships_one_owner" ON "memberships"("business_id") WHERE "role" = 'OWNER';
+
+-- At least one: checked at commit (deferred), so a business and its owner are created in
+-- one transaction, ownership is handed over by demoting then promoting, and deleting a
+-- whole business (which cascades to its memberships) passes — the business is gone by
+-- then. Deleting the owner's account, or demoting them, while the business exists fails.
+CREATE FUNCTION "business_has_owner"() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  target uuid;
+BEGIN
+  -- Separate branches, not one CASE: PL/pgSQL resolves every field a CASE names, and a
+  -- businesses row has no business_id.
+  IF TG_TABLE_NAME = 'businesses' THEN
+    target := NEW."id";
+  ELSE
+    target := OLD."business_id";
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM "businesses" WHERE "id" = target)
+     AND NOT EXISTS (SELECT 1 FROM "memberships" WHERE "business_id" = target AND "role" = 'OWNER') THEN
+    RAISE EXCEPTION 'business % has no owner', target
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'businesses_has_owner';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER "businesses_has_owner"
+  AFTER INSERT ON "businesses"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION "business_has_owner"();
+
+CREATE CONSTRAINT TRIGGER "memberships_keep_owner"
+  AFTER UPDATE OR DELETE ON "memberships"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION "business_has_owner"();

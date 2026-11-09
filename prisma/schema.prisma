@@ -85,6 +85,10 @@ model PasswordLogin {
 }
 
 /// A user's role in one business. What the access guard checks.
+/// Every business has exactly one OWNER, enforced in the database (init migration): a
+/// partial unique index, and a deferred trigger checked at commit. So a business is
+/// created together with its owner, and ownership is handed over by demoting the old
+/// owner and promoting the new one in one transaction.
 model Membership {
   id         String     @id @default(uuid(7)) @db.Uuid
   businessId String     @map("business_id") @db.Uuid

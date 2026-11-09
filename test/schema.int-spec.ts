@@ -13,11 +13,25 @@ const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', '_prisma_migrat
 let seq = 0;
 const unique = () => `${Date.now()}-${++seq}`;
 
-const createBusiness = (slug = `studio-${unique()}`) =>
-  prisma.business.create({ data: { name: 'Studio', slug, timeZone: 'Europe/Moscow' } });
+const createUser = (email = `user-${unique()}@example.com`) =>
+  prisma.user.create({ data: { email, name: 'User' } });
 
-const createUser = (email = `owner-${unique()}@example.com`) =>
-  prisma.user.create({ data: { email, name: 'Owner' } });
+// A business always comes with its owner: the database refuses one without.
+const createBusiness = (slug = `studio-${unique()}`) =>
+  prisma.business.create({
+    data: {
+      name: 'Studio',
+      slug,
+      timeZone: 'Europe/Moscow',
+      memberships: {
+        create: { role: 'OWNER', user: { create: { email: `owner-${unique()}@example.com`, name: 'Owner' } } },
+      },
+    },
+    include: { memberships: true },
+  });
+
+const ownerOf = (business: { memberships: { userId: string; role: string }[] }) =>
+  business.memberships.find((m) => m.role === 'OWNER')!.userId;
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -78,7 +92,7 @@ describe('businesses', () => {
     const user = await createUser();
     await prisma.location.create({ data: { businessId: business.id, name: 'Main' } });
     await prisma.membership.create({
-      data: { businessId: business.id, userId: user.id, role: 'OWNER' },
+      data: { businessId: business.id, userId: user.id, role: 'MASTER' },
     });
 
     await prisma.business.delete({ where: { id: business.id } });
@@ -127,11 +141,65 @@ describe('memberships', () => {
     const [first, second] = [await createBusiness(), await createBusiness()];
     const user = await createUser();
 
-    await prisma.membership.create({ data: { businessId: first.id, userId: user.id, role: 'OWNER' } });
+    await prisma.membership.create({ data: { businessId: first.id, userId: user.id, role: 'ADMIN' } });
     await prisma.membership.create({ data: { businessId: second.id, userId: user.id, role: 'MASTER' } });
 
     await expect(
-      prisma.membership.create({ data: { businessId: first.id, userId: user.id, role: 'ADMIN' } }),
+      prisma.membership.create({ data: { businessId: first.id, userId: user.id, role: 'MASTER' } }),
     ).rejects.toMatchObject({ code: 'P2002' });
+  });
+});
+
+describe('owners: every business has exactly one', () => {
+  it('refuses a business created without an owner', async () => {
+    await expect(
+      prisma.business.create({ data: { name: 'Studio', slug: `studio-${unique()}`, timeZone: 'UTC' } }),
+    ).rejects.toThrow(/has no owner/);
+  });
+
+  it('refuses a second owner', async () => {
+    const business = await createBusiness();
+    const user = await createUser();
+
+    await expect(
+      prisma.membership.create({ data: { businessId: business.id, userId: user.id, role: 'OWNER' } }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it("refuses to delete the owner's account while the business exists", async () => {
+    const business = await createBusiness();
+
+    await expect(prisma.user.delete({ where: { id: ownerOf(business) } })).rejects.toThrow(/has no owner/);
+  });
+
+  it('refuses to demote the only owner', async () => {
+    const business = await createBusiness();
+
+    await expect(
+      prisma.membership.update({
+        where: { userId_businessId: { userId: ownerOf(business), businessId: business.id } },
+        data: { role: 'ADMIN' },
+      }),
+    ).rejects.toThrow(/has no owner/);
+  });
+
+  it('hands ownership over in one transaction: demote, then promote', async () => {
+    const business = await createBusiness();
+    const heir = await createUser();
+    await prisma.membership.create({ data: { businessId: business.id, userId: heir.id, role: 'ADMIN' } });
+
+    await prisma.$transaction([
+      prisma.membership.update({
+        where: { userId_businessId: { userId: ownerOf(business), businessId: business.id } },
+        data: { role: 'ADMIN' },
+      }),
+      prisma.membership.update({
+        where: { userId_businessId: { userId: heir.id, businessId: business.id } },
+        data: { role: 'OWNER' },
+      }),
+    ]);
+
+    const owners = await prisma.membership.findMany({ where: { businessId: business.id, role: 'OWNER' } });
+    expect(owners.map((m) => m.userId)).toEqual([heir.id]);
   });
 });
