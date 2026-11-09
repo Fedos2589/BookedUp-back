@@ -14,7 +14,7 @@ let container: StartedPostgreSqlContainer | undefined;
 // One empty Postgres for the whole run, with every migration applied — the same way
 // `prisma migrate deploy` would run against a real database.
 export async function setup(project: TestProject) {
-  container = await new PostgreSqlContainer('postgres:17-alpine').start();
+  container = await new PostgreSqlContainer('postgres:18-alpine').start();
   const databaseUrl = container.getConnectionUri();
 
   execFileSync('npx', ['prisma', 'migrate', 'deploy'], {

@@ -61,6 +61,19 @@ describe('schema rules every table follows', () => {
   });
 });
 
+describe('defaults live in the database, so raw SQL (seeds, manual fixes) works too', () => {
+  it('fills id with a UUID v7 and the timestamps when SQL leaves them out', async () => {
+    const email = `raw-${unique()}@example.com`;
+    await prisma.$executeRaw`INSERT INTO users (email, name) VALUES (${email}, 'Raw')`;
+
+    const [row] = await prisma.$queryRaw<{ version: number; has_times: boolean }[]>`
+      SELECT uuid_extract_version(id) AS version,
+             created_at IS NOT NULL AND updated_at IS NOT NULL AS has_times
+      FROM users WHERE email = ${email}`;
+    expect(row).toEqual({ version: 7, has_times: true });
+  });
+});
+
 describe('businesses', () => {
   it('rejects a slug that is already taken', async () => {
     const slug = `taken-${unique()}`;
@@ -147,6 +160,20 @@ describe('memberships', () => {
     await expect(
       prisma.membership.create({ data: { businessId: first.id, userId: user.id, role: 'MASTER' } }),
     ).rejects.toMatchObject({ code: 'P2002' });
+  });
+});
+
+describe('memberships record changes', () => {
+  it('moves updated_at when the role changes', async () => {
+    const business = await createBusiness();
+    const user = await createUser();
+    const joined = await prisma.membership.create({
+      data: { businessId: business.id, userId: user.id, role: 'ADMIN' },
+    });
+
+    const changed = await prisma.membership.update({ where: { id: joined.id }, data: { role: 'MASTER' } });
+
+    expect(changed.updatedAt.getTime()).toBeGreaterThan(joined.updatedAt.getTime());
   });
 });
 

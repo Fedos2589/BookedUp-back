@@ -6,35 +6,35 @@ CREATE TYPE "member_role" AS ENUM ('OWNER', 'ADMIN', 'MASTER');
 
 -- CreateTable
 CREATE TABLE "businesses" (
-    "id" UUID NOT NULL,
+    "id" UUID NOT NULL DEFAULT uuidv7(),
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "time_zone" TEXT NOT NULL,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "businesses_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "locations" (
-    "id" UUID NOT NULL,
+    "id" UUID NOT NULL DEFAULT uuidv7(),
     "business_id" UUID NOT NULL,
     "name" TEXT NOT NULL,
     "address" TEXT,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "locations_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "users" (
-    "id" UUID NOT NULL,
+    "id" UUID NOT NULL DEFAULT uuidv7(),
     "email" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
 );
@@ -43,18 +43,19 @@ CREATE TABLE "users" (
 CREATE TABLE "password_logins" (
     "user_id" UUID NOT NULL,
     "password_hash" TEXT NOT NULL,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "password_logins_pkey" PRIMARY KEY ("user_id")
 );
 
 -- CreateTable
 CREATE TABLE "memberships" (
-    "id" UUID NOT NULL,
+    "id" UUID NOT NULL DEFAULT uuidv7(),
     "business_id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
     "role" "member_role" NOT NULL,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "memberships_pkey" PRIMARY KEY ("id")
 );
@@ -85,6 +86,7 @@ ALTER TABLE "memberships" ADD CONSTRAINT "memberships_business_id_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "memberships" ADD CONSTRAINT "memberships_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 
 -- Not expressible in schema.prisma (CHECK constraints). Emails are stored lowercased, so the unique index
 -- above is case-insensitive. Normalise at the API boundary; this keeps a missed spot out.

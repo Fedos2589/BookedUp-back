@@ -1,7 +1,9 @@
 // Data model. Rules every table follows (checked by test/schema.int-spec.ts):
 // - a table that holds a business's data has a required `business_id`; only the
 //   global tables (`businesses`, `users` and their sign-in methods) don't;
-// - every timestamp is `timestamptz`: stored in UTC, shown in the business's time zone.
+// - every timestamp is `timestamptz`: stored in UTC, shown in the business's time zone;
+// - defaults live in the database (`uuidv7()`, `now()`), so raw SQL inserts work too.
+//   `updated_at` moves on updates made through Prisma only.
 
 generator client {
   provider            = "prisma-client"
@@ -24,7 +26,7 @@ enum MemberRole {
 
 /// A business on BookedUp — the tenant.
 model Business {
-  id        String   @id @default(uuid(7)) @db.Uuid
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name      String
   /// Address of the public booking page: /book/<slug>. Lowercase latin, digits and single
   /// hyphens (a CHECK constraint enforces it), so uniqueness is case-insensitive.
@@ -32,7 +34,7 @@ model Business {
   /// IANA time zone, e.g. Europe/Moscow. Slots and reports are computed in it.
   timeZone  String   @map("time_zone")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   locations   Location[]
   memberships Membership[]
@@ -42,12 +44,12 @@ model Business {
 
 /// A branch of a business.
 model Location {
-  id         String   @id @default(uuid(7)) @db.Uuid
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   businessId String   @map("business_id") @db.Uuid
   name       String
   address    String?
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -60,12 +62,12 @@ model Location {
 /// later), each with only required columns; registration creates the user and at least
 /// one of them in one transaction.
 model User {
-  id        String   @id @default(uuid(7)) @db.Uuid
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   /// Always lowercase (a CHECK constraint enforces it), so uniqueness is case-insensitive.
   email     String   @unique
   name      String
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   passwordLogin PasswordLogin?
   memberships   Membership[]
@@ -77,7 +79,7 @@ model User {
 model PasswordLogin {
   userId       String   @id @map("user_id") @db.Uuid
   passwordHash String   @map("password_hash")
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -90,11 +92,12 @@ model PasswordLogin {
 /// created together with its owner, and ownership is handed over by demoting the old
 /// owner and promoting the new one in one transaction.
 model Membership {
-  id         String     @id @default(uuid(7)) @db.Uuid
+  id         String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
   businessId String     @map("business_id") @db.Uuid
   userId     String     @map("user_id") @db.Uuid
   role       MemberRole
   createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
