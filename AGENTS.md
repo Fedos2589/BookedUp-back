@@ -37,7 +37,8 @@ API сервиса онлайн-записи для малого бизнеса 
 
 - `src/config/env.ts` — env, проверяется zod при старте. Переменные читаются только через `ConfigService<Env, true>`, не через `process.env`. Новая переменная — в схему и в `.env.example`.
 - `prisma/schema.prisma` — модель данных; клиент генерируется в `src/generated/prisma` (не коммитится, не правится). Новая миграция: `npx prisma migrate dev --create-only --name <что>` → проверить SQL (дописать то, чего Prisma не выражает: CHECK, `EXCLUDE`) → `npm run db:migrate` → `npx prisma generate` (Prisma 7 не генерирует клиент сам после миграции).
-- Таблицы — snake_case во множественном числе (`@@map`), колонки — snake_case (`@map`), id — `uuid(7)`, время — `@db.Timestamptz(3)`. `test/schema.int-spec.ts` проверяет, что у каждой таблицы, кроме глобальных `businesses` и `users`, есть `business_id NOT NULL` и что в базе нет `timestamp` без пояса: новая глобальная таблица — осознанное исключение в этом тесте.
+- Таблицы — snake_case во множественном числе (`@@map`), колонки — snake_case (`@map`), id — `uuid(7)`, время — `@db.Timestamptz(3)`. `test/schema.int-spec.ts` проверяет, что у каждой таблицы, кроме глобальных (`businesses`, `users`, способы входа), есть `business_id NOT NULL` и что в базе нет `timestamp` без пояса: новая глобальная таблица — осознанное исключение в этом тесте (сейчас это ещё `password_logins`).
+- Способы входа — отдельные таблицы, по одной на способ (`password_logins`, позже `google_logins`), только с обязательными колонками; в `users` пароля нет. Регистрация создаёт пользователя и хотя бы один способ входа в одной транзакции. Приглашения (E3) — своя таблица, пользователь появляется только при принятии приглашения.
 - `src/prisma/` — `PrismaService`, глобальный модуль.
 - Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
 - Логи — `nestjs-pino`, не `console.log`.

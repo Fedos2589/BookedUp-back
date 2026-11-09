@@ -7,7 +7,8 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: inject('databaseUrl') }),
 });
 
-const GLOBAL_TABLES = ['businesses', 'users', '_prisma_migrations'];
+// Not a business's data: tenants themselves, people, and how people sign in.
+const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', '_prisma_migrations'];
 
 let seq = 0;
 const unique = () => `${Date.now()}-${++seq}`;
@@ -16,7 +17,7 @@ const createBusiness = (slug = `studio-${unique()}`) =>
   prisma.business.create({ data: { name: 'Studio', slug, timeZone: 'Europe/Moscow' } });
 
 const createUser = (email = `owner-${unique()}@example.com`) =>
-  prisma.user.create({ data: { email, passwordHash: 'hash', name: 'Owner' } });
+  prisma.user.create({ data: { email, name: 'Owner' } });
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -98,6 +99,26 @@ describe('users', () => {
     await createUser(email);
 
     await expect(createUser(email)).rejects.toMatchObject({ code: 'P2002' });
+  });
+});
+
+describe('password logins', () => {
+  it('are optional: an account can exist before it has a password', async () => {
+    const user = await createUser();
+
+    expect(await prisma.passwordLogin.findUnique({ where: { userId: user.id } })).toBeNull();
+  });
+
+  it('allow one password per user and go away with the user', async () => {
+    const user = await createUser();
+    await prisma.passwordLogin.create({ data: { userId: user.id, passwordHash: 'hash' } });
+
+    await expect(
+      prisma.passwordLogin.create({ data: { userId: user.id, passwordHash: 'other' } }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+
+    await prisma.user.delete({ where: { id: user.id } });
+    expect(await prisma.passwordLogin.count({ where: { userId: user.id } })).toBe(0);
   });
 });
 

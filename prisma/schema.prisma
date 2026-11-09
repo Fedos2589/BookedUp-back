@@ -1,6 +1,6 @@
 // Data model. Rules every table follows (checked by test/schema.int-spec.ts):
 // - a table that holds a business's data has a required `business_id`; only the
-//   global tables (`businesses`, `users`) don't;
+//   global tables (`businesses`, `users` and their sign-in methods) don't;
 // - every timestamp is `timestamptz`: stored in UTC, shown in the business's time zone.
 
 generator client {
@@ -56,18 +56,32 @@ model Location {
 }
 
 /// A person's account. Global: one account can belong to several businesses.
+/// How they sign in lives in separate tables, one per method (password now, Google
+/// later), each with only required columns; registration creates the user and at least
+/// one of them in one transaction.
 model User {
-  id           String   @id @default(uuid(7)) @db.Uuid
+  id        String   @id @default(uuid(7)) @db.Uuid
   /// Always lowercase (a CHECK constraint enforces it), so uniqueness is case-insensitive.
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  name         String
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships Membership[]
+  passwordLogin PasswordLogin?
+  memberships   Membership[]
 
   @@map("users")
+}
+
+/// Sign-in by email and password. At most one per user.
+model PasswordLogin {
+  userId       String   @id @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_logins")
 }
 
 /// A user's role in one business. What the access guard checks.
