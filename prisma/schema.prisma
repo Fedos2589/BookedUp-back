@@ -1,13 +1,108 @@
-// Data model lives here. Every tenant-owned table gets a `businessId`;
-// all timestamps are stored in UTC.
+// Data model. Rules every table follows (checked by test/schema.int-spec.ts):
+// - a table that holds a business's data has a required `business_id`; only the
+//   global tables (`businesses`, `users` and their sign-in methods) don't;
+// - every timestamp is `timestamptz`: stored in UTC, shown in the business's time zone;
+// - defaults live in the database (`uuidv7()`, `now()`), so raw SQL inserts work too.
+//   `updated_at` moves on updates made through Prisma only.
 
 generator client {
-  provider               = "prisma-client"
-  output                 = "../src/generated/prisma"
-  moduleFormat           = "esm"
-  importFileExtension    = "js"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MASTER
+
+  @@map("member_role")
+}
+
+/// A business on BookedUp — the tenant.
+model Business {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  name      String
+  /// Address of the public booking page: /book/<slug>. Lowercase latin, digits and single
+  /// hyphens (a CHECK constraint enforces it), so uniqueness is case-insensitive.
+  slug      String   @unique
+  /// IANA time zone, e.g. Europe/Moscow. Slots and reports are computed in it.
+  timeZone  String   @map("time_zone")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  locations   Location[]
+  memberships Membership[]
+
+  @@map("businesses")
+}
+
+/// A branch of a business.
+model Location {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  name       String
+  address    String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("locations")
+}
+
+/// A person's account. Global: one account can belong to several businesses.
+/// How they sign in lives in separate tables, one per method (password now, Google
+/// later), each with only required columns; registration creates the user and at least
+/// one of them in one transaction.
+model User {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  /// Always lowercase (a CHECK constraint enforces it), so uniqueness is case-insensitive.
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  passwordLogin PasswordLogin?
+  memberships   Membership[]
+
+  @@map("users")
+}
+
+/// Sign-in by email and password. At most one per user.
+model PasswordLogin {
+  userId       String   @id @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_logins")
+}
+
+/// A user's role in one business. What the access guard checks.
+/// Every business has exactly one OWNER, enforced in the database (init migration): a
+/// partial unique index, and a deferred trigger checked at commit. So a business is
+/// created together with its owner, and ownership is handed over by demoting the old
+/// owner and promoting the new one in one transaction.
+model Membership {
+  id         String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String     @map("business_id") @db.Uuid
+  userId     String     @map("user_id") @db.Uuid
+  role       MemberRole
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+  @@map("memberships")
 }
