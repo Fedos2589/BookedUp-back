@@ -25,6 +25,7 @@
     "test:int": "vitest run --config ./vitest.config.int.ts"
   },
   "dependencies": {
+    "@nestjs/authentication": "^0.1.5",
     "@nestjs/bullmq": "^12.0.1",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.1.1",
