@@ -26,7 +26,8 @@ enum MemberRole {
 model Business {
   id        String   @id @default(uuid(7)) @db.Uuid
   name      String
-  /// Address of the public booking page: /book/<slug>.
+  /// Address of the public booking page: /book/<slug>. Lowercase latin, digits and single
+  /// hyphens (a CHECK constraint enforces it), so uniqueness is case-insensitive.
   slug      String   @unique
   /// IANA time zone, e.g. Europe/Moscow. Slots and reports are computed in it.
   timeZone  String   @map("time_zone")

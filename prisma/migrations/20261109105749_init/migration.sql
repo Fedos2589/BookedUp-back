@@ -72,6 +72,12 @@ ALTER TABLE "memberships" ADD CONSTRAINT "memberships_business_id_fkey" FOREIGN 
 -- AddForeignKey
 ALTER TABLE "memberships" ADD CONSTRAINT "memberships_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Not expressible in schema.prisma: emails are stored lowercased, so the unique index
+-- Not expressible in schema.prisma (CHECK constraints). Emails are stored lowercased, so the unique index
 -- above is case-insensitive. Normalise at the API boundary; this keeps a missed spot out.
 ALTER TABLE "users" ADD CONSTRAINT "users_email_lowercase" CHECK ("email" = lower("email"));
+
+-- The slug is the public booking address (/book/<slug>) people type by hand: lowercase
+-- latin letters and digits, single hyphens between. Lowercase-only also makes the
+-- unique index case-insensitive, like the email's.
+ALTER TABLE "businesses" ADD CONSTRAINT "businesses_slug_format"
+  CHECK ("slug" ~ '^[a-z0-9]+(-[a-z0-9]+)*$');

@@ -54,6 +54,24 @@ describe('businesses', () => {
     await expect(createBusiness(slug)).rejects.toMatchObject({ code: 'P2002' });
   });
 
+  it('rejects a slug that differs from a taken one only in case', async () => {
+    const slug = `studio-${unique()}`;
+    await createBusiness(slug);
+
+    await expect(createBusiness(slug.toUpperCase())).rejects.toThrow(/businesses_slug_format/);
+  });
+
+  it.each(['Studio-Lena', 'studio lena', '-studio', 'studio-', 'studio--lena', 'студия', ''])(
+    'rejects the slug %j: lowercase latin letters and digits, single hyphens between',
+    async (slug) => {
+      await expect(createBusiness(slug)).rejects.toThrow(/businesses_slug_format/);
+    },
+  );
+
+  it('accepts a slug like judo-kids-2', async () => {
+    await expect(createBusiness(`judo-kids-2-${unique()}`)).resolves.toBeDefined();
+  });
+
   it('deletes its locations and memberships with it, but not the users', async () => {
     const business = await createBusiness();
     const user = await createUser();
