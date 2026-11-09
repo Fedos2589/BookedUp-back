@@ -2,11 +2,11 @@ import { PasswordHasher } from '@nestjs/authentication';
 import { ConflictException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { SignUpInput, SignUpResult } from './sign-up.schema.js';
-import { violatedUniqueConstraint } from './unique-violation.js';
+import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
+import type { SignUpConflict, SignUpInput, SignUpResult } from './sign-up.schema.js';
 
 // Which form field a taken unique value belongs to (constraint names from the init migration).
-const TAKEN_FIELD: Record<string, 'email' | 'slug'> = {
+const TAKEN_FIELD: Record<string, SignUpConflict['field']> = {
   users_email_key: 'email',
   businesses_slug_key: 'slug',
 };
@@ -45,12 +45,15 @@ export class SignUpService {
       const constraint = violatedUniqueConstraint(error);
       const field = constraint ? TAKEN_FIELD[constraint] : undefined;
       if (field) {
-        throw new ConflictException({
+        // Telling that an email is registered is the usual trade-off for sign-up; sign-in
+        // must not (see AGENTS.md).
+        const body: SignUpConflict = {
           statusCode: 409,
           error: 'Conflict',
           message: field === 'email' ? 'This email is already registered' : 'This address is already taken',
           field,
-        });
+        };
+        throw new ConflictException(body);
       }
       throw error;
     }

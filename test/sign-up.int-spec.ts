@@ -78,8 +78,12 @@ describe('POST /auth/sign-up', () => {
     const first = validBody();
     await signUp(first).expect(201);
 
-    const res = await signUp({ ...validBody(), email: first.email.toUpperCase() }).expect(409);
+    const second = { ...validBody(), email: first.email.toUpperCase() };
+
+    const res = await signUp(second).expect(409);
+
     expect(res.body).toMatchObject({ field: 'email' });
+    expect(await prisma.business.findUnique({ where: { slug: second.business.slug } })).toBeNull();
   });
 
   it('answers 409 on a taken slug and creates nothing', async () => {
@@ -93,11 +97,24 @@ describe('POST /auth/sign-up', () => {
     expect(await prisma.user.findUnique({ where: { email: second.email } })).toBeNull();
   });
 
+  it('stores the canonical spelling of the time zone', async () => {
+    const body = validBody();
+    const res = await signUp({ ...body, business: { ...body.business, timeZone: 'europe/moscow' } }).expect(201);
+
+    expect(res.body.business.timeZone).toBe('Europe/Moscow');
+  });
+
   it.each([
     ['an unknown time zone', { business: { timeZone: 'Moscow' } }, 'business.timeZone'],
     ['a slug with a space', { business: { slug: 'studio lena' } }, 'business.slug'],
     ['a short password', { password: 'short' }, 'password'],
     ['a malformed email', { email: 'not-an-email' }, 'email'],
+    // Postgres would read it as POSIX, sign flipped.
+    ['a UTC offset for a time zone', { business: { timeZone: '+03:00' } }, 'business.timeZone'],
+    // Longer than the unique index can hold: a 500 from Postgres otherwise.
+    ['an email over 254 characters', { email: `${'a'.repeat(64)}@${'b'.repeat(200)}.com` }, 'email'],
+    // 130 characters, over 4 KiB after NFKC: PasswordHasher would throw, a 500 otherwise.
+    ['a password over 4 KiB once normalized', { password: '\uFDFA'.repeat(130) }, 'password'],
   ])('answers 400 on %s, naming the field', async (_case, patch, field) => {
     const body = validBody();
     const res = await signUp({
@@ -121,5 +138,24 @@ describe('OpenAPI', () => {
     expect(Object.keys(body?.content['application/json'].schema.properties ?? {})).toEqual(
       expect.arrayContaining(['email', 'password', 'name', 'business']),
     );
+    expect(body?.content['application/json'].schema.properties).toMatchObject({
+      email: { type: 'string', format: 'email' },
+    });
+  });
+
+  // The front highlights the form field from `field`, so its type has to reach Orval.
+  it('describes the 400 and 409 bodies', async () => {
+    const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
+    const doc = SwaggerModule.createDocument(app, new DocumentBuilder().build());
+    type Response = { content?: Record<string, { schema: object }> };
+    const schemaOf = (status: string) =>
+      (doc.paths['/auth/sign-up']?.post?.responses[status] as Response | undefined)?.content?.['application/json']
+        ?.schema;
+
+    expect(schemaOf('409')).toMatchObject({
+      properties: { field: { enum: ['email', 'slug'] } },
+      required: expect.arrayContaining(['field', 'message']),
+    });
+    expect(schemaOf('400')).toMatchObject({ properties: { message: { type: 'array' } } });
   });
 });
