@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { businessSchema } from '../business/business.schema.js';
 import { conflictErrorSchema } from '../common/api-errors.js';
 import { canonicalTimeZone } from '../common/time-zone.js';
 import { emailSchema, passwordSchema } from './credentials.schema.js';
@@ -33,12 +34,7 @@ export type SignUpInput = z.infer<typeof signUpSchema>;
 
 export const signUpResultSchema = z.object({
   user: z.object({ id: z.uuid(), email: z.email(), name: z.string() }),
-  business: z.object({
-    id: z.uuid(),
-    name: z.string(),
-    slug: z.string(),
-    timeZone: z.string(),
-  }),
+  business: businessSchema,
 });
 
 export type SignUpResult = z.infer<typeof signUpResultSchema>;
