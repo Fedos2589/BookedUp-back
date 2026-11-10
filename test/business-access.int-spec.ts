@@ -1,3 +1,4 @@
+import { type AuthorizationEvent, AuthorizationEvents } from '@nestjs/authorization';
 import { Controller, Get, type INestApplication, RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
@@ -5,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
-import { MemberOfBusiness } from '../src/business/business.policy.js';
+import { BusinessPolicy, MemberOfBusiness } from '../src/business/business.policy.js';
 import { BusinessService } from '../src/business/business.service.js';
 import { signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -112,20 +113,32 @@ describe('access to a business', () => {
 
   // The invariant behind the multi-tenancy rule, checked on every route rather than left to
   // review: a method's own @Public() or @Can.Anyone() lifts its class's @MemberOfBusiness(),
-  // and a controller may forget the decorator altogether.
-  it('answers 403 to a stranger on every route under :businessId, whatever its decorators', async () => {
+  // and a controller may forget the decorator altogether. A 403 alone proves nothing: the
+  // service answers 403 too, possibly after it has changed something. So each route must be
+  // refused by BusinessPolicy.member itself, as the guard reports in AuthorizationEvents.
+  it('refuses a stranger by the membership check on every route under :businessId', async () => {
     const owner = await signUpOwner(app);
     const stranger = await signUpOwner(app);
     const routes = businessRoutes();
     expect(routes.length).toBeGreaterThan(0);
 
-    const answers = await Promise.all(
-      routes.map(async ({ method, path }) => {
+    const denials: AuthorizationEvent[] = [];
+    const subscription = app.get(AuthorizationEvents).events$.subscribe((event) => denials.push(event));
+    const answers: string[] = [];
+    try {
+      // One at a time, so the denials that arrive belong to this request.
+      for (const { method, path } of routes) {
         const url = path.replace(':businessId', owner.business.id).replace(/:\w+/g, () => randomUUID());
+        const before = denials.length;
         const res = await http()[method as 'get'](url).set('Cookie', stranger.cookie);
-        return `${method} ${path} ${res.status}`;
-      }),
-    );
+        const byMembership = denials
+          .slice(before)
+          .some(({ policy, ability }) => policy === BusinessPolicy.name && ability === 'member');
+        answers.push(`${method} ${path} ${res.status}${byMembership ? '' : ' NOT by the membership check'}`);
+      }
+    } finally {
+      subscription.unsubscribe();
+    }
 
     expect(answers).toEqual(routes.map(({ method, path }) => `${method} ${path} 403`));
   });
