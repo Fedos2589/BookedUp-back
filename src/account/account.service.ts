@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Account } from './account.schema.js';
@@ -9,7 +9,7 @@ export class AccountService {
 
   // The account and the businesses it belongs to: what the front needs right after sign-in.
   async describe(userId: string): Promise<Account> {
-    const { memberships, ...user } = await this.prisma.user.findUniqueOrThrow({
+    const account = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -21,6 +21,9 @@ export class AccountService {
         },
       },
     });
+    // Deleted between the session check and here: the session is gone with it.
+    if (!account) throw new UnauthorizedException();
+    const { memberships, ...user } = account;
     return { user, businesses: memberships.map(({ role, business }) => ({ ...business, role })) };
   }
 }

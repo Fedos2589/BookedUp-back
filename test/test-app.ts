@@ -1,5 +1,6 @@
 import { PasswordHasher } from '@nestjs/authentication';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { getStorageToken, type ThrottlerStorage } from '@nestjs/throttler';
 import { inject } from 'vitest';
@@ -26,7 +27,7 @@ export async function createTestApp({ throttle = false } = {}): Promise<INestApp
   if (!throttle) builder = builder.overrideProvider(getStorageToken()).useValue(noLimits);
   const moduleRef = await builder.compile();
 
-  const app = configureApp(moduleRef.createNestApplication());
+  const app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
   await app.init();
   return app;
 }

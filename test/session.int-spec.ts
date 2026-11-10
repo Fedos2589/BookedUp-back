@@ -1,14 +1,17 @@
-import type { INestApplication } from '@nestjs/common';
+import { SignInService } from '@nestjs/authentication';
+import { type INestApplication, UnauthorizedException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
+import { AccountService } from '../src/account/account.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
 
-let seq = 0;
-const unique = () => `${Date.now()}${++seq}`;
+// Random, not a clock: test files run in parallel against one database.
+const unique = () => randomUUID();
 
 const owner = () => {
   const id = unique();
@@ -104,8 +107,38 @@ describe('sessions', () => {
     await me(cookie).expect(401);
   });
 
-  it('answers 401 to a sign-out without a session', async () => {
-    await http().post('/auth/sign-out').expect(401);
+  // Signing out is idempotent: someone back after a week, with an expired cookie, presses
+  // "Sign out" and is signed out, not shown an error.
+  it('answers 204 to a sign-out without a live session', async () => {
+    await http().post('/auth/sign-out').expect(204);
+    await http().post('/auth/sign-out').set('Cookie', '__Host-sid=expired').expect(204);
+  });
+
+  // The account is committed before the session is made: a failure there must not look
+  // like a failed sign-up, or the retry meets "email already registered".
+  it('answers 201 without a cookie when the account is created but signing in fails', async () => {
+    const body = owner();
+    const signInSpy = vi.spyOn(app.get(SignInService), 'signIn').mockRejectedValueOnce(new Error('db down'));
+
+    const res = await signUp(body).expect(201);
+
+    expect(signInSpy).toHaveBeenCalledOnce();
+    expect(sessionCookie(res)).toBeUndefined();
+    await signIn(body.email, body.password).expect(200);
+  });
+
+  it('answers 401, not 500, for an account that is gone', async () => {
+    await expect(app.get(AccountService).describe(randomUUID())).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('documents the 403 and 429 every write and every route can get', async () => {
+    const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
+    const doc = SwaggerModule.createDocument(app, new DocumentBuilder().build());
+
+    expect(Object.keys(doc.paths['/auth/sign-out']?.post?.responses ?? {})).toEqual(
+      expect.arrayContaining(['204', '403', '429']),
+    );
+    expect(Object.keys(doc.paths['/me']?.get?.responses ?? {})).toEqual(expect.arrayContaining(['200', '401', '429']));
   });
 
   it("refuses a sign-in posted from another site's page (login CSRF)", async () => {
@@ -156,5 +189,24 @@ describe('rate limits', () => {
     for (let i = 0; i < 5; i++) await attempt().expect(401);
 
     await attempt().expect(429);
+  });
+
+  // The throttler guard sits before the authentication guard, so guessed cookies are
+  // counted too, not just answered 401.
+  it('counts requests with a guessed cookie: 429 after 100 a minute', async () => {
+    const guess = () => request(throttled.getHttpServer()).get('/me').set('Cookie', '__Host-sid=guess');
+    for (let i = 0; i < 100; i++) await guess().expect(401);
+
+    await guess().expect(429);
+  });
+
+  // The per-account limits are for routes that check a password; a body with an email
+  // elsewhere (sign-up, invitations later) is not counted per account.
+  it('does not count other routes with an email per account', async () => {
+    const body = owner();
+    const send = () => request(throttled.getHttpServer()).post('/auth/sign-up').send(body);
+    await send().expect(201);
+
+    for (let i = 0; i < 6; i++) await send().expect(409);
   });
 });

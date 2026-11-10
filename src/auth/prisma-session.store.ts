@@ -1,5 +1,5 @@
 import { AuthenticationStorage, type SessionRecord, type SessionStore } from '@nestjs/authentication';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import type { Session } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -13,6 +13,8 @@ const userColumns = { id: true, email: true, name: true } as const;
 // package's contract suite, races included.
 @Injectable()
 export class PrismaSessionStore implements SessionStore {
+  private readonly logger = new Logger(PrismaSessionStore.name);
+
   constructor(
     private readonly prisma: PrismaService,
     storage: AuthenticationStorage,
@@ -31,8 +33,13 @@ export class PrismaSessionStore implements SessionStore {
     await this.prisma.session.create({
       data: { ...record, ...(mfa && { mfa }), ...(metadata && { metadata: metadata as object }) },
     });
-    // Keeps the table bounded: whoever signs in sweeps the sessions that have expired.
-    await this.prisma.session.deleteMany({ where: { expiresAt: { lte: record.createdAt } } });
+    // Keeps the table bounded: whoever signs in sweeps the sessions past their absolute
+    // expiry (the contract allows no more: the store doesn't know the idle timeout). Best
+    // effort: the cookie is set only after this resolves, so a failed sweep of other
+    // people's sessions must not fail the sign-in.
+    await this.prisma.session
+      .deleteMany({ where: { expiresAt: { lte: record.createdAt } } })
+      .catch((error: unknown) => this.logger.warn({ error }, 'Sweeping expired sessions failed'));
   }
 
   async touchSession(id: string, lastActiveAt: Date): Promise<void> {

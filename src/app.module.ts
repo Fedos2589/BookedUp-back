@@ -3,11 +3,11 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
-import { minutes, normalizeIp, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AccountModule } from './account/account.module.js';
-import { accountEmail } from './auth/account-email.js';
+import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
 import { type Env, validateEnv } from './config/env.js';
 import { HealthController } from './health/health.controller.js';
@@ -49,14 +49,8 @@ import { PrismaModule } from './prisma/prisma.module.js';
     ThrottlerModule.forRoot([
       // Per IP address, on every route.
       { name: 'default', ttl: minutes(1), limit: 100 },
-      // Per email and IP address, wherever the body names an account (sign-in).
-      {
-        name: 'account',
-        ttl: minutes(15),
-        limit: 5,
-        skipIf: (context) => !accountEmail(context.switchToHttp().getRequest()),
-        getTracker: (req) => `${accountEmail(req)}|${normalizeIp(req.ip)}`,
-      },
+      // Per account, on routes marked @CountPerAccount() (sign-in).
+      ...accountLimits,
     ]),
     PrismaModule,
     AuthModule,

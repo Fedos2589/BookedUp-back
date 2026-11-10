@@ -14,6 +14,7 @@ import { minutes, Throttle } from '@nestjs/throttler';
 import { type Account, accountSchema } from '../account/account.schema.js';
 import { AccountService } from '../account/account.service.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
+import { CountPerAccount } from './account-limits.js';
 import { type SignInInput, signInSchema } from './credentials.schema.js';
 import { CredentialsService } from './credentials.service.js';
 
@@ -30,8 +31,10 @@ export class SessionController {
   // Sets the session cookie and answers what GET /me would.
   @Post('sign-in')
   @HttpCode(200)
-  // Per IP address, and per account: 5 guesses at one email in 15 minutes.
-  @Throttle({ default: { limit: 30, ttl: minutes(15) }, account: { limit: 5, ttl: minutes(15) } })
+  // Per IP address: 30 in 15 minutes. Per account (account-limits.ts): 5 guesses at one
+  // email from one client in 15 minutes, 50 from all clients in an hour.
+  @CountPerAccount()
+  @Throttle({ default: { limit: 30, ttl: minutes(15) } })
   @ApiOkResponse({ description: 'Signed in; the session cookie is set', schema: openApi(accountSchema) })
   @ApiBadRequestResponse({ schema: openApi(validationErrorSchema) })
   // One answer for a wrong password and an unknown email: it must not tell which emails exist.
@@ -45,12 +48,14 @@ export class SessionController {
     return this.accounts.describe(userId);
   }
 
-  // Ends this browser's session and clears its cookie.
+  // Ends this browser's session, if it has one, and clears its cookie. Idempotent: with
+  // an expired cookie there is nothing to end, and the answer is the same.
   @Post('sign-out')
   @HttpCode(204)
   @ApiNoContentResponse({ description: 'Signed out' })
-  @ApiUnauthorizedResponse({ description: 'This browser had no session' })
+  @ApiForbiddenResponse({ description: "Posted from another site's page" })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   async signOut(): Promise<void> {
-    if (!(await this.signInService.signOut())) throw new UnauthorizedException();
+    await this.signInService.signOut();
   }
 }
