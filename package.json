@@ -12,7 +12,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "oxlint --type-aware src/ test/",
+    "lint": "oxlint --type-aware --deny-warnings src/ test/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
@@ -70,7 +70,7 @@
   },
   "lint-staged": {
     "*.ts": [
-      "oxlint --type-aware --fix",
+      "oxlint --type-aware --deny-warnings --fix",
       "prettier --write"
     ],
     "*.{js,json,md,yml,yaml}": "prettier --write"
