@@ -22,7 +22,10 @@ const validBody = () => {
   };
 };
 
-const signUp = (body: unknown) => request(app.getHttpServer()).post('/auth/sign-up').send(body as object);
+const signUp = (body: unknown) =>
+  request(app.getHttpServer())
+    .post('/auth/sign-up')
+    .send(body as object);
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -134,8 +137,7 @@ describe('OpenAPI', () => {
     const doc = SwaggerModule.createDocument(app, new DocumentBuilder().build());
 
     const body = doc.paths['/auth/sign-up']?.post?.requestBody as
-      | { content: { 'application/json': { schema: { properties?: object } } } }
-      | undefined;
+      { content: { 'application/json': { schema: { properties?: object } } } } | undefined;
     expect(Object.keys(body?.content['application/json'].schema.properties ?? {})).toEqual(
       expect.arrayContaining(['email', 'password', 'name', 'business']),
     );

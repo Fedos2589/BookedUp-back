@@ -5,7 +5,6 @@ import { Prisma } from '../generated/prisma/client.js';
 // field they show — explicit, and it breaks loudly in tests if a constraint is renamed.
 export function violatedUniqueConstraint(error: unknown): string | undefined {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return undefined;
-  const cause = (error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined)
-    ?.cause;
+  const cause = (error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined)?.cause;
   return cause?.constraint?.index;
 }

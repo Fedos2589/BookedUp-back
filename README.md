@@ -2,15 +2,15 @@
 
 API на NestJS + TypeScript, PostgreSQL через Prisma, очереди на Redis + BullMQ. Swagger отдаётся на `/api/docs` (JSON — `/api/docs-json`), из него фронт генерирует клиент через Orval.
 
-| Задача | Инструмент |
-| --- | --- |
-| Основа | NestJS 12 (ESM) |
-| База | PostgreSQL + Prisma 7 (`prisma/schema.prisma`, клиент в `src/generated/prisma`) |
-| Очереди | Redis + BullMQ (`@nestjs/bullmq`) — соединение настроено, очередей пока нет |
-| API | `@nestjs/swagger` |
-| Конфиг | `@nestjs/config`, env проверяется zod при старте (`src/config/env.ts`) |
-| Логи | pino (`nestjs-pino`) |
-| Тесты | Vitest + supertest |
+| Задача  | Инструмент                                                                      |
+| ------- | ------------------------------------------------------------------------------- |
+| Основа  | NestJS 12 (ESM)                                                                 |
+| База    | PostgreSQL + Prisma 7 (`prisma/schema.prisma`, клиент в `src/generated/prisma`) |
+| Очереди | Redis + BullMQ (`@nestjs/bullmq`) — соединение настроено, очередей пока нет     |
+| API     | `@nestjs/swagger`                                                               |
+| Конфиг  | `@nestjs/config`, env проверяется zod при старте (`src/config/env.ts`)          |
+| Логи    | pino (`nestjs-pino`)                                                            |
+| Тесты   | Vitest + supertest                                                              |
 
 ```bash
 cp .env.example .env

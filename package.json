@@ -13,6 +13,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "oxlint --type-aware src/ test/",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
@@ -22,7 +24,8 @@
     "prebuild": "prisma generate",
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
-    "test:int": "vitest run --config ./vitest.config.int.ts"
+    "test:int": "vitest run --config ./vitest.config.int.ts",
+    "prepare": "husky"
   },
   "dependencies": {
     "@nestjs/authentication": "^0.1.5",
@@ -52,6 +55,8 @@
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^5.1.0",
     "dotenv": "^18.0.10",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
     "oxlint": "^1.58.0",
     "oxlint-tsgolint": "^7.0.2001",
     "pino-pretty": "^13.2.0",
@@ -62,5 +67,12 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vitest": "^5.1.0"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "oxlint --type-aware --fix",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,yaml}": "prettier --write"
   }
 }

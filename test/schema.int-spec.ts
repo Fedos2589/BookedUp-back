@@ -14,8 +14,7 @@ const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', 'sessions', '_p
 // Random, not a clock: test files run in parallel against one database.
 const unique = () => randomUUID();
 
-const createUser = (email = `user-${unique()}@example.com`) =>
-  prisma.user.create({ data: { email, name: 'User' } });
+const createUser = (email = `user-${unique()}@example.com`) => prisma.user.create({ data: { email, name: 'User' } });
 
 // A business always comes with its owner: the database refuses one without.
 const createBusiness = (slug = `studio-${unique()}`) =>
