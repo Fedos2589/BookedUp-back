@@ -6,13 +6,16 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "engines": {
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+  },
   "scripts": {
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "oxlint --type-aware src/ test/",
+    "lint": "oxlint --type-aware --deny-warnings src/ test/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
@@ -70,7 +73,7 @@
   },
   "lint-staged": {
     "*.ts": [
-      "oxlint --type-aware --fix",
+      "oxlint --type-aware --deny-warnings --fix",
       "prettier --write"
     ],
     "*.{js,json,md,yml,yaml}": "prettier --write"

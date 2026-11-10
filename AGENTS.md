@@ -90,11 +90,11 @@ API сервиса онлайн-записи для малого бизнеса 
 
 Что запускается само:
 
-- **pre-commit** (husky + lint-staged): `oxlint --type-aware --fix` и Prettier на добавленных в коммит файлах. Ошибку линтера, которую не исправить автоматически, хук не пропустит — чините, а не `--no-verify`.
+- **pre-commit** (husky + lint-staged): `oxlint --type-aware --deny-warnings --fix` и Prettier на добавленных в коммит файлах. Ошибку или предупреждение линтера, которые не исправить автоматически, хук не пропустит — чините, а не `--no-verify`.
 - **pre-push**: `npm run typecheck` и `npm test` (без Docker).
 - **CI** (`.github/workflows/ci.yml`) на каждом PR и на main: всё из списка ниже, интеграционные тесты — на Postgres из Testcontainers. PR мержится с зелёным CI.
 
-Форматирование — Prettier, 120 колонок (`.prettierrc`): `npm run format`. Хуки ставит `npm install` (скрипт `prepare`).
+Форматирование — Prettier, 120 колонок (`.prettierrc`): `npm run format`. Node — `^22.22.3 || ^24.15.0 || >=26` (`.nvmrc`, `engines`; этого требуют `@nestjs/cli` через `@angular-devkit/*` и lint-staged), `npm install` на более старой версии падает (`engine-strict`). Хуки ставит `npm install` (скрипт `prepare`).
 
 Перед PR вручную то же, что в CI:
 
