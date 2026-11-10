@@ -39,7 +39,7 @@ export class PrismaSessionStore implements SessionStore {
     // people's sessions must not fail the sign-in.
     await this.prisma.session
       .deleteMany({ where: { expiresAt: { lte: record.createdAt } } })
-      .catch((error: unknown) => this.logger.warn({ error }, 'Sweeping expired sessions failed'));
+      .catch((error: unknown) => this.logger.warn({ err: error }, 'Sweeping expired sessions failed'));
   }
 
   async touchSession(id: string, lastActiveAt: Date): Promise<void> {
