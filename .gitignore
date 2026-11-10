@@ -6,8 +6,11 @@ coverage
 .idea
 .vscode/*
 
-# Keep environment variables out of version control
+# Keep environment variables out of version control: every .env* file, except
+# the value-free template .env.example.
 .env
+.env.*
+!.env.example
 
 /src/generated/prisma
 *.tsbuildinfo
