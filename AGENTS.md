@@ -43,7 +43,7 @@ API сервиса онлайн-записи для малого бизнеса 
 - `src/prisma/` — `PrismaService`, глобальный модуль.
 - `src/app.setup.ts` — `configureApp()`: то, что нужно приложению сверх `AppModule` (сейчас `enableCsrfProtection()`). Вызывают и `main.ts`, и `test/test-app.ts`, чтобы тесты шли с тем же, что и прод. Настройку, которую можно выразить провайдером (`APP_PIPE`, `APP_GUARD`), кладём в `AppModule`, а не сюда.
 - Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
-- Логи — `nestjs-pino`, не `console.log`.
+- Логи — `nestjs-pino`, не `console.log`. Ошибку кладём под ключ `err` (`logger.warn({ err: error }, …)`): только его pino разбирает в тип, сообщение и стек, под другим ключом `Error` выйдет в лог как `{}`.
 
 ### Вход и сессии
 
