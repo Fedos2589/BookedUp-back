@@ -1,4 +1,5 @@
 import { CurrentUser } from '@nestjs/authentication';
+import { Can } from '@nestjs/authorization';
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
 
@@ -7,6 +8,8 @@ import { type Account, accountSchema } from './account.schema.js';
 import { AccountService } from './account.service.js';
 
 @ApiTags('account')
+// Any signed-in user, about their own account.
+@Can.Anyone()
 @Controller('me')
 export class MeController {
   constructor(private readonly accounts: AccountService) {}

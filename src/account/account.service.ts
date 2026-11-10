@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 
+import { businessSelect } from '../business/business.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Account } from './account.schema.js';
 
@@ -17,7 +18,7 @@ export class AccountService {
         name: true,
         memberships: {
           orderBy: { createdAt: 'asc' },
-          select: { role: true, business: { select: { id: true, name: true, slug: true, timeZone: true } } },
+          select: { role: true, business: { select: businessSelect } },
         },
       },
     });

@@ -1,5 +1,5 @@
 import { PasswordHasher } from '@nestjs/authentication';
-import type { INestApplication } from '@nestjs/common';
+import type { INestApplication, Type } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { getStorageToken, type ThrottlerStorage } from '@nestjs/throttler';
@@ -14,14 +14,15 @@ const noLimits: ThrottlerStorage = {
 };
 
 // The whole app against the integration test database, with a cheap password hasher.
+// `controllers` adds test-only routes (what a route with no check gets, say).
 // AppModule is imported only after DATABASE_URL points at the test container: the config
 // module reads the environment when it is imported.
-export async function createTestApp({ throttle = false } = {}): Promise<INestApplication> {
+export async function createTestApp({ throttle = false, controllers = [] as Type[] } = {}): Promise<INestApplication> {
   process.env.DATABASE_URL = inject('databaseUrl');
   process.env.REDIS_URL ??= 'redis://localhost:6379';
 
   const { AppModule } = await import('../src/app.module.js');
-  let builder = Test.createTestingModule({ imports: [AppModule] })
+  let builder = Test.createTestingModule({ imports: [AppModule], controllers })
     .overrideProvider(PasswordHasher)
     .useValue(new PasswordHasher({ logN: 10 }));
   if (!throttle) builder = builder.overrideProvider(getStorageToken()).useValue(noLimits);
