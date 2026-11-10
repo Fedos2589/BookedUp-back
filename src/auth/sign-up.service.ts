@@ -1,6 +1,7 @@
 import { PasswordHasher } from '@nestjs/authentication';
 import { ConflictException, Injectable } from '@nestjs/common';
 
+import { businessSelect } from '../business/business.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
 import type { SignUpConflict, SignUpInput, SignUpResult } from './sign-up.schema.js';
@@ -36,7 +37,7 @@ export class SignUpService {
           id: true,
           email: true,
           name: true,
-          memberships: { select: { business: { select: { id: true, name: true, slug: true, timeZone: true } } } },
+          memberships: { select: { business: { select: businessSelect } } },
         },
       });
       const { memberships, ...account } = user;

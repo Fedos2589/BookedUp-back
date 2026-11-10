@@ -10,6 +10,10 @@ export const businessSchema = z.object({
   timeZone: z.string(),
 });
 
+// What the queries read for businessSchema. A field added there and not here fails
+// typecheck in the services, whose answers are typed by the schema.
+export const businessSelect = { id: true, name: true, slug: true, timeZone: true } as const;
+
 // A business together with the signed-in user's role in it.
 export const memberBusinessSchema = businessSchema.extend({ role: z.enum(MemberRole) });
 

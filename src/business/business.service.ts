@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { MemberBusiness } from './business.schema.js';
+import { businessSelect, type MemberBusiness } from './business.schema.js';
 
 @Injectable()
 export class BusinessService {
@@ -12,7 +12,7 @@ export class BusinessService {
   async describe(userId: string, businessId: string): Promise<MemberBusiness> {
     const membership = await this.prisma.membership.findUnique({
       where: { userId_businessId: { userId, businessId } },
-      select: { role: true, business: { select: { id: true, name: true, slug: true, timeZone: true } } },
+      select: { role: true, business: { select: businessSelect } },
     });
     // Removed from the business between the guard and here.
     if (!membership) throw new ForbiddenException();
