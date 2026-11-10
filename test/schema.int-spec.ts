@@ -8,7 +8,7 @@ const prisma = new PrismaClient({
 });
 
 // Not a business's data: tenants themselves, people, and how people sign in.
-const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', '_prisma_migrations'];
+const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', 'sessions', '_prisma_migrations'];
 
 let seq = 0;
 const unique = () => `${Date.now()}-${++seq}`;
@@ -146,6 +146,26 @@ describe('password logins', () => {
 
     await prisma.user.delete({ where: { id: user.id } });
     expect(await prisma.passwordLogin.count({ where: { userId: user.id } })).toBe(0);
+  });
+});
+
+describe('sessions', () => {
+  const session = (userId: string) => {
+    const now = new Date();
+    return { id: `sha-${unique()}`, userId, createdAt: now, expiresAt: new Date(+now + 3_600_000), lastActiveAt: now };
+  };
+
+  it('belong to an existing user', async () => {
+    await expect(prisma.session.create({ data: session('00000000-0000-7000-8000-000000000000') })).rejects.toThrow();
+  });
+
+  it('go away with the user', async () => {
+    const user = await createUser();
+    const { id } = await prisma.session.create({ data: session(user.id) });
+
+    await prisma.user.delete({ where: { id: user.id } });
+
+    expect(await prisma.session.findUnique({ where: { id } })).toBeNull();
   });
 });
 
