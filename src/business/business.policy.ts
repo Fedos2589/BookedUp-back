@@ -26,9 +26,13 @@ export class BusinessPolicy {
   }
 }
 
-// On every controller or route with a :businessId param. Without it, the global
-// authorization guard denies the route anyway (a handler with no check is denied).
+// On every controller under /businesses/:businessId. Without it, the global authorization
+// guard denies the route anyway (a handler with no check is denied).
 export const MemberOfBusiness = () =>
-  Can(BusinessPolicy, 'member', (context) => [
-    context.switchToHttp().getRequest<Request<{ businessId?: string }>>().params.businessId ?? '',
-  ]);
+  Can(BusinessPolicy, 'member', (context) => {
+    const { businessId } = context.switchToHttp().getRequest<Request<{ businessId?: string }>>().params;
+    // A programmer's mistake (`:id` instead of `:businessId`): a 500 with this in the log, not
+    // a 403 that looks like a stranger's.
+    if (businessId === undefined) throw new Error('@MemberOfBusiness() on a route without a :businessId param');
+    return [businessId];
+  });
