@@ -11,7 +11,14 @@ describe('validateEnv', () => {
       ...valid,
       NODE_ENV: 'development',
       PORT: 8080,
+      TRUST_PROXY: 0,
     });
+  });
+
+  it('takes the number of trusted proxy hops, never "trust everything"', () => {
+    expect(validateEnv({ ...valid, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
+    expect(() => validateEnv({ ...valid, TRUST_PROXY: 'true' })).toThrow(/TRUST_PROXY/);
+    expect(() => validateEnv({ ...valid, TRUST_PROXY: '-1' })).toThrow(/TRUST_PROXY/);
   });
 
   it('names the missing variable', () => {

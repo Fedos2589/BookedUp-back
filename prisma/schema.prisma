@@ -71,6 +71,7 @@ model User {
 
   passwordLogin PasswordLogin?
   memberships   Membership[]
+  sessions      Session[]
 
   @@map("users")
 }
@@ -84,6 +85,33 @@ model PasswordLogin {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_logins")
+}
+
+/// A signed-in browser, kept by @nestjs/authentication through PrismaSessionStore. The id is
+/// the SHA-256 of the cookie token, never the token; times come from the package's clock.
+model Session {
+  id           String           @id
+  userId       String           @map("user_id") @db.Uuid
+  createdAt    DateTime         @map("created_at") @db.Timestamptz(3)
+  expiresAt    DateTime         @map("expires_at") @db.Timestamptz(3)
+  lastActiveAt DateTime         @map("last_active_at") @db.Timestamptz(3)
+  mfa          SessionMfaState?
+  /// App data for a "your sessions" page (user agent and the like).
+  metadata     Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// The package's MfaState, spelled as it spells it.
+enum SessionMfaState {
+  pending
+  verified
+
+  @@map("session_mfa_state")
 }
 
 /// A user's role in one business. What the access guard checks.
