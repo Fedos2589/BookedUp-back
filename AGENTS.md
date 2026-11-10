@@ -37,12 +37,22 @@ API сервиса онлайн-записи для малого бизнеса 
 
 - `src/config/env.ts` — env, проверяется zod при старте. Переменные читаются только через `ConfigService<Env, true>`, не через `process.env`. Новая переменная — в схему и в `.env.example`.
 - `prisma/schema.prisma` — модель данных; клиент генерируется в `src/generated/prisma` (не коммитится, не правится). Новая миграция: `npx prisma migrate dev --create-only --name <что>` → проверить SQL (дописать то, чего Prisma не выражает: CHECK, `EXCLUDE`) → `npm run db:migrate` → `npx prisma generate` (Prisma 7 не генерирует клиент сам после миграции).
-- Таблицы — snake_case во множественном числе (`@@map`), колонки — snake_case (`@map`), время — `@db.Timestamptz(3)`. Значения по умолчанию задаёт база, чтобы голый SQL (сиды, ручные правки) работал так же: id — `@default(dbgenerated("uuidv7()"))` (Postgres 18), `updated_at` — `@default(now()) @updatedAt` (при UPDATE голым SQL сам не сдвигается — обновляйте его в запросе). `test/schema.int-spec.ts` проверяет, что у каждой таблицы, кроме глобальных (`businesses`, `users`, способы входа), есть `business_id NOT NULL` и что в базе нет `timestamp` без пояса: новая глобальная таблица — осознанное исключение в этом тесте (сейчас это ещё `password_logins`).
+- Таблицы — snake_case во множественном числе (`@@map`), колонки — snake_case (`@map`), время — `@db.Timestamptz(3)`. Значения по умолчанию задаёт база, чтобы голый SQL (сиды, ручные правки) работал так же: id — `@default(dbgenerated("uuidv7()"))` (Postgres 18), `updated_at` — `@default(now()) @updatedAt` (при UPDATE голым SQL сам не сдвигается — обновляйте его в запросе). `test/schema.int-spec.ts` проверяет, что у каждой таблицы, кроме глобальных (`businesses`, `users`, способы входа), есть `business_id NOT NULL` и что в базе нет `timestamp` без пояса: новая глобальная таблица — осознанное исключение в этом тесте (сейчас это ещё `password_logins` и `sessions`).
 - У бизнеса ровно один `OWNER`, и это держит база: частичный уникальный индекс `memberships_one_owner` плюс отложенный триггер `businesses_has_owner` (проверка при коммите). Бизнес создаётся вместе с владельцем одной вложенной записью; передача владения — понизить старого и повысить нового в одной транзакции; удалить аккаунт владельца живого бизнеса нельзя.
 - Способы входа — отдельные таблицы, по одной на способ (`password_logins`, позже `google_logins`), только с обязательными колонками; в `users` пароля нет. Регистрация создаёт пользователя и хотя бы один способ входа в одной транзакции. Приглашения (E3) — своя таблица, пользователь появляется только при принятии приглашения.
 - `src/prisma/` — `PrismaService`, глобальный модуль.
+- `src/app.setup.ts` — `configureApp()`: то, что нужно приложению сверх `AppModule` (сейчас `enableCsrfProtection()`). Вызывают и `main.ts`, и `test/test-app.ts`, чтобы тесты шли с тем же, что и прод. Настройку, которую можно выразить провайдером (`APP_PIPE`, `APP_GUARD`), кладём в `AppModule`, а не сюда.
 - Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
 - Логи — `nestjs-pino`, не `console.log`.
+
+### Вход и сессии
+
+- `@nestjs/authentication`: глобальный guard, каждый маршрут требует входа, кроме помеченных `@Public()` (health, sign-up, sign-in, sign-out). Новый публичный маршрут — осознанное решение.
+- Сессия — HttpOnly-кука `__Host-sid` (Secure, SameSite=Lax), 30 дней максимум, 7 дней без активности. В базе (`sessions`, `src/auth/prisma-session.store.ts`) лежит SHA-256 токена, не токен. Хранилище обязано выполнять контракт пакета: `test/session-store.int-spec.ts` гоняет `authenticationStoreContract` с гонками на Postgres — менять хранилище только вместе с ним.
+- Текущий пользователь — `@CurrentUser()` / `AuthenticationContext` (тип `AuthUser`, `src/auth/auth-types.ts`): id, email, name, без пароля. Хранилище читает его вместе с сессией одним запросом.
+- Вход сообщает одно и то же на неверный пароль и неизвестный email, и `CredentialsService` тратит на оба одинаковое время (`PasswordHasher.verify` с пустым хэшем).
+- Запросы, меняющие данные, с чужого сайта отклоняются (403) до обработчика: `enableCsrfProtection()` в `configureApp()`, плюс сам `SignInService`. Фронт ходит в API через proxy своего dev-сервера с того же origin, поэтому `trustedOrigins` не нужен; если фронт и API окажутся на разных origin, его список — в оба места.
+- Лимиты — `@nestjs/throttler`, глобальный guard в `AppModule` (до guard входа): `default` — по IP (100 в минуту, на входе 30 за 15 минут, на регистрации 10 в час), `account` — по email и IP (5 попыток входа за 15 минут). Счётчики в памяти процесса; общее хранилище (Redis) — с первым деплоем на несколько инстансов (E1). В тестах `createTestApp()` счётчики выключены, `createTestApp({ throttle: true })` — настоящие.
 
 ### Связи внутри бизнеса
 
@@ -70,7 +80,6 @@ API сервиса онлайн-записи для малого бизнеса 
 - 409 — занято уникальное значение: `{ statusCode, error, message, field }`, `field` — имя поля формы. Ошибку P2002 сопоставляем по имени ограничения (`users_email_key` → `email`, хелпер `src/prisma/unique-violation.ts`), не по тексту: адаптер pg сообщает индекс, а не колонки.
 - У 400 и 409 в Swagger есть схема тела (`validationErrorSchema`, `conflictErrorSchema` из `src/common/api-errors.ts`), чтобы Orval сгенерировал фронту тип `field`.
 - Регистрация сообщает, что email занят: обычный компромисс ради удобства. Вход (sign-in) так не делает: на неверный email и неверный пароль один и тот же ответ.
-- Публичные эндпоинты входа и регистрации закрываются `@nestjs/throttler`: каждый вызов делает scrypt (128 МиБ памяти и сотни миллисекунд). Подключается вместе с sign-in (E2, шаг 2b).
 
 ### Проверки
 
