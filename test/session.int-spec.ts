@@ -6,33 +6,17 @@ import type { App } from 'supertest/types.js';
 
 import { AccountService } from '../src/account/account.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { ownerInput, sessionCookie } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
 
-// Random, not a clock: test files run in parallel against one database.
-const unique = () => randomUUID();
-
-const owner = () => {
-  const id = unique();
-  return {
-    email: `owner-${id}@example.com`,
-    password: 'correct horse battery',
-    name: 'Lena',
-    business: { name: 'Studio Lena', slug: `studio-lena-${id}`, timeZone: 'Europe/Moscow' },
-  };
-};
+const owner = ownerInput;
 
 const http = () => request(app.getHttpServer());
 const signUp = (body: object) => http().post('/auth/sign-up').send(body);
 const signIn = (email: string, password: string) => http().post('/auth/sign-in').send({ email, password });
 const me = (cookie?: string) => (cookie ? http().get('/me').set('Cookie', cookie) : http().get('/me'));
-
-// `name=value` of the session cookie, as a browser would send it back.
-const sessionCookie = (res: request.Response) => {
-  const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
-  return cookies.find((c) => c.startsWith('__Host-sid='))?.split(';')[0];
-};
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -87,14 +71,14 @@ describe('sessions', () => {
     await signUp(body).expect(201);
 
     const wrongPassword = await signIn(body.email, 'not the password').expect(401);
-    const unknownEmail = await signIn(`nobody-${unique()}@example.com`, body.password).expect(401);
+    const unknownEmail = await signIn(`nobody-${randomUUID()}@example.com`, body.password).expect(401);
 
     expect(wrongPassword.body).toEqual(unknownEmail.body);
     expect(sessionCookie(wrongPassword)).toBeUndefined();
   });
 
   it('answers 400 to a password the hasher would refuse, not 500', async () => {
-    const res = await signIn(`x-${unique()}@example.com`, 'ﷺ'.repeat(130)).expect(400);
+    const res = await signIn(`x-${randomUUID()}@example.com`, 'ﷺ'.repeat(130)).expect(400);
 
     expect(res.body.message.join('\n')).toContain('password:');
   });
@@ -183,7 +167,7 @@ describe('rate limits', () => {
   });
 
   it('stops guessing at one account after 5 sign-ins in 15 minutes', async () => {
-    const email = `target-${unique()}@example.com`;
+    const email = `target-${randomUUID()}@example.com`;
     const attempt = () => request(throttled.getHttpServer()).post('/auth/sign-in').send({ email, password: 'guess' });
 
     for (let i = 0; i < 5; i++) await attempt().expect(401);

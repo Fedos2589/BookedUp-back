@@ -1,26 +1,15 @@
-import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { ownerInput } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
 let prisma: PrismaService;
 
-// Random, not a clock: test files run in parallel against one database.
-const unique = () => randomUUID();
-
-const validBody = () => {
-  const id = unique();
-  return {
-    email: `owner-${id}@example.com`,
-    password: 'correct horse battery',
-    name: 'Lena',
-    business: { name: 'Studio Lena', slug: `studio-lena-${id}`, timeZone: 'Europe/Moscow' },
-  };
-};
+const validBody = ownerInput;
 
 const signUp = (body: unknown) =>
   request(app.getHttpServer())
