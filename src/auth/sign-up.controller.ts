@@ -54,7 +54,9 @@ export class SignUpController {
     // find no session (GET /me 401) and send them to sign in.
     await this.signInService
       .signIn(result.user.id, { method: 'password' })
-      .catch((error: unknown) => this.logger.warn({ err: error, userId: result.user.id }, 'Signed up, but sign-in failed'));
+      .catch((error: unknown) =>
+        this.logger.warn({ err: error, userId: result.user.id }, 'Signed up, but sign-in failed'),
+      );
     return result;
   }
 }

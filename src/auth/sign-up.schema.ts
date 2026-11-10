@@ -16,12 +16,7 @@ export const signUpSchema = z.object({
   name: z.string().trim().min(1).max(100),
   business: z.object({
     name: z.string().trim().min(1).max(100),
-    slug: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .max(63)
-      .regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens'),
+    slug: z.string().trim().toLowerCase().max(63).regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens'),
     timeZone: z
       .string()
       .max(64)

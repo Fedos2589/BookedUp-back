@@ -1,0 +1,3 @@
+# Fast checks that need no Docker; integration tests (Postgres) run in CI.
+npm run typecheck
+npm test
