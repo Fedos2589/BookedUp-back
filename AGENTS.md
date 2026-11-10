@@ -88,9 +88,18 @@ API сервиса онлайн-записи для малого бизнеса 
 
 Интеграционные тесты разных файлов идут параллельно в одной базе: уникальные значения в них (email, slug) — из `randomUUID()`, не из часов.
 
-Перед каждым коммитом:
+Что запускается само:
+
+- **pre-commit** (husky + lint-staged): `oxlint --type-aware --fix` и Prettier на добавленных в коммит файлах. Ошибку линтера, которую не исправить автоматически, хук не пропустит — чините, а не `--no-verify`.
+- **pre-push**: `npm run typecheck` и `npm test` (без Docker).
+- **CI** (`.github/workflows/ci.yml`) на каждом PR и на main: всё из списка ниже, интеграционные тесты — на Postgres из Testcontainers. PR мержится с зелёным CI.
+
+Форматирование — Prettier, 120 колонок (`.prettierrc`): `npm run format`. Хуки ставит `npm install` (скрипт `prepare`).
+
+Перед PR вручную то же, что в CI:
 
 ```bash
+npm run format:check
 npm run typecheck
 npm run lint
 npm test

@@ -1,0 +1,35 @@
+# Every check from AGENTS.md, on every pull request and on main.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Read by prisma.config.ts on install (prisma generate) and by the e2e app; nothing
+      # connects to them. Integration tests start their own Postgres (Testcontainers).
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:e2e
+      - run: npm run test:int
+      - run: npm run build
