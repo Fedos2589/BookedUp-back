@@ -24,7 +24,8 @@
     "prebuild": "prisma generate",
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
-    "test:int": "vitest run --config ./vitest.config.int.ts"
+    "test:int": "vitest run --config ./vitest.config.int.ts",
+    "prepare": "husky"
   },
   "dependencies": {
     "@nestjs/authentication": "^0.1.5",
@@ -66,5 +67,12 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vitest": "^5.1.0"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "oxlint --type-aware --fix",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,yaml}": "prettier --write"
   }
 }
