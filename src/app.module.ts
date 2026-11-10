@@ -1,4 +1,5 @@
 import { AuthenticationModule } from '@nestjs/authentication';
+import { AuthorizationModule } from '@nestjs/authorization';
 import { BullModule } from '@nestjs/bullmq';
 import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -9,6 +10,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AccountModule } from './account/account.module.js';
 import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BusinessModule } from './business/business.module.js';
 import { type Env, validateEnv } from './config/env.js';
 import { HealthController } from './health/health.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -44,6 +46,9 @@ import { PrismaModule } from './prisma/prisma.module.js';
         idleTtl: '7d', // or after a week without a request
       },
     }),
+    // After AuthenticationModule: its guard sets the user this one checks. Denies every
+    // handler that declares no check: @Can(...), @Can.Anyone() or @Public().
+    AuthorizationModule.forRoot(),
     // Counted in process memory: fine for one instance; shared storage (Redis) comes
     // with the first deployment that runs several (E1).
     ThrottlerModule.forRoot([
@@ -55,6 +60,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     PrismaModule,
     AuthModule,
     AccountModule,
+    BusinessModule,
   ],
   controllers: [HealthController],
   providers: [
