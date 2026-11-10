@@ -8,8 +8,11 @@ import { PrismaSessionStore } from '../src/auth/prisma-session.store.js';
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
 
-// A pool, so the concurrent cases really race.
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: inject('databaseUrl'), max: 10 }) });
+// A database of its own, so no sign-in in another file sweeps the suite's sessions; a
+// pool, so the concurrent cases really race.
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: inject('sessionContractDatabaseUrl'), max: 10 }),
+});
 const ignoreRegistration = { registerSource() {} } as unknown as AuthenticationStorage;
 
 afterAll(async () => {
