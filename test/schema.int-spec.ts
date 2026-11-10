@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { inject } from 'vitest';
 
@@ -10,8 +11,8 @@ const prisma = new PrismaClient({
 // Not a business's data: tenants themselves, people, and how people sign in.
 const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', 'sessions', '_prisma_migrations'];
 
-let seq = 0;
-const unique = () => `${Date.now()}-${++seq}`;
+// Random, not a clock: test files run in parallel against one database.
+const unique = () => randomUUID();
 
 const createUser = (email = `user-${unique()}@example.com`) =>
   prisma.user.create({ data: { email, name: 'User' } });
