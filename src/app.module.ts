@@ -39,12 +39,17 @@ import { PrismaModule } from './prisma/prisma.module.js';
       }),
     }),
     // Every route requires a signed-in user unless it is @Public(). Sessions live in
-    // Postgres (PrismaSessionStore), behind an HttpOnly __Host-sid cookie.
-    AuthenticationModule.forRoot({
-      session: {
-        absoluteTtl: '30d', // signed out after 30 days, however active
-        idleTtl: '7d', // or after a week without a request
-      },
+    // Postgres (PrismaSessionStore), behind an HttpOnly __Host-sid cookie (`sid` when
+    // SESSION_COOKIE_SECURE=false, for plain-HTTP development from another host).
+    AuthenticationModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => ({
+        session: {
+          absoluteTtl: '30d', // signed out after 30 days, however active
+          idleTtl: '7d', // or after a week without a request
+          cookie: { secure: config.get('SESSION_COOKIE_SECURE', { infer: true }) },
+        },
+      }),
     }),
     // After AuthenticationModule: its guard sets the user this one checks. Denies every
     // handler that declares no check: @Can(...), @Can.Anyone() or @Public().
