@@ -1,7 +1,7 @@
 import { AuthenticationModule } from '@nestjs/authentication';
 import { AuthorizationModule } from '@nestjs/authorization';
 import { BullModule } from '@nestjs/bullmq';
-import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
+import { Logger, Module, StandardSchemaValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -39,11 +39,23 @@ import { PrismaModule } from './prisma/prisma.module.js';
       }),
     }),
     // Every route requires a signed-in user unless it is @Public(). Sessions live in
-    // Postgres (PrismaSessionStore), behind an HttpOnly __Host-sid cookie.
-    AuthenticationModule.forRoot({
-      session: {
-        absoluteTtl: '30d', // signed out after 30 days, however active
-        idleTtl: '7d', // or after a week without a request
+    // Postgres (PrismaSessionStore), behind an HttpOnly __Host-sid cookie (`sid` when
+    // SESSION_COOKIE_SECURE=false, for plain-HTTP development from another host).
+    AuthenticationModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => {
+        const secure = config.get('SESSION_COOKIE_SECURE', { infer: true });
+        // Production refuses `false` only by NODE_ENV: a dev .env copied to another deployment
+        // should at least show up in its logs.
+        if (!secure)
+          new Logger('Session').warn('SESSION_COOKIE_SECURE=false: the session cookie is sent without Secure');
+        return {
+          session: {
+            absoluteTtl: '30d', // signed out after 30 days, however active
+            idleTtl: '7d', // or after a week without a request
+            cookie: { secure },
+          },
+        };
       },
     }),
     // After AuthenticationModule: its guard sets the user this one checks. Denies every

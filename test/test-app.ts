@@ -17,9 +17,16 @@ const noLimits: ThrottlerStorage = {
 // `controllers` adds test-only routes (what a route with no check gets, say).
 // AppModule is imported only after DATABASE_URL points at the test container: the config
 // module reads the environment when it is imported.
-export async function createTestApp({ throttle = false, controllers = [] as Type[] } = {}): Promise<INestApplication> {
+// `secureCookie` is set here, not left to the developer's .env: with SESSION_COOKIE_SECURE=false
+// there the cookie would be `sid` and every test looking for `__Host-sid` would fail.
+export async function createTestApp({
+  throttle = false,
+  controllers = [] as Type[],
+  secureCookie = true,
+} = {}): Promise<INestApplication> {
   process.env.DATABASE_URL = inject('databaseUrl');
   process.env.REDIS_URL ??= 'redis://localhost:6379';
+  process.env.SESSION_COOKIE_SECURE = String(secureCookie);
 
   const { AppModule } = await import('../src/app.module.js');
   let builder = Test.createTestingModule({ imports: [AppModule], controllers })

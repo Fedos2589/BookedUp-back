@@ -6,7 +6,7 @@ import type { App } from 'supertest/types.js';
 
 import { AccountService } from '../src/account/account.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { ownerInput, sessionCookie } from './helpers.js';
+import { ownerInput, sessionCookie, sessionSetCookie } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -30,7 +30,7 @@ describe('sessions', () => {
   it('signs the owner in on sign-up, with an HttpOnly cookie', async () => {
     const res = await signUp(owner()).expect(201);
 
-    const header = ([] as string[]).concat(res.headers['set-cookie']).find((c) => c.startsWith('__Host-sid='));
+    const header = sessionSetCookie(res);
     expect(header).toMatch(/HttpOnly/i);
     expect(header).toMatch(/Secure/i);
     expect(header).toMatch(/SameSite=Lax/i);

@@ -14,11 +14,15 @@ export const ownerInput = () => {
   };
 };
 
-// `name=value` of the session cookie, as a browser would send it back; undefined when none was set.
-export const sessionCookie = (res: request.Response) => {
+// The Set-Cookie header of the session cookie; undefined when none was set. `sid` is its name
+// with SESSION_COOKIE_SECURE=false.
+export const sessionSetCookie = (res: request.Response, name = '__Host-sid') => {
   const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
-  return cookies.find((c) => c.startsWith('__Host-sid='))?.split(';')[0];
+  return cookies.find((c) => c.startsWith(`${name}=`));
 };
+
+// `name=value` of the session cookie, as a browser would send it back; undefined when none was set.
+export const sessionCookie = (res: request.Response, name?: string) => sessionSetCookie(res, name)?.split(';')[0];
 
 // A new owner with their business, signed in.
 export const signUpOwner = async (app: INestApplication<App>) => {
