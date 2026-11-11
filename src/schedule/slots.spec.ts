@@ -125,6 +125,28 @@ describe('freeSlots', () => {
     expect(starts(slots)).toEqual(['2026-11-15T21:30:00.000Z']);
   });
 
+  it('lets a one-off window take its time over the weekly slots of the same master', () => {
+    const slots = freeSlots({
+      ...base,
+      weekly: [weekly({ durationMinutes: 180 }), weekly({ staffId: boris, startMinute: 11 * 60 })],
+      oneOff: [
+        {
+          staffId: anna,
+          startsAt: at('2026-11-16T08:30:00Z'),
+          endsAt: at('2026-11-16T09:30:00Z'),
+          slotMinutes: 60,
+          title: 'Masterclass',
+        },
+      ],
+    });
+
+    expect(slots.map(({ staffId, startsAt, title }) => [staffId, startsAt.toISOString(), title])).toEqual([
+      [anna, '2026-11-16T07:00:00.000Z', null],
+      [boris, '2026-11-16T08:00:00.000Z', null],
+      [anna, '2026-11-16T08:30:00.000Z', 'Masterclass'],
+    ]);
+  });
+
   it('leaves out every slot that overlaps busy time of the same master, not one that only touches it', () => {
     const slots = freeSlots({
       ...base,

@@ -100,9 +100,10 @@ const slotOf = (
 const overlaps = (a: Busy, b: Busy) => a.staffId === b.staffId && a.startsAt < b.endsAt && b.startsAt < a.endsAt;
 
 // What a client may book: the windows' slots on the days asked, minus busy time, from notBefore
-// on, earliest first.
+// on, earliest first. A one-off window takes its time from the weekly slots under it.
 export function freeSlots(query: SlotQuery): Slot[] {
-  return [...weeklySlots(query), ...oneOffSlots(query)]
+  const weekly = [...weeklySlots(query)].filter((slot) => !query.oneOff.some((window) => overlaps(slot, window)));
+  return [...weekly, ...oneOffSlots(query)]
     .filter(({ date }) => query.from <= date && date <= query.to)
     .filter((slot) => slot.startsAt >= query.notBefore)
     .filter((slot) => !query.busy.some((busy) => overlaps(slot, busy)))
