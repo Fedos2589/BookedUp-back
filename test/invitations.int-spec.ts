@@ -341,27 +341,50 @@ describe('the invitation link', () => {
     });
   });
 
-  // Offered twice, taken by the first: the second accept joins nobody and leaves the link good.
-  it('refuses a schedule taken since, and changes nothing', async () => {
+  // The same schedule offered twice (two messengers, two people sending): once one link is
+  // used, the others can only fail, so they are revoked with it and leave the pending list.
+  it('revokes the other links to a schedule once one is accepted', async () => {
     const owner = await signUpOwner(app);
     const businessId = owner.business.id;
     const schedule = await prisma.staff.create({ data: { businessId, name: 'Anna' } });
     const first = await invite({ ...owner, businessId }, { role: 'MASTER', staffId: schedule.id });
     const second = await invite({ ...owner, businessId }, { role: 'MASTER', staffId: schedule.id });
+    const unrelated = await invite({ ...owner, businessId }, { role: 'MASTER' });
     const [a, b] = await Promise.all([signUpOwner(app), signUpOwner(app)]);
 
     await http()
       .post(`${linkUrl(tokenOf(first.body.link))}/accept`)
       .set('Cookie', a.cookie)
       .expect(200);
+
+    expect((await pending(owner)).map(({ id }) => id)).toEqual([unrelated.body.invitation.id]);
     await http()
       .post(`${linkUrl(tokenOf(second.body.link))}/accept`)
       .set('Cookie', b.cookie)
+      .expect(404);
+    await http().get(`/businesses/${businessId}`).set('Cookie', b.cookie).expect(403);
+  });
+
+  // Archived after the link was given: the accept joins nobody and leaves the link as it was.
+  it('refuses a schedule archived since, and changes nothing', async () => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const schedule = await prisma.staff.create({ data: { businessId, name: 'Anna' } });
+    const { body } = await invite({ ...owner, businessId }, { role: 'MASTER', staffId: schedule.id });
+    await http()
+      .patch(`/businesses/${businessId}/staff/${schedule.id}`)
+      .set('Cookie', owner.cookie)
+      .send({ archived: true });
+    const someone = await signUpOwner(app);
+
+    await http()
+      .post(`${linkUrl(tokenOf(body.link))}/accept`)
+      .set('Cookie', someone.cookie)
       .expect(409);
 
-    await http().get(`/businesses/${businessId}`).set('Cookie', b.cookie).expect(403);
+    await http().get(`/businesses/${businessId}`).set('Cookie', someone.cookie).expect(403);
     await http()
-      .get(linkUrl(tokenOf(second.body.link)))
+      .get(linkUrl(tokenOf(body.link)))
       .expect(200);
   });
 

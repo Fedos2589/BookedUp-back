@@ -195,6 +195,11 @@ export class InvitationsService {
         data: { userId },
       });
       if (count === 0) throw new ConflictException('The offered schedule is no longer free; ask for a new invitation');
+      // The other links to this schedule can only fail now: revoked, so the pending list stays true.
+      await tx.invitation.updateMany({
+        where: { businessId, staffId, acceptedAt: null, revokedAt: null },
+        data: { revokedAt: now },
+      });
     }
     const business = await tx.business.findUniqueOrThrow({ where: { id: businessId }, select: businessSelect });
     return { ...business, role };
