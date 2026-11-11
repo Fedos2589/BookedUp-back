@@ -99,14 +99,28 @@ const slotOf = (
 
 const overlaps = (a: Busy, b: Busy) => a.staffId === b.staffId && a.startsAt < b.endsAt && b.startsAt < a.endsAt;
 
+// A master's slots never overlap: when the clocks jump forward, a slot that started before the
+// jump lasts past the next start on the clock (01:45 CET + 45 min = 03:30 CEST > 03:15), and
+// the later one goes. Earliest first in, so the same grid comes out whatever is booked later.
+function withoutOverlaps(sorted: Candidate[]): Candidate[] {
+  const lastEnd = new Map<string, number>();
+  return sorted.filter((slot) => {
+    if (slot.startsAt.getTime() < (lastEnd.get(slot.staffId) ?? -Infinity)) return false;
+    lastEnd.set(slot.staffId, slot.endsAt.getTime());
+    return true;
+  });
+}
+
 // What a client may book: the windows' slots on the days asked, minus busy time, from notBefore
 // on, earliest first. A one-off window takes its time from the weekly slots under it.
 export function freeSlots(query: SlotQuery): Slot[] {
   const weekly = [...weeklySlots(query)].filter((slot) => !query.oneOff.some((window) => overlaps(slot, window)));
-  return [...weekly, ...oneOffSlots(query)]
+  const all = [...weekly, ...oneOffSlots(query)].sort(
+    (a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.staffId.localeCompare(b.staffId),
+  );
+  return withoutOverlaps(all)
     .filter(({ date }) => query.from <= date && date <= query.to)
     .filter((slot) => slot.startsAt >= query.notBefore)
     .filter((slot) => !query.busy.some((busy) => overlaps(slot, busy)))
-    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.staffId.localeCompare(b.staffId))
     .map(({ date: _date, ...slot }) => slot);
 }

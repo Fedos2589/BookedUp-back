@@ -198,6 +198,41 @@ describe('freeSlots', () => {
       ]);
     });
 
+    it('drops a slot that the hour lost would make overlap the one before it', () => {
+      // 01:45 CET lasts 45 real minutes and ends at 03:30 CEST, past the 03:15 start.
+      const slots = freeSlots({
+        ...berlin,
+        weekly: [weekly({ weekday: 7, startMinute: 60, durationMinutes: 240, slotMinutes: 45 })],
+        from: '2026-03-29',
+        to: '2026-03-29',
+      });
+
+      expect(slots.map((slot) => [slot.startsAt.toISOString(), slot.endsAt.toISOString()])).toEqual([
+        ['2026-03-29T00:00:00.000Z', '2026-03-29T00:45:00.000Z'], // 01:00 CET
+        ['2026-03-29T00:45:00.000Z', '2026-03-29T01:30:00.000Z'], // 01:45 CET
+        ['2026-03-29T02:00:00.000Z', '2026-03-29T02:45:00.000Z'], // 04:00 CEST
+      ]);
+    });
+
+    it('drops it also when the two slots come from different windows', () => {
+      // 01:30–02:30 and 03:00–04:00 on the clock: the first slot ends at 03:30 CEST.
+      const slots = freeSlots({
+        ...berlin,
+        weekly: [
+          weekly({ weekday: 7, startMinute: 90, durationMinutes: 60 }),
+          weekly({ weekday: 7, startMinute: 180, durationMinutes: 60 }),
+          weekly({ staffId: boris, weekday: 7, startMinute: 180, durationMinutes: 60 }),
+        ],
+        from: '2026-03-29',
+        to: '2026-03-29',
+      });
+
+      expect(slots.map(({ staffId, startsAt }) => [staffId, startsAt.toISOString()])).toEqual([
+        [anna, '2026-03-29T00:30:00.000Z'],
+        [boris, '2026-03-29T01:00:00.000Z'],
+      ]);
+    });
+
     it('takes the first of a repeated hour, and no two slots overlap', () => {
       // 2026-10-25: 03:00 CEST becomes 02:00 CET, so 02:00–03:00 happens twice.
       const slots = freeSlots({
