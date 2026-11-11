@@ -13,6 +13,8 @@ const envSchema = z
     // `false` only for development over plain HTTP from another host (a phone on the LAN):
     // browsers drop a Secure cookie there, and without Secure it is `sid`, not `__Host-sid`.
     SESSION_COOKIE_SECURE: z.stringbool().default(true),
+    // The front's address, for the links the API hands out (an invitation: <APP_URL>/invite/<token>).
+    APP_URL: z.url().default('http://localhost:5173'),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],

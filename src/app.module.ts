@@ -12,6 +12,7 @@ import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BusinessModule } from './business/business.module.js';
 import { type Env, validateEnv } from './config/env.js';
+import { InvitationsModule } from './invitations/invitations.module.js';
 import { MembersModule } from './members/members.module.js';
 import { HealthController } from './health/health.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -77,6 +78,7 @@ import { StaffModule } from './staff/staff.module.js';
     BusinessModule,
     StaffModule,
     MembersModule,
+    InvitationsModule,
   ],
   controllers: [HealthController],
   providers: [
