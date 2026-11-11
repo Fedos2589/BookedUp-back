@@ -1,10 +1,11 @@
+import { MINUTES_PER_DAY } from './local-time.js';
 import type { WeeklyWindow } from './slots.js';
 
-const WEEK = 7 * 24 * 60;
+const WEEK = 7 * MINUTES_PER_DAY;
 
 type Placed = Pick<WeeklyWindow, 'weekday' | 'startMinute' | 'durationMinutes'>;
 
-const startInWeek = (window: Placed) => (window.weekday - 1) * 24 * 60 + window.startMinute;
+const startInWeek = (window: Placed) => (window.weekday - 1) * MINUTES_PER_DAY + window.startMinute;
 
 // Whether two windows share a minute. The week is a ring: Sunday night runs into Monday, so b is
 // compared also a week earlier and a week later.

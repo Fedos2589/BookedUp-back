@@ -4,7 +4,7 @@ import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
 import { StaffService } from '../staff/staff.service.js';
-import { wallOfDate } from './local-time.js';
+import { DAY, wallOfDate } from './local-time.js';
 import type {
   OneOffConflict,
   OneOffWindowDto,
@@ -21,8 +21,6 @@ import { freeSlots } from './slots.js';
 const weeklySelect = { weekday: true, startMinute: true, durationMinutes: true, slotMinutes: true, title: true };
 const weeklyOrder = [{ weekday: 'asc' }, { startMinute: 'asc' }] as const;
 
-const DAY_MS = 24 * 60 * 60_000;
-
 const withIsoTimes = <T extends { startsAt: Date; endsAt: Date }>({ startsAt, endsAt, ...rest }: T) => ({
   ...rest,
   startsAt: startsAt.toISOString(),
@@ -37,7 +35,7 @@ export class ScheduleService {
   ) {}
 
   async weekly(businessId: string, staffId: string): Promise<WeeklySchedule> {
-    await this.mustExist(businessId, staffId);
+    await this.staff.findIn(businessId, staffId);
     const windows = await this.prisma.weeklyWindow.findMany({
       where: { businessId, staffId },
       orderBy: [...weeklyOrder],
@@ -70,7 +68,7 @@ export class ScheduleService {
 
   // The ones not over yet, earliest first.
   async oneOffWindows(businessId: string, staffId: string, now: Date): Promise<OneOffWindowDto[]> {
-    await this.mustExist(businessId, staffId);
+    await this.staff.findIn(businessId, staffId);
     const windows = await this.prisma.oneOffWindow.findMany({
       where: { businessId, staffId, endsAt: { gt: now } },
       orderBy: { startsAt: 'asc' },
@@ -116,7 +114,7 @@ export class ScheduleService {
 
   // The ones not over yet, earliest first.
   async timeOff(businessId: string, staffId: string, now: Date): Promise<TimeOffDto[]> {
-    await this.mustExist(businessId, staffId);
+    await this.staff.findIn(businessId, staffId);
     const timeOff = await this.prisma.timeOff.findMany({
       where: { businessId, staffId, endsAt: { gt: now } },
       orderBy: { startsAt: 'asc' },
@@ -143,25 +141,17 @@ export class ScheduleService {
   // Masters still on the team. The instants read are a generous margin around the days asked:
   // a time zone is at most 14 hours from UTC, and a one-off window lasts at most a day.
   async slots(businessId: string, { from, to, staffId }: SlotsQuery, now: Date): Promise<SlotDto[]> {
-    const business = await this.prisma.business.findUniqueOrThrow({
-      where: { id: businessId },
-      select: { timeZone: true },
-    });
     const staffWhere = { businessId, staff: { archivedAt: null }, ...(staffId && { staffId }) };
     const around = {
-      startsAt: { lt: new Date(wallOfDate(to) + 3 * DAY_MS) },
-      endsAt: { gt: new Date(wallOfDate(from) - 2 * DAY_MS) },
+      startsAt: { lt: new Date(wallOfDate(to) + 3 * DAY) },
+      endsAt: { gt: new Date(wallOfDate(from) - 2 * DAY) },
     };
-    const [weekly, oneOff, busy] = await Promise.all([
+    const [business, weekly, oneOff, busy] = await Promise.all([
+      this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
       this.prisma.weeklyWindow.findMany({ where: staffWhere }),
       this.prisma.oneOffWindow.findMany({ where: { ...staffWhere, ...around } }),
       this.prisma.timeOff.findMany({ where: { ...staffWhere, ...around } }),
     ]);
     return freeSlots({ timeZone: business.timeZone, weekly, oneOff, busy, from, to, notBefore: now }).map(withIsoTimes);
-  }
-
-  private async mustExist(businessId: string, staffId: string): Promise<void> {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, businessId }, select: { id: true } });
-    if (!staff) throw new NotFoundException();
   }
 }

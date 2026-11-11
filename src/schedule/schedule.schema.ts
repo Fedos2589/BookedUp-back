@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { conflictErrorSchema } from '../common/api-errors.js';
-import { addDays } from './local-time.js';
+import { addDays, DAY, MINUTE } from './local-time.js';
 import { firstOverlap } from './weekly-overlap.js';
 
 // What a window is for («Football»); blank means nothing.
@@ -47,8 +47,6 @@ export const weeklyScheduleInput = z
   });
 export type WeeklyScheduleInput = z.infer<typeof weeklyScheduleInput>;
 
-const DAY_MS = 24 * 60 * 60_000;
-
 export const oneOffWindowSchema = z.object({
   id: z.uuid(),
   staffId: z.uuid(),
@@ -61,12 +59,12 @@ export type OneOffWindowDto = z.infer<typeof oneOffWindowSchema>;
 
 export const oneOffWindowInput = z
   .object({ startsAt: instant, endsAt: instant, slotMinutes, title })
-  .refine((window) => window.endsAt.getTime() - window.startsAt.getTime() <= DAY_MS, {
+  .refine((window) => window.endsAt.getTime() - window.startsAt.getTime() <= DAY, {
     path: ['endsAt'],
     message: 'At most a day after startsAt',
     ...whenFieldsValid,
   })
-  .refine((window) => window.startsAt.getTime() + window.slotMinutes * 60_000 <= window.endsAt.getTime(), {
+  .refine((window) => window.startsAt.getTime() + window.slotMinutes * MINUTE <= window.endsAt.getTime(), {
     path: ['slotMinutes'],
     message: 'Longer than the window',
     ...whenFieldsValid,
