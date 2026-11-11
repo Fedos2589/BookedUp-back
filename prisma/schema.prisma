@@ -38,6 +38,7 @@ model Business {
 
   locations   Location[]
   memberships Membership[]
+  staff       Staff[]
 
   @@map("businesses")
 }
@@ -129,8 +130,35 @@ model Membership {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staff    Staff?
 
   @@unique([userId, businessId])
   @@index([businessId])
   @@map("memberships")
+}
+
+/// Someone who takes clients: a column in the schedule. Not who may sign in — that is
+/// Membership. A master without an account is a Staff with no user (an admin keeps their
+/// schedule); an owner or admin who takes clients too is a member with a Staff linked to them.
+model Staff {
+  id         String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  name       String
+  /// The account behind this schedule, if any. The foreign key goes to the membership, not
+  /// to the user, so it can only be a member of this same business.
+  userId     String?   @map("user_id") @db.Uuid
+  /// Left the team. Kept, not deleted: past bookings (E6) point at it.
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// Removing a member who has a schedule unlinks it first (E3 step 2), in one transaction.
+  membership Membership? @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
+
+  /// What bookings (E6) will reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
+  @@unique([businessId, id])
+  /// One schedule per account per business.
+  @@unique([userId, businessId])
+  @@map("staff")
 }
