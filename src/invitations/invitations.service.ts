@@ -154,7 +154,12 @@ export class InvitationsService {
 
   // The account and the membership in one transaction: a link that doesn't work leaves no
   // account behind, and a taken email leaves the link good. Signing in is the caller's, after.
+  // A dead link is refused before the slow password hash, so made-up tokens cost one lookup.
+  // That check is only for cost: the conditional update in join() still decides.
   async signUp(token: string, { email, password, name }: InvitationSignUpInput): Promise<InvitationSignUpResult> {
+    const tokenHash = hashInvitationToken(token);
+    const live = await this.prisma.invitation.count({ where: { tokenHash, ...pendingAt(new Date()) } });
+    if (!live) throw new InvitationGone();
     const passwordHash = await this.hasher.hash(password);
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user
@@ -172,7 +177,7 @@ export class InvitationsService {
           };
           throw new ConflictException(body);
         });
-      return { user, business: await this.join(tx, hashInvitationToken(token), user.id) };
+      return { user, business: await this.join(tx, tokenHash, user.id) };
     });
   }
 

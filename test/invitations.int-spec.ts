@@ -1,3 +1,4 @@
+import { PasswordHasher } from '@nestjs/authentication';
 import type { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
@@ -431,6 +432,21 @@ describe('the invitation link', () => {
         .expect(404);
 
       expect(await prisma.user.count({ where: { email: input.email } })).toBe(0);
+    });
+
+    // A slow hash per made-up token would let anyone spend the server's CPU for free.
+    it('does not hash the password for a link that does not work', async () => {
+      const hash = vi.spyOn(app.get(PasswordHasher), 'hash');
+
+      try {
+        await http()
+          .post(`${linkUrl('made-up')}/sign-up`)
+          .send(newcomer())
+          .expect(404);
+        expect(hash).not.toHaveBeenCalled();
+      } finally {
+        hash.mockRestore();
+      }
     });
 
     it('says the email is registered, and keeps the link good', async () => {
