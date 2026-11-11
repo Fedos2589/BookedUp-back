@@ -154,6 +154,8 @@ describe('freeSlots', () => {
       busy: [
         { staffId: anna, startsAt: at('2026-11-16T07:30:00Z'), endsAt: at('2026-11-16T08:10:00Z') },
         { staffId: anna, startsAt: at('2026-11-16T10:00:00Z'), endsAt: at('2026-11-16T12:00:00Z') },
+        // Ends as Boris's slot starts.
+        { staffId: boris, startsAt: at('2026-11-16T06:00:00Z'), endsAt: at('2026-11-16T07:00:00Z') },
       ],
     });
 
@@ -177,6 +179,23 @@ describe('freeSlots', () => {
     });
 
     expect(starts(slots)).toEqual(['2026-11-16T08:00:00.000Z', '2026-11-16T09:00:00.000Z']);
+  });
+
+  it('finds a clock change that falls on the day before in UTC (Australia/Sydney)', () => {
+    // 2026-04-05, 03:00 AEDT (+11) becomes 02:00 AEST (+10) — at 16:00 UTC on the 4th.
+    const slots = freeSlots({
+      ...base,
+      timeZone: 'Australia/Sydney',
+      weekly: [weekly({ weekday: 7, startMinute: 60, durationMinutes: 180 })],
+      from: '2026-04-05',
+      to: '2026-04-05',
+    });
+
+    expect(starts(slots)).toEqual([
+      '2026-04-04T14:00:00.000Z', // 01:00 AEDT
+      '2026-04-04T15:00:00.000Z', // 02:00 AEDT, the first one
+      '2026-04-04T17:00:00.000Z', // 03:00 AEST
+    ]);
   });
 
   describe('on a daylight saving change (Europe/Berlin)', () => {
