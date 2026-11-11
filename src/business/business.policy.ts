@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/auth-types.js';
 import type { MemberRole } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { type BusinessAbility, roleCan } from './roles.js';
+import { type BusinessAbility, roleCan, roleManages } from './roles.js';
 
 const uuid = z.uuid();
 
@@ -24,13 +24,17 @@ export class BusinessPolicy {
 
   // Abilities by role (roles.ts). Each runs after `member` on its route, so a stranger is
   // refused by the membership check, never by one of these.
-  async manageStaff(user: AuthUser | null, businessId: string): Promise<boolean> {
-    return this.may(user, businessId, 'manageStaff');
+  async manageTeam(user: AuthUser | null, businessId: string): Promise<boolean> {
+    const role = await this.roleOf(user, businessId);
+    return role !== null && roleCan(role, 'manageTeam');
   }
 
-  private async may(user: AuthUser | null, businessId: string, ability: BusinessAbility): Promise<boolean> {
+  // Whether the user may invite someone as `target`, or change or remove a member who is one.
+  // The role comes from the request or the row, so services call it through
+  // AuthorizationService.authorize(), after the route's manageTeam.
+  async manageRole(user: AuthUser | null, businessId: string, target: MemberRole): Promise<boolean> {
     const role = await this.roleOf(user, businessId);
-    return role !== null && roleCan(role, ability);
+    return role !== null && roleManages(role, target);
   }
 
   private async roleOf(user: AuthUser | null, businessId: string): Promise<MemberRole | null> {

@@ -44,7 +44,7 @@ export class StaffController {
   }
 
   @Post()
-  @MayInBusiness('manageStaff')
+  @MayInBusiness('manageTeam')
   @ApiCreatedResponse({ description: 'Added', schema: openApi(staffSchema) })
   @ApiBadRequestResponse({
     description: 'A field is invalid, or userId is not a member of this business',
@@ -59,7 +59,7 @@ export class StaffController {
   }
 
   @Patch(':staffId')
-  @MayInBusiness('manageStaff')
+  @MayInBusiness('manageTeam')
   @ApiOkResponse({ description: 'Renamed, archived or brought back', schema: openApi(staffSchema) })
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiNotFoundResponse({ description: 'No such staff in this business' })
