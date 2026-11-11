@@ -1,3 +1,4 @@
+import { AuthorizationService } from '@nestjs/authorization';
 import type { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
@@ -169,5 +170,112 @@ describe('removing a member', () => {
 
     await http().delete(memberUrl(owner.business.id, theirs.userId)).set('Cookie', owner.cookie).expect(404);
     expect(await roleIn(other.business.id, theirs.userId)).toBe('MASTER');
+  });
+});
+
+// An invitation is as good as its inviter's right to give it: leaving the team, or a role that
+// may no longer invite as that, revokes it. Otherwise a removed admin keeps a way back in.
+describe('invitations of a member who leaves or changes role', () => {
+  const inviteAs = async (inviter: { cookie: string }, businessId: string, role: 'ADMIN' | 'MASTER') => {
+    const { body } = await http()
+      .post(`/businesses/${businessId}/invitations`)
+      .set('Cookie', inviter.cookie)
+      .send({ role })
+      .expect(201);
+    return {
+      id: (body as { invitation: { id: string } }).invitation.id,
+      token: new URL(body.link).pathname.split('/').pop()!,
+    };
+  };
+  const pendingIds = async (owner: { cookie: string }, businessId: string) =>
+    (
+      (await http().get(`/businesses/${businessId}/invitations`).set('Cookie', owner.cookie).expect(200)).body as {
+        id: string;
+      }[]
+    ).map(({ id }) => id);
+
+  it('keeps a removed admin from coming back through their own link', async () => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const admin = await memberOf(app, businessId, 'ADMIN');
+    const theirs = await inviteAs(admin, businessId, 'MASTER');
+    const ownersOwn = await inviteAs(owner, businessId, 'MASTER');
+
+    await http().delete(memberUrl(businessId, admin.userId)).set('Cookie', owner.cookie).expect(204);
+
+    await http().post(`/invitations/${theirs.token}/accept`).set('Cookie', admin.cookie).expect(404);
+    expect(await roleIn(businessId, admin.userId)).toBeNull();
+    expect(await pendingIds(owner, businessId)).toEqual([ownersOwn.id]);
+  });
+
+  it('revokes what the new role may no longer give, and keeps the rest', async () => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const admin = await memberOf(app, businessId, 'ADMIN');
+    const otherAdmin = await memberOf(app, businessId, 'ADMIN');
+    await inviteAs(admin, businessId, 'MASTER');
+    const kept = await inviteAs(otherAdmin, businessId, 'MASTER');
+
+    await http()
+      .patch(memberUrl(businessId, admin.userId))
+      .set('Cookie', owner.cookie)
+      .send({ role: 'MASTER' })
+      .expect(200);
+
+    expect(await pendingIds(owner, businessId)).toEqual([kept.id]);
+  });
+});
+
+// The role is checked, then written; a change in between must not slip through on the old check.
+describe('a member changed between the check and the write', () => {
+  // Runs `meanwhile` once, right after the first authorization check of the next request passes.
+  const changeAfterCheck = (meanwhile: () => Promise<unknown>) => {
+    const authorization = app.get(AuthorizationService);
+    const original = authorization.authorize.bind(authorization);
+    const spy = vi.spyOn(authorization, 'authorize').mockImplementationOnce(async (...args) => {
+      await original(...args);
+      await meanwhile();
+    });
+    return spy;
+  };
+
+  it('answers 409 to a role change, and keeps the change made meanwhile', async () => {
+    const owner = await signUpOwner(app);
+    const master = await memberOf(app, owner.business.id, 'MASTER');
+    const spy = changeAfterCheck(() =>
+      prisma.membership.update({
+        where: { userId_businessId: { userId: master.userId, businessId: owner.business.id } },
+        data: { role: 'ADMIN' },
+      }),
+    );
+
+    try {
+      await http()
+        .patch(memberUrl(owner.business.id, master.userId))
+        .set('Cookie', owner.cookie)
+        .send({ role: 'MASTER' })
+        .expect(409);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await roleIn(owner.business.id, master.userId)).toBe('ADMIN');
+  });
+
+  it('answers 409 to a removal, and keeps the member', async () => {
+    const owner = await signUpOwner(app);
+    const master = await memberOf(app, owner.business.id, 'MASTER');
+    const spy = changeAfterCheck(() =>
+      prisma.membership.update({
+        where: { userId_businessId: { userId: master.userId, businessId: owner.business.id } },
+        data: { role: 'ADMIN' },
+      }),
+    );
+
+    try {
+      await http().delete(memberUrl(owner.business.id, master.userId)).set('Cookie', owner.cookie).expect(409);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await roleIn(owner.business.id, master.userId)).toBe('ADMIN');
   });
 });

@@ -232,3 +232,75 @@ describe('staff in the database', () => {
     ).rejects.toMatchObject({ code: 'P2003' });
   });
 });
+
+// Whose schedule one may touch follows roles.ts: a member's schedule counts as that member, one
+// without an account as a master. One's own schedule is always one's own to keep.
+describe('who may change whose schedule', () => {
+  const scheduleOf = (businessId: string, userId: string, name = 'S') =>
+    prisma.staff.create({ data: { businessId, name, userId } });
+
+  it("keeps an admin off the owner's and other admins' schedules", async () => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const admin = await memberOf(businessId, 'ADMIN');
+    const otherAdmin = await memberOf(businessId, 'ADMIN');
+    const owners = await scheduleOf(businessId, await userIdOf(owner.cookie), 'Lena');
+    const otherAdmins = await scheduleOf(businessId, otherAdmin.userId, 'Olga');
+
+    for (const schedule of [owners, otherAdmins]) {
+      await http()
+        .patch(`${staffUrl(businessId)}/${schedule.id}`)
+        .set('Cookie', admin.cookie)
+        .send({ archived: true })
+        .expect(403);
+    }
+    expect(await prisma.staff.count({ where: { businessId, archivedAt: { not: null } } })).toBe(0);
+  });
+
+  it('keeps an admin from giving the owner a schedule', async () => {
+    const owner = await signUpOwner(app);
+    const admin = await memberOf(owner.business.id, 'ADMIN');
+
+    await http()
+      .post(staffUrl(owner.business.id))
+      .set('Cookie', admin.cookie)
+      .send({ name: 'Lena', userId: await userIdOf(owner.cookie) })
+      .expect(403);
+  });
+
+  it("lets an admin keep their own schedule and change masters'", async () => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const admin = await memberOf(businessId, 'ADMIN');
+    const master = await memberOf(businessId, 'MASTER');
+    const masters = await scheduleOf(businessId, master.userId);
+
+    const { body: own } = await http()
+      .post(staffUrl(businessId))
+      .set('Cookie', admin.cookie)
+      .send({ name: 'Me', userId: admin.userId })
+      .expect(201);
+    await http()
+      .patch(`${staffUrl(businessId)}/${own.id}`)
+      .set('Cookie', admin.cookie)
+      .send({ name: 'Me again' })
+      .expect(200);
+    await http()
+      .patch(`${staffUrl(businessId)}/${masters.id}`)
+      .set('Cookie', admin.cookie)
+      .send({ name: 'M' })
+      .expect(200);
+  });
+
+  it("lets the owner change an admin's schedule", async () => {
+    const owner = await signUpOwner(app);
+    const admin = await memberOf(owner.business.id, 'ADMIN');
+    const admins = await scheduleOf(owner.business.id, admin.userId);
+
+    await http()
+      .patch(`${staffUrl(owner.business.id)}/${admins.id}`)
+      .set('Cookie', owner.cookie)
+      .send({ archived: true })
+      .expect(200);
+  });
+});

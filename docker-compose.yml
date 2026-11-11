@@ -27,6 +27,8 @@ services:
       DATABASE_URL: postgresql://bookedup:bookedup@postgres:5432/bookedup?schema=public
       REDIS_URL: redis://redis:6379
       NODE_ENV: production
+      # Required in production: where invitation links point. The front's dev server here.
+      APP_URL: http://localhost:5173
     ports:
       - '3000:3000'
     depends_on:

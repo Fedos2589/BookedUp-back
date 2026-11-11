@@ -11,6 +11,8 @@ const manages: Record<MemberRole, readonly MemberRole[]> = {
 
 export const roleManages = (role: MemberRole, target: MemberRole): boolean => manages[role].includes(target);
 
+export const rolesManagedBy = (role: MemberRole): readonly MemberRole[] => manages[role];
+
 // What each role may do inside its business, beyond being a member. BusinessPolicy turns each
 // ability into a route check.
 const abilities = {
