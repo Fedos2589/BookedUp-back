@@ -29,6 +29,15 @@ describe('validateEnv', () => {
     );
   });
 
+  // A deployment without it would hand out invitation links to localhost.
+  it('needs APP_URL in production, and defaults it elsewhere', () => {
+    expect(() => validateEnv({ ...valid, NODE_ENV: 'production' })).toThrow(/APP_URL/);
+    expect(validateEnv({ ...valid, NODE_ENV: 'production', APP_URL: 'https://app.example.com' }).APP_URL).toBe(
+      'https://app.example.com',
+    );
+    expect(validateEnv({ ...valid, NODE_ENV: 'test' }).APP_URL).toBe('http://localhost:5173');
+  });
+
   it('takes the number of trusted proxy hops, never "trust everything"', () => {
     expect(validateEnv({ ...valid, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
     expect(() => validateEnv({ ...valid, TRUST_PROXY: 'true' })).toThrow(/TRUST_PROXY/);

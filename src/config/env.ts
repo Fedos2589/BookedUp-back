@@ -14,12 +14,19 @@ const envSchema = z
     // browsers drop a Secure cookie there, and without Secure it is `sid`, not `__Host-sid`.
     SESSION_COOKIE_SECURE: z.stringbool().default(true),
     // The front's address, for the links the API hands out (an invitation: <APP_URL>/invite/<token>).
-    APP_URL: z.url().default('http://localhost:5173'),
+    // Required in production; elsewhere it defaults to the Vite dev server (below).
+    APP_URL: z.url().optional(),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],
     message: 'must stay true in production',
-  });
+  })
+  // A deployment without it would hand out links to localhost without a word.
+  .refine((env) => env.APP_URL !== undefined || env.NODE_ENV !== 'production', {
+    path: ['APP_URL'],
+    message: 'must be set in production',
+  })
+  .transform(({ APP_URL = 'http://localhost:5173', ...env }) => ({ ...env, APP_URL }));
 
 export type Env = z.infer<typeof envSchema>;
 

@@ -11,7 +11,7 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { assignableRoleSchema } from '../members/members.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
-import { hashInvitationToken, newInvitationToken } from './invitation-token.js';
+import { hashInvitationToken, invitationLink, newInvitationToken } from './invitation-token.js';
 import type {
   CreatedInvitation,
   CreateInvitationInput,
@@ -68,8 +68,8 @@ export class InvitationsService {
     private readonly hasher: PasswordHasher,
   ) {}
 
-  // The link is in the answer and in the log: no email is sent yet (E3 decision), so the
-  // inviter passes it on, and in development it can be picked up from the log.
+  // The link is in the answer: no email is sent yet (E3 decision), so the inviter passes it on.
+  // Outside production it is logged too, to pick up while developing.
   async create(actor: AuthUser, businessId: string, input: CreateInvitationInput): Promise<CreatedInvitation> {
     await this.authorization.authorize(BusinessPolicy, 'manageRole', actor, businessId, input.role);
     if (input.staffId) await this.assertFreeSchedule(businessId, input.staffId);
@@ -87,8 +87,13 @@ export class InvitationsService {
         select: invitationSelect,
       }),
     );
-    const link = new URL(`/invite/${token}`, this.config.get('APP_URL', { infer: true })).href;
-    this.logger.log({ businessId, invitationId: invitation.id, link }, 'Invitation created');
+    const link = invitationLink(this.config.get('APP_URL', { infer: true }), token);
+    // The link is a live key for a week: in production only its id goes to the log.
+    const logged = { businessId, invitationId: invitation.id };
+    this.logger.log(
+      this.config.get('NODE_ENV', { infer: true }) === 'production' ? logged : { ...logged, link },
+      'Invitation created',
+    );
     return { invitation, link };
   }
 
