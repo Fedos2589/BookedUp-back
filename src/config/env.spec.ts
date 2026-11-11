@@ -13,6 +13,7 @@ describe('validateEnv', () => {
       PORT: 8080,
       TRUST_PROXY: 0,
       SESSION_COOKIE_SECURE: true,
+      APP_URL: 'http://localhost:5173',
     });
   });
 
