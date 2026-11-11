@@ -39,6 +39,7 @@ model Business {
   locations   Location[]
   memberships Membership[]
   staff       Staff[]
+  invitations Invitation[]
 
   @@map("businesses")
 }
@@ -70,9 +71,10 @@ model User {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  passwordLogin PasswordLogin?
-  memberships   Membership[]
-  sessions      Session[]
+  passwordLogin   PasswordLogin?
+  memberships     Membership[]
+  sessions        Session[]
+  invitationsSent Invitation[]
 
   @@map("users")
 }
@@ -152,13 +154,44 @@ model Staff {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invitations Invitation[]
   /// Removing a member who has a schedule unlinks it first (E3 step 2), in one transaction.
-  membership Membership? @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
+  membership  Membership?  @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
 
   /// What bookings (E6) will reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
   @@unique([businessId, id])
   /// One schedule per account per business.
   @@unique([userId, businessId])
   @@map("staff")
+}
+
+/// A link to join a business with a role, given to the inviter to pass on (no email is sent
+/// yet). Whoever holds it may accept it once, before it expires, unless it is revoked: the
+/// accepting account becomes a member. Only the SHA-256 of the token is stored, like sessions.
+/// Never OWNER, and never both accepted and revoked (CHECKs in the migration).
+model Invitation {
+  id          String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId  String     @map("business_id") @db.Uuid
+  role        MemberRole
+  tokenHash   String     @unique @map("token_hash")
+  /// Who it is for, as the inviter wrote it: the list of pending invitations shows it.
+  note        String?
+  /// A schedule without an account, to link to whoever accepts.
+  staffId     String?    @map("staff_id") @db.Uuid
+  /// Gone when that account is deleted; the invitation stays good.
+  invitedById String?    @map("invited_by_id") @db.Uuid
+  expiresAt   DateTime   @map("expires_at") @db.Timestamptz(3)
+  acceptedAt  DateTime?  @map("accepted_at") @db.Timestamptz(3)
+  revokedAt   DateTime?  @map("revoked_at") @db.Timestamptz(3)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// Composite, so it can only be a schedule of this same business.
+  staff     Staff?   @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: NoAction)
+  invitedBy User?    @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@map("invitations")
 }
