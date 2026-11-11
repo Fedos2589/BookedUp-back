@@ -95,7 +95,7 @@ export class ScheduleService {
       });
       return withIsoTimes(window);
     } catch (error) {
-      if (violatedExclusion(error) === 'one_off_windows_no_overlap') {
+      if (violatedExclusion(error) === 'OneOffWindow') {
         const body: OneOffConflict = {
           statusCode: 409,
           error: 'Conflict',

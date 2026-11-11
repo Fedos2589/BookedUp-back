@@ -14,12 +14,14 @@ function violatedConstraint(error: unknown, code: 'P2002' | 'P2003'): string | u
   return cause?.constraint?.index;
 }
 
-// The constraint behind an exclusion violation (Postgres 23P01, Prisma P2039 «unknown database
-// error»): `one_off_windows_no_overlap`. The adapter gives no constraint field for it, only the
-// message, which names it.
+// The model whose exclusion constraint refused the row (Postgres 23P01, which Prisma reports as
+// P2039 «unknown database error»), or undefined. Not the constraint's name: the adapter gives no
+// field for it here, and the message that names it is in the server's language (lc_messages).
+// A table has at most one EXCLUDE (one_off_windows_no_overlap; bookings' in E6), so the model
+// tells which one; a second EXCLUDE on one table would need another way.
 export function violatedExclusion(error: unknown): string | undefined {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return undefined;
-  const cause = (error.meta?.driverAdapterError as { cause?: { code?: string; message?: string } } | undefined)?.cause;
+  const cause = (error.meta?.driverAdapterError as { cause?: { code?: string } } | undefined)?.cause;
   if (cause?.code !== '23P01') return undefined;
-  return /exclusion constraint "([^"]+)"/.exec(cause.message ?? '')?.[1];
+  return typeof error.meta?.modelName === 'string' ? error.meta.modelName : undefined;
 }
