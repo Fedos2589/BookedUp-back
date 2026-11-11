@@ -4,7 +4,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { memberOf, signUpOwner } from './helpers.js';
+import { memberOf, ownerInput, sessionCookie, signUpOwner, userIdOf } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -208,5 +208,229 @@ describe('invitations in the database', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'P2003' });
+  });
+});
+
+// What the person who got the link does with it.
+describe('the invitation link', () => {
+  const linkUrl = (token: string) => `/invitations/${token}`;
+
+  const inviteAs = async (role: 'ADMIN' | 'MASTER', body: object = {}) => {
+    const owner = await signUpOwner(app);
+    const { body: created } = await invite({ ...owner, businessId: owner.business.id }, { role, ...body }).expect(201);
+    return { owner, token: tokenOf(created.link), invitation: created.invitation as { id: string } };
+  };
+
+  const newcomer = () => {
+    const { email, password } = ownerInput();
+    return { email, password, name: 'Anna' };
+  };
+
+  it('tells anyone holding it which business, role and inviter it is for', async () => {
+    const { owner, token } = await inviteAs('ADMIN');
+
+    await http()
+      .get(linkUrl(token))
+      .expect(200)
+      .expect({ businessName: owner.business.name, role: 'ADMIN', invitedBy: 'Lena' });
+  });
+
+  it('makes a signed-in account a member with the role', async () => {
+    const { owner, token } = await inviteAs('MASTER');
+    const someone = await signUpOwner(app);
+
+    await http()
+      .post(`${linkUrl(token)}/accept`)
+      .set('Cookie', someone.cookie)
+      .expect(200)
+      .expect({ ...owner.business, role: 'MASTER' });
+    await http().get(`/businesses/${owner.business.id}`).set('Cookie', someone.cookie).expect(200);
+  });
+
+  it('works once', async () => {
+    const { token } = await inviteAs('MASTER');
+    const first = await signUpOwner(app);
+    const second = await signUpOwner(app);
+
+    await http()
+      .post(`${linkUrl(token)}/accept`)
+      .set('Cookie', first.cookie)
+      .expect(200);
+    await http()
+      .post(`${linkUrl(token)}/accept`)
+      .set('Cookie', second.cookie)
+      .expect(404);
+    await http().get(linkUrl(token)).expect(404);
+  });
+
+  // Two people opening the same link at once: one joins, the other is told it is used.
+  it('lets one of two simultaneous accepts through', async () => {
+    const { owner, token } = await inviteAs('MASTER');
+    const people = await Promise.all([signUpOwner(app), signUpOwner(app), signUpOwner(app)]);
+
+    const answers = await Promise.all(
+      people.map(({ cookie }) =>
+        http()
+          .post(`${linkUrl(token)}/accept`)
+          .set('Cookie', cookie),
+      ),
+    );
+
+    expect(answers.map((res) => res.status).sort((a, b) => a - b)).toEqual([200, 404, 404]);
+    expect(await prisma.membership.count({ where: { businessId: owner.business.id } })).toBe(2);
+  });
+
+  it('stops working when revoked or expired, and for a made-up token', async () => {
+    const revoked = await inviteAs('MASTER');
+    await http()
+      .delete(`${invitationsUrl(revoked.owner.business.id)}/${revoked.invitation.id}`)
+      .set('Cookie', revoked.owner.cookie)
+      .expect(204);
+    const expired = await inviteAs('MASTER');
+    await prisma.invitation.update({
+      where: { id: expired.invitation.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    const someone = await signUpOwner(app);
+
+    for (const token of [revoked.token, expired.token, 'made-up']) {
+      await http().get(linkUrl(token)).expect(404);
+      await http()
+        .post(`${linkUrl(token)}/accept`)
+        .set('Cookie', someone.cookie)
+        .expect(404);
+    }
+  });
+
+  // The link is not spent on someone who is in already: it can still go to the right person.
+  it('refuses a member of the business, and keeps the link good', async () => {
+    const { owner, token } = await inviteAs('MASTER');
+
+    await http()
+      .post(`${linkUrl(token)}/accept`)
+      .set('Cookie', owner.cookie)
+      .expect(409);
+    await http().get(linkUrl(token)).expect(200);
+  });
+
+  it('needs a session to accept', async () => {
+    const { token } = await inviteAs('MASTER');
+
+    await http()
+      .post(`${linkUrl(token)}/accept`)
+      .expect(401);
+    await http().get(linkUrl(token)).expect(200);
+  });
+
+  it('links the offered schedule to whoever accepts', async () => {
+    const owner = await signUpOwner(app);
+    const schedule = await prisma.staff.create({ data: { businessId: owner.business.id, name: 'Anna' } });
+    const { body } = await invite(
+      { ...owner, businessId: owner.business.id },
+      { role: 'MASTER', staffId: schedule.id },
+    );
+    const someone = await signUpOwner(app);
+
+    await http()
+      .post(`${linkUrl(tokenOf(body.link))}/accept`)
+      .set('Cookie', someone.cookie)
+      .expect(200);
+
+    expect(await prisma.staff.findUnique({ where: { id: schedule.id } })).toMatchObject({
+      userId: await userIdOf(app, someone.cookie),
+    });
+  });
+
+  // Offered twice, taken by the first: the second accept joins nobody and leaves the link good.
+  it('refuses a schedule taken since, and changes nothing', async () => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const schedule = await prisma.staff.create({ data: { businessId, name: 'Anna' } });
+    const first = await invite({ ...owner, businessId }, { role: 'MASTER', staffId: schedule.id });
+    const second = await invite({ ...owner, businessId }, { role: 'MASTER', staffId: schedule.id });
+    const [a, b] = await Promise.all([signUpOwner(app), signUpOwner(app)]);
+
+    await http()
+      .post(`${linkUrl(tokenOf(first.body.link))}/accept`)
+      .set('Cookie', a.cookie)
+      .expect(200);
+    await http()
+      .post(`${linkUrl(tokenOf(second.body.link))}/accept`)
+      .set('Cookie', b.cookie)
+      .expect(409);
+
+    await http().get(`/businesses/${businessId}`).set('Cookie', b.cookie).expect(403);
+    await http()
+      .get(linkUrl(tokenOf(second.body.link)))
+      .expect(200);
+  });
+
+  it('refuses to revoke an invitation once accepted', async () => {
+    const { owner, token, invitation } = await inviteAs('MASTER');
+    const someone = await signUpOwner(app);
+    await http()
+      .post(`${linkUrl(token)}/accept`)
+      .set('Cookie', someone.cookie)
+      .expect(200);
+
+    await http()
+      .delete(`${invitationsUrl(owner.business.id)}/${invitation.id}`)
+      .set('Cookie', owner.cookie)
+      .expect(409);
+  });
+
+  describe('signing up through it', () => {
+    it('creates the account, makes it a member and signs it in', async () => {
+      const { owner, token } = await inviteAs('ADMIN');
+      const input = newcomer();
+
+      const res = await http()
+        .post(`${linkUrl(token)}/sign-up`)
+        .send(input)
+        .expect(201);
+
+      expect(res.body).toEqual({
+        user: { id: expect.any(String), email: input.email, name: 'Anna' },
+        business: { ...owner.business, role: 'ADMIN' },
+      });
+      const cookie = sessionCookie(res);
+      expect(cookie).toBeDefined();
+      await http().get(`/businesses/${owner.business.id}`).set('Cookie', cookie!).expect(200);
+    });
+
+    // One transaction: no account is left behind by a link that doesn't work.
+    it('creates no account for a link that does not work', async () => {
+      const input = newcomer();
+
+      await http()
+        .post(`${linkUrl('made-up')}/sign-up`)
+        .send(input)
+        .expect(404);
+
+      expect(await prisma.user.count({ where: { email: input.email } })).toBe(0);
+    });
+
+    it('says the email is registered, and keeps the link good', async () => {
+      const { token } = await inviteAs('MASTER');
+      const taken = ownerInput();
+      await http().post('/auth/sign-up').send(taken).expect(201);
+
+      const res = await http()
+        .post(`${linkUrl(token)}/sign-up`)
+        .send({ ...newcomer(), email: taken.email.toUpperCase() })
+        .expect(409);
+
+      expect(res.body).toMatchObject({ field: 'email' });
+      await http().get(linkUrl(token)).expect(200);
+    });
+
+    it('holds the password to the sign-up rules', async () => {
+      const { token } = await inviteAs('MASTER');
+
+      await http()
+        .post(`${linkUrl(token)}/sign-up`)
+        .send({ ...newcomer(), password: 'short' })
+        .expect(400);
+    });
   });
 });
