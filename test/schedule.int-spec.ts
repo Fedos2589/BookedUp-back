@@ -320,6 +320,33 @@ describe("a master and someone else's schedule", () => {
   });
 });
 
+describe('a date that is no date', () => {
+  it('is a 400 with the field named, not a 500, on every route that takes one', async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    const valid = '2030-01-08T14:00:00.000Z';
+
+    const slots = await http()
+      .get(slotsUrl(owner.business.id))
+      .query({ from: 'zzz', to: 'abc' })
+      .set('Cookie', owner.cookie)
+      .expect(400);
+    expect(slots.body.message).toEqual([expect.stringMatching(/^from: /), expect.stringMatching(/^to: Invalid/)]);
+    const oneOff = await http()
+      .post(oneOffUrl(owner.business.id, anna))
+      .set('Cookie', owner.cookie)
+      .send({ startsAt: 'x', endsAt: valid, slotMinutes: 60 })
+      .expect(400);
+    expect(oneOff.body.message).toEqual([expect.stringMatching(/^startsAt: /)]);
+    const timeOff = await http()
+      .post(timeOffUrl(owner.business.id, anna))
+      .set('Cookie', owner.cookie)
+      .send({ startsAt: 'x', endsAt: valid })
+      .expect(400);
+    expect(timeOff.body.message).toEqual([expect.stringMatching(/^startsAt: /)]);
+  });
+});
+
 describe('the free slots of a business', () => {
   it('are the windows of its masters minus time off, on the days asked', async () => {
     const owner = await signUpOwner(app);

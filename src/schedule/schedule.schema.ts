@@ -12,6 +12,10 @@ const title = z
   .nullish()
   .transform((value) => value || null);
 
+// For a check across fields: zod 4 runs an object's refine even when a field failed (the parse
+// goes on to collect every issue), so without this the check sees a raw string — 500, not 400.
+const whenFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 };
+
 const slotMinutes = z.int().min(5).max(1440);
 const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
 
@@ -28,6 +32,7 @@ const weeklyWindowInput = weeklyWindowSchema
   .refine((window) => window.slotMinutes <= window.durationMinutes, {
     path: ['slotMinutes'],
     message: 'Longer than the window',
+    ...whenFieldsValid,
   });
 
 export const weeklyScheduleSchema = z.object({ windows: z.array(weeklyWindowSchema) });
@@ -59,10 +64,12 @@ export const oneOffWindowInput = z
   .refine((window) => window.endsAt.getTime() - window.startsAt.getTime() <= DAY_MS, {
     path: ['endsAt'],
     message: 'At most a day after startsAt',
+    ...whenFieldsValid,
   })
   .refine((window) => window.startsAt.getTime() + window.slotMinutes * 60_000 <= window.endsAt.getTime(), {
     path: ['slotMinutes'],
     message: 'Longer than the window',
+    ...whenFieldsValid,
   });
 export type OneOffWindowInput = z.infer<typeof oneOffWindowInput>;
 
@@ -89,7 +96,11 @@ export const timeOffInput = z
       .nullish()
       .transform((value) => value || null),
   })
-  .refine((timeOff) => timeOff.startsAt < timeOff.endsAt, { path: ['endsAt'], message: 'Not after startsAt' });
+  .refine((timeOff) => timeOff.startsAt < timeOff.endsAt, {
+    path: ['endsAt'],
+    message: 'Not after startsAt',
+    ...whenFieldsValid,
+  });
 export type TimeOffInput = z.infer<typeof timeOffInput>;
 
 export const slotSchema = z.object({
@@ -105,9 +116,10 @@ const MAX_DAYS = 31;
 // Days on the business's clock, both included.
 export const slotsQuery = z
   .object({ from: z.iso.date(), to: z.iso.date(), staffId: z.uuid().optional() })
-  .refine(({ from, to }) => from <= to, { path: ['to'], message: 'Before from' })
+  .refine(({ from, to }) => from <= to, { path: ['to'], message: 'Before from', ...whenFieldsValid })
   .refine(({ from, to }) => to < addDays(from, MAX_DAYS), {
     path: ['to'],
     message: `More than ${MAX_DAYS} days after from`,
+    ...whenFieldsValid,
   });
 export type SlotsQuery = z.infer<typeof slotsQuery>;
