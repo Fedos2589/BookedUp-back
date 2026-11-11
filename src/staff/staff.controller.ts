@@ -1,3 +1,4 @@
+import { CurrentUser } from '@nestjs/authentication';
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -12,6 +13,7 @@ import {
 } from '@nestjs/swagger';
 import { z } from 'zod';
 
+import type { AuthUser } from '../auth/auth-types.js';
 import { MayInBusiness, MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
@@ -25,7 +27,8 @@ import {
 } from './staff.schema.js';
 import { StaffService } from './staff.service.js';
 
-// Who takes clients in a business. Every member sees the team; the owner and admins change it.
+// Who takes clients in a business. Every member sees the team; the owner and admins change it,
+// each only the schedules roles.ts lets them (an admin: masters', ones without an account, their own).
 @ApiTags('staff')
 @MemberOfBusiness()
 @ApiUnauthorizedResponse({ description: 'No live session' })
@@ -52,10 +55,11 @@ export class StaffController {
   })
   @ApiConflictResponse({ description: 'This member already has a schedule', schema: openApi(staffConflictSchema) })
   create(
+    @CurrentUser() actor: AuthUser,
     @Param('businessId', { schema: z.uuid() }) businessId: string,
     @Body({ schema: createStaffSchema }) body: CreateStaffInput,
   ): Promise<StaffMember> {
-    return this.staff.create(businessId, body);
+    return this.staff.create(actor, businessId, body);
   }
 
   @Patch(':staffId')
@@ -64,10 +68,11 @@ export class StaffController {
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiNotFoundResponse({ description: 'No such staff in this business' })
   update(
+    @CurrentUser() actor: AuthUser,
     @Param('businessId', { schema: z.uuid() }) businessId: string,
     @Param('staffId', { schema: z.uuid() }) staffId: string,
     @Body({ schema: updateStaffSchema }) body: UpdateStaffInput,
   ): Promise<StaffMember> {
-    return this.staff.update(businessId, staffId, body);
+    return this.staff.update(actor, businessId, staffId, body);
   }
 }

@@ -1,4 +1,8 @@
+import { AuthorizationService } from '@nestjs/authorization';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+
+import type { AuthUser } from '../auth/auth-types.js';
+import { BusinessPolicy } from '../business/business.policy.js';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedForeignKey, violatedUniqueConstraint } from '../prisma/unique-violation.js';
@@ -13,7 +17,10 @@ const toStaffMember = ({ archivedAt, ...staff }: { archivedAt: Date | null } & O
 
 @Injectable()
 export class StaffService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authorization: AuthorizationService,
+  ) {}
 
   // Archived ones too: the front shows them apart, and past bookings (E6) still name them.
   // id breaks ties: rows added in one transaction share created_at (now() is its start), and
@@ -29,7 +36,8 @@ export class StaffService {
 
   // Whether `userId` is a member is the database's answer (the foreign key to memberships),
   // not a query before the insert that a concurrent removal could make stale.
-  async create(businessId: string, input: CreateStaffInput): Promise<StaffMember> {
+  async create(actor: AuthUser, businessId: string, input: CreateStaffInput): Promise<StaffMember> {
+    await this.authorizeFor(actor, businessId, input.userId ?? null);
     try {
       return toStaffMember(await this.prisma.staff.create({ data: { businessId, ...input }, select: staffSelect }));
     } catch (error) {
@@ -51,8 +59,17 @@ export class StaffService {
   // Scoped by businessId: a staff id from another business is not found, not changed.
   // The date someone left is set once: archived: true on an archived row keeps it, so a form
   // that sends every field again doesn't move it. One transaction, no read before the write.
-  async update(businessId: string, staffId: string, { name, archived }: UpdateStaffInput): Promise<StaffMember> {
+  async update(
+    actor: AuthUser,
+    businessId: string,
+    staffId: string,
+    { name, archived }: UpdateStaffInput,
+  ): Promise<StaffMember> {
     const where = { id: staffId, businessId };
+    const current = await this.prisma.staff.findFirst({ where, select: { userId: true } });
+    if (!current) throw new NotFoundException();
+    await this.authorizeFor(actor, businessId, current.userId);
+
     const archive = this.prisma.staff.updateMany({
       where: { ...where, archivedAt: null },
       data: { archivedAt: new Date() },
@@ -65,5 +82,21 @@ export class StaffService {
     const [staff] = archived ? (await this.prisma.$transaction([archive, change]))[1] : await change;
     if (!staff) throw new NotFoundException();
     return toStaffMember(staff);
+  }
+
+  // Whose schedule one may touch follows roles.ts: a member's counts as that member, one without
+  // an account as a master, and one's own is always one's own. A userId that is no member is
+  // left to the foreign key on create (400).
+  private async authorizeFor(actor: AuthUser, businessId: string, userId: string | null): Promise<void> {
+    if (userId === actor.id) return;
+    const role = userId
+      ? (
+          await this.prisma.membership.findUnique({
+            where: { userId_businessId: { userId, businessId } },
+            select: { role: true },
+          })
+        )?.role
+      : 'MASTER';
+    if (role) await this.authorization.authorize(BusinessPolicy, 'manageRole', actor, businessId, role);
   }
 }
