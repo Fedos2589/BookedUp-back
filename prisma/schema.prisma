@@ -36,10 +36,13 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  locations   Location[]
-  memberships Membership[]
-  staff       Staff[]
-  invitations Invitation[]
+  locations     Location[]
+  memberships   Membership[]
+  staff         Staff[]
+  invitations   Invitation[]
+  weeklyWindows WeeklyWindow[]
+  oneOffWindows OneOffWindow[]
+  timeOffs      TimeOff[]
 
   @@map("businesses")
 }
@@ -154,10 +157,13 @@ model Staff {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  invitations Invitation[]
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invitations   Invitation[]
+  weeklyWindows WeeklyWindow[]
+  oneOffWindows OneOffWindow[]
+  timeOffs      TimeOff[]
   /// Removing a member who has a schedule unlinks it first (E3 step 2), in one transaction.
-  membership  Membership?  @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
+  membership    Membership?    @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
 
   /// What bookings (E6) will reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
   @@unique([businessId, id])
@@ -194,4 +200,67 @@ model Invitation {
 
   @@index([businessId])
   @@map("invitations")
+}
+
+/// When a master takes clients, every week: from start_minute on the business's clock, for
+/// duration_minutes (may run past midnight), cut into slots of slot_minutes. A title names what
+/// the time is for («Football»); a window as long as its slot is one named session. Saved as a
+/// whole week per master, which is where overlaps are refused (src/schedule).
+model WeeklyWindow {
+  id              String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  staffId         String   @map("staff_id") @db.Uuid
+  /// ISO: 1 is Monday, 7 is Sunday.
+  weekday         Int      @db.SmallInt
+  startMinute     Int      @map("start_minute") @db.SmallInt
+  durationMinutes Int      @map("duration_minutes") @db.SmallInt
+  slotMinutes     Int      @map("slot_minutes") @db.SmallInt
+  title           String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// A template, not history: it goes with its schedule.
+  staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, staffId])
+  @@map("weekly_windows")
+}
+
+/// A window once, between two instants (an extra session). Overlapping ones of one master are
+/// refused by an EXCLUDE constraint in the migration; over weekly slots it wins for its time.
+model OneOffWindow {
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  staffId     String   @map("staff_id") @db.Uuid
+  startsAt    DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime @map("ends_at") @db.Timestamptz(3)
+  slotMinutes Int      @map("slot_minutes") @db.SmallInt
+  title       String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, staffId, startsAt])
+  @@map("one_off_windows")
+}
+
+/// Time a master can't be booked (leave, sick day, a break), taken out of every window.
+model TimeOff {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  staffId    String   @map("staff_id") @db.Uuid
+  startsAt   DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt     DateTime @map("ends_at") @db.Timestamptz(3)
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, staffId, startsAt])
+  @@map("time_offs")
 }
