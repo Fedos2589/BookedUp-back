@@ -123,6 +123,30 @@ describe('the team of a business', () => {
       .expect({ ...anna, name: 'Anna K.', archived: false });
   });
 
+  // The date someone left is what bookings (E6) will lean on. A form that sends every field
+  // again, archived: true included, to fix a name must not move it.
+  it('keeps the date someone was archived when archived: true comes again', async () => {
+    const owner = await signUpOwner(app);
+    const { body: anna } = await http()
+      .post(staffUrl(owner.business.id))
+      .set('Cookie', owner.cookie)
+      .send({ name: 'Anna' });
+    const url = `${staffUrl(owner.business.id)}/${anna.id}`;
+    const archivedAt = async () => (await prisma.staff.findUniqueOrThrow({ where: { id: anna.id } })).archivedAt;
+
+    await http().patch(url).set('Cookie', owner.cookie).send({ archived: true }).expect(200);
+    const left = await archivedAt();
+    await http()
+      .patch(url)
+      .set('Cookie', owner.cookie)
+      .send({ name: 'Anna K.', archived: true })
+      .expect(200)
+      .expect({ ...anna, name: 'Anna K.', archived: true });
+
+    expect(left).not.toBeNull();
+    expect(await archivedAt()).toEqual(left);
+  });
+
   // The guard lets the owner of business A in; the staff id belongs to business B.
   it("answers 404 to another business's staff, and leaves it unchanged", async () => {
     const owner = await signUpOwner(app);
@@ -192,7 +216,7 @@ describe('staff in the database', () => {
       prisma.staff.create({
         data: { businessId: owner.business.id, name: 'X', userId: await userIdOf(stranger.cookie) },
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'P2003' });
   });
 
   // NO ACTION, not RESTRICT: checked after the cascade from the business has removed the staff too.
@@ -215,6 +239,6 @@ describe('staff in the database', () => {
       prisma.membership.delete({
         where: { userId_businessId: { userId: master.userId, businessId: owner.business.id } },
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'P2003' });
   });
 });

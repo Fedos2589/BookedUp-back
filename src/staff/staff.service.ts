@@ -16,10 +16,12 @@ export class StaffService {
   constructor(private readonly prisma: PrismaService) {}
 
   // Archived ones too: the front shows them apart, and past bookings (E6) still name them.
+  // id breaks ties: rows added in one transaction share created_at (now() is its start), and
+  // uuidv7 grows in the order they were inserted.
   async list(businessId: string): Promise<StaffMember[]> {
     const staff = await this.prisma.staff.findMany({
       where: { businessId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: staffSelect,
     });
     return staff.map(toStaffMember);
@@ -47,12 +49,20 @@ export class StaffService {
   }
 
   // Scoped by businessId: a staff id from another business is not found, not changed.
+  // The date someone left is set once: archived: true on an archived row keeps it, so a form
+  // that sends every field again doesn't move it. One transaction, no read before the write.
   async update(businessId: string, staffId: string, { name, archived }: UpdateStaffInput): Promise<StaffMember> {
-    const [staff] = await this.prisma.staff.updateManyAndReturn({
-      where: { id: staffId, businessId },
-      data: { name, ...(archived !== undefined && { archivedAt: archived ? new Date() : null }) },
+    const where = { id: staffId, businessId };
+    const archive = this.prisma.staff.updateMany({
+      where: { ...where, archivedAt: null },
+      data: { archivedAt: new Date() },
+    });
+    const change = this.prisma.staff.updateManyAndReturn({
+      where,
+      data: { name, ...(archived === false && { archivedAt: null }) },
       select: staffSelect,
     });
+    const [staff] = archived ? (await this.prisma.$transaction([archive, change]))[1] : await change;
     if (!staff) throw new NotFoundException();
     return toStaffMember(staff);
   }
