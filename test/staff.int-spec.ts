@@ -5,7 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import type { MemberRole } from '../src/generated/prisma/enums.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { signUpOwner } from './helpers.js';
+import { memberOf as memberOfBusiness, signUpOwner, userIdOf as userIdOfAccount } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -14,18 +14,8 @@ let prisma: PrismaService;
 const http = () => request(app.getHttpServer());
 const staffUrl = (businessId: string) => `/businesses/${businessId}/staff`;
 
-// The signed-in user's id, as the front learns it.
-const userIdOf = async (cookie: string) =>
-  ((await http().get('/me').set('Cookie', cookie).expect(200)).body as { user: { id: string } }).user.id;
-
-// Someone with an account of their own who is also a member of `businessId` with `role`.
-// Invitations (E3 step 2) don't exist yet, so the membership is written straight to the database.
-const memberOf = async (businessId: string, role: MemberRole) => {
-  const someone = await signUpOwner(app);
-  const userId = await userIdOf(someone.cookie);
-  await prisma.membership.create({ data: { businessId, userId, role } });
-  return { cookie: someone.cookie, userId };
-};
+const userIdOf = (cookie: string) => userIdOfAccount(app, cookie);
+const memberOf = (businessId: string, role: MemberRole) => memberOfBusiness(app, businessId, role);
 
 beforeAll(async () => {
   app = await createTestApp();

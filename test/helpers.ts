@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
+import type { MemberRole } from '../src/generated/prisma/enums.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
+
 // A valid sign-up body. Random, not a clock: test files run in parallel against one database.
 export const ownerInput = () => {
   const id = randomUUID();
@@ -30,4 +33,19 @@ export const signUpOwner = async (app: INestApplication<App>) => {
   const cookie = sessionCookie(res);
   if (!cookie) throw new Error('sign-up set no session cookie');
   return { cookie, business: res.body.business as { id: string; name: string; slug: string; timeZone: string } };
+};
+
+// The signed-in user's id, as the front learns it.
+export const userIdOf = async (app: INestApplication<App>, cookie: string) =>
+  ((await request(app.getHttpServer()).get('/me').set('Cookie', cookie).expect(200)).body as { user: { id: string } })
+    .user.id;
+
+// Someone with an account of their own who is also a member of `businessId` with `role`,
+// written straight to the database: what the tests of other features need, without going
+// through an invitation.
+export const memberOf = async (app: INestApplication<App>, businessId: string, role: MemberRole) => {
+  const someone = await signUpOwner(app);
+  const userId = await userIdOf(app, someone.cookie);
+  await app.get(PrismaService).membership.create({ data: { businessId, userId, role } });
+  return { cookie: someone.cookie, userId };
 };
