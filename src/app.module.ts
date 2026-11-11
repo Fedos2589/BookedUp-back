@@ -16,6 +16,7 @@ import { InvitationsModule } from './invitations/invitations.module.js';
 import { MembersModule } from './members/members.module.js';
 import { HealthController } from './health/health.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { ScheduleModule } from './schedule/schedule.module.js';
 import { StaffModule } from './staff/staff.module.js';
 
 @Module({
@@ -77,6 +78,7 @@ import { StaffModule } from './staff/staff.module.js';
     AccountModule,
     BusinessModule,
     StaffModule,
+    ScheduleModule,
     MembersModule,
     InvitationsModule,
   ],

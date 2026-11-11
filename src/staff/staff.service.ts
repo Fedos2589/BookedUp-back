@@ -66,9 +66,7 @@ export class StaffService {
     { name, archived }: UpdateStaffInput,
   ): Promise<StaffMember> {
     const where = { id: staffId, businessId };
-    const current = await this.prisma.staff.findFirst({ where, select: { userId: true } });
-    if (!current) throw new NotFoundException();
-    await this.authorizeFor(actor, businessId, current.userId);
+    await this.authorizeChangeOf(actor, businessId, staffId);
 
     const archive = this.prisma.staff.updateMany({
       where: { ...where, archivedAt: null },
@@ -82,6 +80,21 @@ export class StaffService {
     const [staff] = archived ? (await this.prisma.$transaction([archive, change]))[1] : await change;
     if (!staff) throw new NotFoundException();
     return toStaffMember(staff);
+  }
+
+  // Whether actor may change this schedule — the staff row itself or its windows and time off.
+  // 404 when it is not this business's.
+  async authorizeChangeOf(actor: AuthUser, businessId: string, staffId: string): Promise<void> {
+    const { userId } = await this.findIn(businessId, staffId);
+    await this.authorizeFor(actor, businessId, userId);
+  }
+
+  // The one answer to «is this a schedule of this business» (archived ones are): reading it and
+  // changing it can't disagree. 404 when it isn't.
+  async findIn(businessId: string, staffId: string): Promise<{ userId: string | null }> {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, businessId }, select: { userId: true } });
+    if (!staff) throw new NotFoundException();
+    return staff;
   }
 
   // Whose schedule one may touch follows roles.ts: a member's counts as that member, one without

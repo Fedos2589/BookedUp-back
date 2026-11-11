@@ -6,5 +6,6 @@ import { StaffService } from './staff.service.js';
 @Module({
   controllers: [StaffController],
   providers: [StaffService],
+  exports: [StaffService],
 })
 export class StaffModule {}
