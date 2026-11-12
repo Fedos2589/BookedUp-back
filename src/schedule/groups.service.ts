@@ -126,7 +126,9 @@ export class GroupsService {
     if (count === 0) throw new NotFoundException();
   }
 
-  // Idempotent: cancelling a cancelled date changes nothing. Only a day the group meets.
+  // Idempotent: cancelling a cancelled date changes nothing. Only a day the group meets — read
+  // under the lock, so a change of its weekdays (which drops such cancellations) can't slip
+  // between the check and the insert.
   async cancelDate(
     actor: AuthUser,
     businessId: string,
@@ -136,15 +138,15 @@ export class GroupsService {
     now: Date,
   ): Promise<GroupDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    const group = await this.prisma.group.findFirst({
-      where: { id: groupId, businessId, staffId },
-      select: groupSelect,
-    });
-    if (!group) throw new NotFoundException();
-    if (!group.weekdays.includes(isoWeekday(date))) throw new BadRequestException(['date: Not a day this group meets']);
-    await this.prisma.groupCancellation.createMany({
-      data: [{ businessId, groupId, date: dateColumn(date) }],
-      skipDuplicates: true,
+    await this.underLock(businessId, staffId, now, async (tx) => {
+      const group = await tx.group.findFirst({ where: { id: groupId, businessId, staffId }, select: groupSelect });
+      if (!group) throw new NotFoundException();
+      if (!group.weekdays.includes(isoWeekday(date)))
+        throw new BadRequestException(['date: Not a day this group meets']);
+      await tx.groupCancellation.createMany({
+        data: [{ businessId, groupId, date: dateColumn(date) }],
+        skipDuplicates: true,
+      });
     });
     return this.groupOf(businessId, staffId, groupId, now);
   }

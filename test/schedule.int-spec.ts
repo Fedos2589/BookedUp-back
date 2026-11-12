@@ -379,6 +379,28 @@ describe('the groups of a master', () => {
       .expect({ ...group.body, cancellations: ['2030-01-10'] });
   });
 
+  it('never keep a cancellation of a day the group stopped meeting on, when the two race', async () => {
+    // Ten masters, each: Tue+Thu becomes Thu only while Tuesday is being cancelled.
+    const outcomes = await Promise.all(
+      Array.from({ length: 10 }, async () => {
+        const { as, groups } = await coach();
+        const group = await as(http().post(groups).send(football)).expect(201);
+        const url = `${groups}/${group.body.id}`;
+        await Promise.all([
+          as(
+            http()
+              .put(url)
+              .send({ ...football, weekdays: [4] }),
+          ),
+          as(http().put(`${url}/cancellations/2030-01-08`)),
+        ]);
+        return (await as(http().get(groups)).expect(200)).body[0].cancellations;
+      }),
+    );
+
+    expect(outcomes).toEqual(Array.from({ length: 10 }, () => []));
+  });
+
   it('refuse a group that meets at the time of another with 409 naming it', async () => {
     const { as, groups } = await coach();
     const first = await as(http().post(groups).send(football)).expect(201);
