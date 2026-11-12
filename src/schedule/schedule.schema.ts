@@ -46,6 +46,9 @@ export const weeklyScheduleInput = z
   });
 export type WeeklyScheduleInput = z.infer<typeof weeklyScheduleInput>;
 
+export const scheduleModeSchema = z.object({ mode: z.enum(['HOURS', 'GROUPS']) });
+export type ScheduleModeDto = z.infer<typeof scheduleModeSchema>;
+
 export const timeOffSchema = z.object({
   id: z.uuid(),
   staffId: z.uuid(),

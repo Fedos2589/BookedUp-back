@@ -17,6 +17,7 @@ const weeklyUrl = (businessId: string, staffId: string) => `${staffUrl(businessI
 const timeOffUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/time-off`;
 // What a slot of hours mode carries besides its time.
 const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
+const modeUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/schedule-mode`;
 const slotsUrl = (businessId: string) => `/businesses/${businessId}/slots`;
 
 // A Monday far enough ahead that its slots are never in the past. The business is in Moscow (UTC+3).
@@ -163,6 +164,69 @@ describe('the weekly windows of a master', () => {
     await http().put(weeklyUrl(owner.business.id, anna)).set('Cookie', admin.cookie).send(week).expect(200);
     // Every member sees everyone's week.
     await http().get(weeklyUrl(owner.business.id, admin.staffId)).set('Cookie', master.cookie).expect(200);
+  });
+});
+
+describe('the mode of a schedule', () => {
+  it('is HOURS for a new master and is changed by whoever may change the schedule', async () => {
+    const owner = await signUpOwner(app);
+    const master = await memberWithSchedule(owner.business.id, 'MASTER');
+    const anna = await addStaff(owner);
+
+    await http()
+      .put(modeUrl(owner.business.id, master.staffId))
+      .set('Cookie', master.cookie)
+      .send({ mode: 'GROUPS' })
+      .expect(200)
+      .expect({ mode: 'GROUPS' });
+    await http()
+      .put(modeUrl(owner.business.id, anna))
+      .set('Cookie', master.cookie)
+      .send({ mode: 'GROUPS' })
+      .expect(403);
+    await http().put(modeUrl(owner.business.id, anna)).set('Cookie', owner.cookie).send({ mode: 'NONE' }).expect(400);
+
+    const staff = await http().get(`/businesses/${owner.business.id}/staff`).set('Cookie', owner.cookie).expect(200);
+    const modes = Object.fromEntries(
+      staff.body.map((each: { id: string; scheduleMode: string }) => [each.id, each.scheduleMode]),
+    );
+    expect(modes).toMatchObject({ [master.staffId]: 'GROUPS', [anna]: 'HOURS' });
+  });
+
+  it("keeps the other mode's schedule, and the slots follow the mode", async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    await http()
+      .put(weeklyUrl(owner.business.id, anna))
+      .set('Cookie', owner.cookie)
+      .send({ windows: [window({ weekday: 2, durationMinutes: 60 })] }); // Tue 10:00 Moscow
+    const group = await app.get(PrismaService).group.create({
+      data: {
+        businessId: owner.business.id,
+        staffId: anna,
+        title: 'Football',
+        weekdays: [2],
+        startMinute: 15 * 60,
+        durationMinutes: 60,
+        capacity: 4,
+      },
+    });
+    const starts = async () =>
+      (
+        await http()
+          .get(slotsUrl(owner.business.id))
+          .query({ from: '2030-01-08', to: '2030-01-08' })
+          .set('Cookie', owner.cookie)
+          .expect(200)
+      ).body.map((slot: { startsAt: string; groupId: string | null }) => [slot.startsAt, slot.groupId]);
+    const setMode = (mode: string) =>
+      http().put(modeUrl(owner.business.id, anna)).set('Cookie', owner.cookie).send({ mode }).expect(200);
+
+    expect(await starts()).toEqual([['2030-01-08T07:00:00.000Z', null]]);
+    await setMode('GROUPS');
+    expect(await starts()).toEqual([['2030-01-08T12:00:00.000Z', group.id]]);
+    await setMode('HOURS');
+    expect(await starts()).toEqual([['2030-01-08T07:00:00.000Z', null]]);
   });
 });
 

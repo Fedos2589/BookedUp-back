@@ -17,6 +17,8 @@ import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
+  type ScheduleModeDto,
+  scheduleModeSchema,
   type SlotDto,
   slotSchema,
   type SlotsQuery,
@@ -47,6 +49,18 @@ const uuid = { schema: z.uuid() };
 @Controller('businesses/:businessId/staff/:staffId')
 export class StaffScheduleController {
   constructor(private readonly schedule: ScheduleService) {}
+
+  @Put('schedule-mode')
+  @ApiOkResponse({ description: 'The mode as saved', schema: openApi(scheduleModeSchema) })
+  @ApiBadRequestResponse({ description: 'Not a mode', schema: openApi(validationErrorSchema) })
+  setMode(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('staffId', uuid) staffId: string,
+    @Body({ schema: scheduleModeSchema }) body: ScheduleModeDto,
+  ): Promise<ScheduleModeDto> {
+    return this.schedule.setMode(actor, businessId, staffId, body);
+  }
 
   @Get('weekly-windows')
   @ApiOkResponse({ description: 'The week, Monday first', schema: openApi(weeklyScheduleSchema) })

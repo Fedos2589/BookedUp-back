@@ -9,6 +9,7 @@ export const staffSchema = z.object({
   name: z.string(),
   userId: z.uuid().nullable(),
   archived: z.boolean(),
+  scheduleMode: z.enum(['HOURS', 'GROUPS']).describe('Hours cut into one-person slots, or groups'),
 });
 
 export type StaffMember = z.infer<typeof staffSchema>;

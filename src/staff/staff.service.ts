@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedForeignKey, violatedUniqueConstraint } from '../prisma/unique-violation.js';
 import type { CreateStaffInput, StaffConflict, StaffMember, UpdateStaffInput } from './staff.schema.js';
 
-const staffSelect = { id: true, name: true, userId: true, archivedAt: true } as const;
+const staffSelect = { id: true, name: true, userId: true, archivedAt: true, scheduleMode: true } as const;
 
 const toStaffMember = ({ archivedAt, ...staff }: { archivedAt: Date | null } & Omit<StaffMember, 'archived'>) => ({
   ...staff,
