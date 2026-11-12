@@ -1,27 +1,20 @@
 # AGENTS.md
 
+Подробные правила по темам — в скиллах `.claude/skills/`; прочитайте нужный до начала работы:
+
+| Когда вы…                                              | Читайте                                                                                  |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| пишете Nest-код                                        | [`.claude/skills/back-nest/SKILL.md`](.claude/skills/back-nest/SKILL.md)                 |
+| меняете схему БД, миграции, удаление                   | [`.claude/skills/back-prisma/SKILL.md`](.claude/skills/back-prisma/SKILL.md)             |
+| трогаете вход, сессии, лимиты                          | [`.claude/skills/back-auth/SKILL.md`](.claude/skills/back-auth/SKILL.md)                 |
+| добавляете маршрут под `/businesses/:businessId`, роли | [`.claude/skills/back-access/SKILL.md`](.claude/skills/back-access/SKILL.md)             |
+| работаете с командой, Staff, приглашениями             | [`.claude/skills/back-team/SKILL.md`](.claude/skills/back-team/SKILL.md)                 |
+| работаете с графиком и слотами                         | [`.claude/skills/back-schedule/SKILL.md`](.claude/skills/back-schedule/SKILL.md)         |
+| пишете схемы запросов и ошибки                         | [`.claude/skills/back-api-contract/SKILL.md`](.claude/skills/back-api-contract/SKILL.md) |
+
 ## NestJS
 
-This app's version of NestJS is likely newer than what you know. https://docs.nestjs.com/llms.txt indexes its documentation, with a markdown page per chapter.
-
-Nest has first-party packages for these, so check them before adding another library or writing your own:
-
-- Databases: [`@nestjs/typeorm`](https://docs.nestjs.com/data/typeorm.md), [`@nestjs/drizzle`](https://docs.nestjs.com/data/drizzle.md), [`@nestjs/mongoose`](https://docs.nestjs.com/data/mongodb.md), [`@nestjs/sequelize`](https://docs.nestjs.com/data/sequelize.md).
-- OpenAPI: [`@nestjs/swagger`](https://docs.nestjs.com/openapi/introduction.md). GraphQL: [`@nestjs/graphql`](https://docs.nestjs.com/graphql/quick-start.md). WebSockets: [`@nestjs/websockets`](https://docs.nestjs.com/websockets/gateways.md). Microservices: [`@nestjs/microservices`](https://docs.nestjs.com/microservices/basics.md).
-- Sign-in: [`@nestjs/authentication`](https://docs.nestjs.com/security/authentication.md). Permissions: [`@nestjs/authorization`](https://docs.nestjs.com/security/authorization.md). Rate limiting: [`@nestjs/throttler`](https://docs.nestjs.com/security/rate-limiting.md).
-- Configuration: [`@nestjs/config`](https://docs.nestjs.com/application/configuration.md). Caching: [`@nestjs/cache-manager`](https://docs.nestjs.com/data/caching.md). Health checks: [`@nestjs/terminus`](https://docs.nestjs.com/reliability/terminus.md). Events inside the app: [`@nestjs/event-emitter`](https://docs.nestjs.com/application/events.md).
-- Email: [`@nestjs/mail`](https://docs.nestjs.com/application/mail.md). Files, S3 included: [`@nestjs/storage`](https://docs.nestjs.com/application/file-storage.md). Translations: [`@nestjs/i18n`](https://docs.nestjs.com/application/i18n.md).
-- Retries, timeouts and circuit breakers: [`@nestjs/resilience`](https://docs.nestjs.com/reliability/resilience.md).
-- Idempotency keys: [`@nestjs/idempotency`](https://docs.nestjs.com/reliability/idempotency.md). Transactional outbox: [`@nestjs/outbox`](https://docs.nestjs.com/reliability/outbox.md). Sending and receiving webhooks: [`@nestjs/webhooks`](https://docs.nestjs.com/http/webhooks.md).
-- Queues: [`@nestjs/bullmq`](https://docs.nestjs.com/application/queues.md). Scheduled jobs: [`@nestjs/schedule`](https://docs.nestjs.com/application/task-scheduling.md).
-- Running a scheduled job on one instance, and locks: [`@nestjs/locks`](https://docs.nestjs.com/reliability/locks.md). Processes that take days: [`@nestjs/workflows`](https://docs.nestjs.com/reliability/workflows.md).
-- Language models, tools and agents: [`@nestjs/ai`](https://docs.nestjs.com/ai/overview.md). MCP servers: [`@nestjs/mcp`](https://docs.nestjs.com/mcp/overview.md).
-
-Validation works with Zod, Valibot, ArkType or any other Standard Schema library, with no classes or decorator metadata: `StandardSchemaValidationPipe` with `@Body({ schema })` or `@Param('id', { schema })` (https://docs.nestjs.com/application/validation.md). `class-validator` still works, through `ValidationPipe`.
-
-`NodeAdapter` from `@nestjs/platform-node` is the fastest HTTP adapter, ahead of Fastify (https://docs.nestjs.com/http/performance.md).
-
-Nest's packages are ESM only, and this project is ESM too: relative imports end in `.js`, `__dirname` doesn't exist (use `import.meta.dirname`), and tests run on Vitest, so mocks are `vi.fn()`, not `jest.fn()`.
+Версия Nest новее, чем вы знаете; пакеты — ESM. Первопартийные пакеты и ESM-правила — скилл `back-nest`.
 
 ## BookedUp
 
@@ -36,72 +29,19 @@ API сервиса онлайн-записи для малого бизнеса 
 ### Что где
 
 - `src/config/env.ts` — env, проверяется zod при старте. Переменные читаются только через `ConfigService<Env, true>`, не через `process.env`. Новая переменная — в схему и в `.env.example`.
-- `prisma/schema.prisma` — модель данных; клиент генерируется в `src/generated/prisma` (не коммитится, не правится). Новая миграция: `npx prisma migrate dev --create-only --name <что>` → проверить SQL (дописать то, чего Prisma не выражает: CHECK, `EXCLUDE`) → `npm run db:migrate` → `npx prisma generate` (Prisma 7 не генерирует клиент сам после миграции).
-- Таблицы — snake_case во множественном числе (`@@map`), колонки — snake_case (`@map`), время — `@db.Timestamptz(3)`. Значения по умолчанию задаёт база, чтобы голый SQL (сиды, ручные правки) работал так же: id — `@default(dbgenerated("uuidv7()"))` (Postgres 18), `updated_at` — `@default(now()) @updatedAt` (при UPDATE голым SQL сам не сдвигается — обновляйте его в запросе). `test/schema.int-spec.ts` проверяет, что у каждой таблицы, кроме глобальных (`businesses`, `users`, способы входа), есть `business_id NOT NULL` и что в базе нет `timestamp` без пояса: новая глобальная таблица — осознанное исключение в этом тесте (сейчас это ещё `password_logins` и `sessions`).
-- У бизнеса ровно один `OWNER`, и это держит база: частичный уникальный индекс `memberships_one_owner` плюс отложенный триггер `businesses_has_owner` (проверка при коммите). Бизнес создаётся вместе с владельцем одной вложенной записью; передача владения — понизить старого и повысить нового в одной транзакции; удалить аккаунт владельца живого бизнеса нельзя.
-- `Staff` — кто принимает клиентов (колонка расписания), `Membership` — кто входит и с какой ролью. Мастер без аккаунта — `Staff` без `user_id`; владелец или админ, который сам принимает, — участник со своим `Staff`. Внешний ключ `staff(user_id, business_id) → memberships(user_id, business_id)`: расписание привязывается только к участнику этого же бизнеса. Ключ `NO ACTION`, не `RESTRICT`: бизнес стирается каскадом вместе с ними, а участника с расписанием удалить нельзя, пока расписание не отвязано. Удаление участника (`MembersService.remove`) так и делает: сначала отвязывает `Staff` (`user_id = NULL`), потом удаляет членство, в одной транзакции. Удаления аккаунта ещё нет; когда появится (каскад `users → memberships`), оно должно отвязать так же, иначе P2003 и 500.
-- Способы входа — отдельные таблицы, по одной на способ (`password_logins`, позже `google_logins`), только с обязательными колонками; в `users` пароля нет. Регистрация создаёт пользователя и хотя бы один способ входа в одной транзакции. Приглашения — своя таблица `invitations`, пользователь появляется только при принятии приглашения.
-- Приглашение — одноразовая ссылка `<APP_URL>/invite/<token>` на 7 дней, без привязки к email: принять может тот, у кого она есть. Писем пока нет — ссылка отдаётся пригласившему в ответе `POST /businesses/:businessId/invitations`; в лог она пишется только вне production (это действующий ключ), в production — только id приглашения. В базе — SHA-256 токена (256 бит), сам токен показывается один раз. Роль — `ADMIN` или `MASTER` (CHECK `invitations_role_not_owner`); `staffId` — расписание без аккаунта, которое привяжется к принявшему.
-- Ссылку открывают под `/invitations/:token`, не под `/businesses/:businessId` (держатель ещё не участник): `GET` (публичный) — бизнес, роль, кто пригласил; `POST accept` — вошедший аккаунт; `POST sign-up` (публичный, лимит регистрации) — новый аккаунт. Траты приглашения и членство — одна транзакция: условный UPDATE пускает только одно из одновременных принятий, а отказ (уже участник, расписание занято, email занят) откатывает трату — ссылка остаётся рабочей. Использованная, отозванная, просроченная и выдуманная ссылка — один и тот же 404.
-- Приглашение действует, пока у пригласившего есть право его дать: удаление участника отзывает все его ожидающие приглашения, смена роли — те, что новая роль выдать не может (`rolesManagedBy`), в той же транзакции. Принятие ссылки с расписанием отзывает остальные ссылки на это расписание. Удаление аккаунта (когда появится) должно отзывать так же: `invited_by_id` там станет NULL, и проверить пригласившего будет не по чему.
-- Услуг нет (E4 отменён): клиент записывается к мастеру на время, а что делать в это время, решают на месте. Что можно забронировать, задаёт график мастера (`src/schedule`) в одном из двух **режимов** (`staff.schedule_mode`, `PUT …/schedule-mode`; меняет тот, кто может менять этот график). Смена режима ничего не удаляет: график другого режима хранится и в слоты не попадает.
-  - **HOURS** (салон: «Пн 10:00–19:00, по 60 минут», на слот один человек): **недельные окна** (`weekly_windows`: день недели, начало по часам бизнеса, длина — может переходить через полночь, шаг слота) и **дни-замены** (`day_overrides`: дата по календарю бизнеса и свои окна; они целиком заменяют недельные слоты, которые начинаются в эту дату, без окон — выходной). Неделя сохраняется целиком (`PUT …/weekly-windows`): пересечения отклоняет схема (`firstOverlap`, неделя — кольцо), две одновременные записи одной недели по очереди проходят блокировку строки `staff`. Окна дня-замены проверяются только между собой: окно, уходящее за полночь, с окнами следующего дня (недельными или его заменой) не сверяется, и там, где они накладываются, `freeSlots` молча оставляет более ранние слоты.
-  - **GROUPS** (спортшкола: «Футбол, дети 7–10, Вт и Чт 15:00–16:00, до 12 человек»): **группы** (`groups`: название, описание — как подготовиться, что взять, — дни недели, время, мест), **отмены** занятия группы на дату (`group_cancellations`) и **разовые занятия** (`one_off_sessions`). Мастер ведёт одно занятие за раз: каждая запись, которая может дать пересечение (группа, разовое занятие, снятие отмены), берёт блокировку строки `staff`, пишет и проверяет получившееся чистыми `groupConflict` / `sessionConflict` (`group-conflicts.ts`); конфликт — 409 `scheduleConflictSchema` с `conflictsWith` (что задето и когда), транзакция откатывает запись. Пересечения групп держит только этот код: «группа против группы по кольцу недели с переводом часов» в `EXCLUDE` не выражается, поэтому запись в `groups` / `group_cancellations` в обход сервиса (сид, ручной SQL) может их пересечь. Разовые занятия между собой проверяет тот же код до вставки, а нижним уровнем держит `EXCLUDE USING gist` (`btree_gist` включён, он нужен и записям E6); 23P01 (строка мимо сервиса) различается по коду и модели (`violatedExclusion`, понадобится записям E6): поля с именем ограничения адаптер для 23P01 не даёт, а текст сообщения зависит от `lc_messages` сервера. Поэтому на таблице не больше одного `EXCLUDE`.
-  - **Отгулы** (`time_offs`) — в обоих режимах.
-- Свободные слоты — чистая функция `freeSlots` (`src/schedule/slots.ts`) только на Intl: слот начинается по часам бизнеса и длится `slotMinutes` настоящего времени; начало, которое перевод часов перепрыгивает, пропускается, повторяющееся — берётся первое; слоты одного мастера не пересекаются (весной слот до пропущенного часа длится дольше по часам — следующий за ним отбрасывается); слот относится к дню, в который начинается. Смещение пояса считается раз на день (`clockOf`), Intl на каждый слот не вызывается. Режимов функция не знает: сервис отдаёт ей только источники режима каждого мастера. Слот группы — одна встреча (`groupOccurrences`: если перевод часов перепрыгивает её начало, в этот день группы нет), слот разового занятия — всё занятие. У каждого слота `capacity` (в HOURS — 1), `booked` (0 до записей E6), `groupId` / `oneOffSessionId`. Отгулы (и записи из E6) вычитаются. Менять её — только с тестами на переход на летнее время и через полночь.
+- Prisma, миграции, таблицы — скилл `back-prisma`; владелец, `Staff`/`Membership`, приглашения — `back-team`; график и слоты — `back-schedule`.
 - `APP_URL` — адрес фронта, из него строятся ссылки, которые отдаёт API (приглашения); путь сохраняется (`invitationLink`). В production обязателен, иначе ссылки вели бы на localhost; в остальных окружениях по умолчанию dev-сервер Vite.
-- `src/prisma/` — `PrismaService`, глобальный модуль.
 - `src/app.setup.ts` — `configureApp()`: то, что нужно приложению сверх `AppModule` (сейчас `enableCsrfProtection()`). Вызывают и `main.ts`, и `test/test-app.ts`, чтобы тесты шли с тем же, что и прод. Настройку, которую можно выразить провайдером (`APP_PIPE`, `APP_GUARD`), кладём в `AppModule`, а не сюда.
 - Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
 - Логи — `nestjs-pino`, не `console.log`. Ошибку кладём под ключ `err` (`logger.warn({ err: error }, …)`): только его pino разбирает в тип, сообщение и стек, под другим ключом `Error` выйдет в лог как `{}`.
 
-### Вход и сессии
+### Вход, доступ, ввод, ошибки
 
-- `@nestjs/authentication`: глобальный guard, каждый маршрут требует входа, кроме помеченных `@Public()` (health, sign-up, sign-in, sign-out). Новый публичный маршрут — осознанное решение.
-- Выход идемпотентен: 204 и стёртая кука, даже если сессия уже истекла. Регистрация, у которой аккаунт создан, а сессия не создалась, отвечает 201 без куки (фронт увидит 401 на `GET /me` и отправит на вход), а не 500.
-- Сессия — HttpOnly-кука `__Host-sid` (Secure, SameSite=Lax), 30 дней максимум, 7 дней без активности. В разработке с телефона по LAN (обычный HTTP не с localhost) браузер Secure-куку не сохранит: `SESSION_COOKIE_SECURE=false` даёт `sid` без Secure; в production конфиг такое значение не пропускает. В базе (`sessions`, `src/auth/prisma-session.store.ts`) лежит SHA-256 токена, не токен. Хранилище обязано выполнять контракт пакета: `test/session-store.int-spec.ts` гоняет `authenticationStoreContract` с гонками на Postgres — менять хранилище только вместе с ним.
-- Текущий пользователь — `@CurrentUser()` / `AuthenticationContext` (тип `AuthUser`, `src/auth/auth-types.ts`): id, email, name, без пароля. Хранилище читает его вместе с сессией одним запросом.
-- Вход сообщает одно и то же на неверный пароль и неизвестный email, и `CredentialsService` тратит на оба одинаковое время (`PasswordHasher.verify` с пустым хэшем).
-- Запросы, меняющие данные, с чужого сайта отклоняются (403) до обработчика: `enableCsrfProtection()` в `configureApp()`, плюс сам `SignInService`. Фронт ходит в API через proxy своего dev-сервера с того же origin, поэтому `trustedOrigins` не нужен; если фронт и API окажутся на разных origin, его список — в оба места. Proxy фронта не должен переписывать `Host` (`changeOrigin: true` в Vite): с телефона по LAN по обычному HTTP браузер не шлёт `Sec-Fetch-Site`, проверка сравнивает `Origin` с `Host`, и каждый POST получает 403. На localhost этого не видно.
-- Лимиты — `@nestjs/throttler`, глобальный guard в `AppModule` (до guard входа, так что подобранные куки тоже считаются): `default` — по IP (100 в минуту, на входе 30 за 15 минут, на регистрации 10 в час). Лимиты по аккаунту (`src/auth/account-limits.ts`) включаются только декоратором `@CountPerAccount()` — на маршрутах, которые проверяют пароль: `account` — по email и IP (5 за 15 минут), `email` — только по email, с любых адресов (50 в час). Порог `email` высокий намеренно: кто знает адрес, может исчерпать его и на час закрыть владельцу вход по паролю.
-- Лимиты считают по `req.ip`. За reverse proxy (nginx, балансировщик) задайте `TRUST_PROXY` — число прокси перед API, иначе все клиенты делят счётчики прокси. Не `true`: тогда клиент сам пишет себе IP в `X-Forwarded-For` и обнуляет лимиты.
-- Счётчики в памяти процесса; общее хранилище (Redis) — с первым деплоем на несколько инстансов (E1). В тестах `createTestApp()` счётчики выключены, `createTestApp({ throttle: true })` — настоящие.
+Каждый маршрут требует входа (`@Public()` — осознанное решение) и явной проверки (`@Can…`); под `/businesses/:businessId` — `@MemberOfBusiness()`. Вход и лимиты — скилл `back-auth`, доступ и роли — `back-access`, схемы и ответы об ошибках — `back-api-contract`.
 
-### Доступ к бизнесу
-
-- `@nestjs/authorization`, глобальный guard после guard входа (`AuthorizationModule.forRoot()` в `AppModule` строго после `AuthenticationModule`). Он запрещает по умолчанию: обработчик без `@Can(...)`, `@Can.Anyone()` или `@Public()` отвечает 403 всем. Новый маршрут объявляет проверку явно; `@Can.Anyone()` — «любой вошедший», только для данных о самом себе (`GET /me`). Исключение — `POST /invitations/:token/accept`: он меняет чужой бизнес, но проверка там — сам токен (256 бит, одноразовый), а держатель ссылки ещё не участник.
-- Всё, что относится к одному бизнесу, живёт под `/businesses/:businessId/...`, и контроллер помечен `@MemberOfBusiness()` (`src/business/business.policy.ts`): `BusinessPolicy.member` пускает только участника этого бизнеса. Гость — 401, чужой бизнес, несуществующий и не-UUID — одинаковые 403: ответ не выдаёт, какие id существуют.
-- Guard не заменяет фильтр: запросы сервиса всё равно идут с `businessId` (и, где читается от имени пользователя, через его членство).
-- Роли — способности, не проверки в сервисах. Кто что может — `src/business/roles.ts`: таблица `manages` (кого какая роль приглашает, переводит в другую роль и удаляет: владелец — админов и мастеров, админ — мастеров, владельца — никто) и выведенные из неё способности (`manageTeam` — у кого `manages` не пуст). У `BusinessPolicy` на каждую способность свой метод, на маршруте — `@MayInBusiness('manageTeam')` поверх `@MemberOfBusiness()` класса. Guard проверяет класс, затем метод, поэтому чужого всё равно отклоняет `member`, а участника без права — способность. Проверку, которой нужна роль из тела запроса или из строки базы (`BusinessPolicy.manageRole`), сервис вызывает через `AuthorizationService.authorize()` — она отвечает тем же 403. Расписание считается за его участника, расписание без аккаунта — за мастера; своё расписание участник с `manageTeam` меняет всегда (`StaffService.authorizeFor`).
-- `@Public()` или `@Can.Anyone()` на методе снимает `@MemberOfBusiness()` его класса (так устроен `@nestjs/authorization`). Поэтому под `/businesses/:businessId` их нет; публичное (страница записи) живёт под своим префиксом, `/book/:slug`. `@MemberOfBusiness()` на маршруте без `:businessId` (`:id`) — ошибка программиста: 500 с понятным текстом в логе, не 403.
-- `test/business-access.int-spec.ts` держит это машиной: обходит все маршруты приложения с `:businessId` и требует, чтобы чужого на каждом отклонила именно `BusinessPolicy.member` (по `AuthorizationEvents`; одного кода 403 мало — его отдаёт и сервис, возможно уже что-то изменив); проверяет, что чужой бизнес останавливается до обработчика, а маршрут без проверки закрыт для вошедшего.
-
-### Связи внутри бизнеса
-
-Когда у таблицы два родителя из одного бизнеса (запись: `business_id` + `location_id`, `staff_id`, `client_id`), база должна не дать записи одного бизнеса сослаться на филиал или мастера другого. Родитель объявляет `@@unique([businessId, id])`, ребёнок ссылается составным ключом `(business_id, location_id) → locations(business_id, id)`. Вводим с первой такой таблицей (E5–E6).
-
-### Удаление данных
-
-Договорённость из ревью #1, до появления сценариев удаления:
-
-1. Бизнес из приложения не удаляется, а закрывается: отметка о закрытии, публичная страница и новые записи выключены, история остаётся. Колонку добавляем вместе с этим сценарием (вероятно, E11), не раньше.
-2. Каскад от `businesses` — только для полного стирания: тесты, ручная чистка, будущая задача по сроку хранения данных.
-3. Таблицы с историей (записи — E6, платежи — E10) ссылаются на клиентов и мастеров через `ON DELETE RESTRICT`: удаление мастера или клиента не должно молча стирать его прошлые записи.
-4. Окна графика и отгулы мастера — шаблон, а не история: уходят вместе с его `Staff` (CASCADE). Сам `Staff` архивируется.
-5. Персональные данные клиента по запросу (152-ФЗ, PDPA) не «мягко удаляются», а обезличиваются — решаем в E8 вместе с юридической частью (E14).
-
-### Ввод на границе API
-
-- Часовой пояс бизнеса приводится в zod-схеме запроса к каноническому имени: `canonicalTimeZone` (`src/common/time-zone.ts`) берёт `resolvedOptions().timeZone` у `Intl.DateTimeFormat` (`europe/moscow` → `Europe/Moscow`) и отвергает смещения. `+03:00` Intl принимает, а Postgres читает как POSIX с обратным знаком: `AT TIME ZONE '+03:00'` уедет на 6 часов. Не `Intl.supportedValuesOf('timeZone')`: там только канонические имена, без `UTC` и старых алиасов. В базе CHECK не ставим — он зависел бы от версии tzdata на сервере.
-- У каждой строки в схеме есть верхний предел длины. Слишком длинное значение — это 400 из схемы, а не 500 из уникального индекса Postgres. Пароль ограничен и в байтах после NFKC (4096): иначе `PasswordHasher.hash` бросит исключение.
-- Email и slug приводятся к нижнему регистру до записи; CHECK в базе — страховка, а не основная проверка.
-
-### Ответы об ошибках
-
-- 400 — тело не прошло zod-схему (`StandardSchemaValidationPipe`, подключён как `APP_PIPE` в `AppModule`, а не в `main.ts`, чтобы его получал любой запуск, включая тесты): `message` — массив строк вида `business.timeZone: Unknown IANA time zone`, путь поля перед двоеточием.
-- 409 — занято уникальное значение: `{ statusCode, error, message, field }`, `field` — имя поля формы. Ошибку P2002 сопоставляем по имени ограничения (`users_email_key` → `email`, хелпер `src/prisma/unique-violation.ts`), не по тексту: адаптер pg сообщает индекс, а не колонки.
-- У 400 и 409 в Swagger есть схема тела (`validationErrorSchema`, `conflictErrorSchema` из `src/common/api-errors.ts`), чтобы Orval сгенерировал фронту тип `field`.
-- Регистрация сообщает, что email занят: обычный компромисс ради удобства. Вход (sign-in) так не делает: на неверный email и неверный пароль один и тот же ответ.
+- **Guard не заменяет фильтр:** любой запрос к базе внутри бизнеса идёт с `businessId` в `where` — иначе данные одного бизнеса станут видны другому, и guard этого не поймает.
+- `@Public()` или `@Can.Anyone()` на методе молча снимает `@MemberOfBusiness()` с класса — под `/businesses/:businessId` их нет.
+- У каждой строки в zod-схеме запроса есть верхний предел длины (иначе 500 из индекса Postgres вместо 400).
 
 ### Проверки
 
