@@ -19,6 +19,8 @@ const timeOffUrl = (businessId: string, staffId: string) => `${staffUrl(business
 const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
 const modeUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/schedule-mode`;
 const overridesUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/day-overrides`;
+const groupsUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/groups`;
+const sessionsUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/one-off-sessions`;
 const slotsUrl = (businessId: string) => `/businesses/${businessId}/slots`;
 
 // A Monday far enough ahead that its slots are never in the past. The business is in Moscow (UTC+3).
@@ -299,6 +301,209 @@ describe('the day overrides of a master', () => {
       .set('Cookie', owner.cookie)
       .send({ windows: [] })
       .expect(404);
+  });
+});
+
+describe('the groups of a master', () => {
+  // Tue and Thu 15:00–16:00 Moscow (12:00–13:00 UTC).
+  const football = {
+    title: 'Football, kids 7–10',
+    description: 'Bring water and shin guards',
+    weekdays: [4, 2],
+    startMinute: 15 * 60,
+    durationMinutes: 60,
+    capacity: 12,
+  };
+  const masterclass = {
+    title: 'Masterclass',
+    startsAt: '2030-01-08T12:30:00.000Z', // Tue 15:30 Moscow
+    endsAt: '2030-01-08T14:00:00.000Z',
+    capacity: 30,
+  };
+
+  const coach = async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    const as = (req: request.Test) => req.set('Cookie', owner.cookie);
+    return {
+      owner,
+      anna,
+      as,
+      groups: groupsUrl(owner.business.id, anna),
+      sessions: sessionsUrl(owner.business.id, anna),
+    };
+  };
+
+  it('are added, listed with their cancellations, changed and removed', async () => {
+    const { as, groups } = await coach();
+
+    const added = await as(http().post(groups).send(football)).expect(201);
+    expect(added.body).toEqual({ id: expect.any(String), ...football, weekdays: [2, 4], cancellations: [] });
+    const url = `${groups}/${added.body.id}`;
+
+    await as(http().put(`${url}/cancellations/2030-01-08`)).expect(200);
+    await as(http().put(`${url}/cancellations/2030-01-08`)).expect(200); // again: still one
+    await as(http().put(`${url}/cancellations/2030-01-09`)).expect(400); // a Wednesday: it doesn't meet
+    await as(http().get(groups))
+      .expect(200)
+      .expect([{ ...added.body, cancellations: ['2030-01-08'] }]);
+
+    const changed = { ...football, description: null, capacity: 4 };
+    await as(http().put(url).send(changed))
+      .expect(200)
+      .expect({ ...added.body, ...changed, weekdays: [2, 4], cancellations: ['2030-01-08'] });
+
+    await as(http().delete(`${url}/cancellations/2030-01-08`)).expect(204);
+    await as(http().delete(`${url}/cancellations/2030-01-08`)).expect(404);
+    await as(http().delete(url)).expect(204);
+    await as(http().get(groups)).expect(200).expect([]);
+  });
+
+  it('refuse a group that meets at the time of another with 409 naming it', async () => {
+    const { as, groups } = await coach();
+    const first = await as(http().post(groups).send(football)).expect(201);
+
+    const res = await as(
+      http()
+        .post(groups)
+        .send({ ...football, title: 'Tennis', weekdays: [4, 6], startMinute: 15 * 60 + 30 }),
+    ).expect(409);
+    expect(res.body).toEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: 'Overlaps «Football, kids 7–10»',
+      field: 'startMinute',
+      conflictsWith: { kind: 'group', id: first.body.id, title: 'Football, kids 7–10', date: null },
+    });
+    await as(
+      http()
+        .post(groups)
+        .send({ ...football, title: 'Tennis', weekdays: [5] }),
+    ).expect(201);
+  });
+
+  it('take a one-off session over a meeting only once that date is cancelled', async () => {
+    const { as, groups, sessions } = await coach();
+    const group = await as(http().post(groups).send(football)).expect(201);
+
+    const res = await as(http().post(sessions).send(masterclass)).expect(409);
+    expect(res.body).toMatchObject({
+      field: 'startsAt',
+      conflictsWith: { kind: 'group', id: group.body.id, date: '2030-01-08' },
+    });
+
+    await as(http().put(`${groups}/${group.body.id}/cancellations/2030-01-08`)).expect(200);
+    const session = await as(http().post(sessions).send(masterclass)).expect(201);
+    expect(session.body).toEqual({ id: expect.any(String), ...masterclass, description: null });
+
+    // Un-cancelling would put the meeting under the session: refused, the cancellation stays.
+    const undo = await as(http().delete(`${groups}/${group.body.id}/cancellations/2030-01-08`)).expect(409);
+    expect(undo.body).toMatchObject({ field: 'date', conflictsWith: { kind: 'oneOffSession', id: session.body.id } });
+    await as(http().get(groups))
+      .expect(200)
+      .expect([{ ...group.body, cancellations: ['2030-01-08'] }]);
+  });
+
+  it('refuse moving a group onto a one-off session', async () => {
+    const { as, groups, sessions } = await coach();
+    const group = await as(
+      http()
+        .post(groups)
+        .send({ ...football, startMinute: 18 * 60 }),
+    ).expect(201);
+    await as(http().post(sessions).send(masterclass)).expect(201);
+
+    const res = await as(http().put(`${groups}/${group.body.id}`).send(football)).expect(409);
+    expect(res.body).toMatchObject({ field: 'startMinute', conflictsWith: { kind: 'oneOffSession' } });
+  });
+
+  it('give one 201 and one 409 when two one-off sessions race for one time', async () => {
+    const { as, sessions } = await coach();
+
+    const answers = await Promise.all([
+      as(http().post(sessions).send(masterclass)),
+      as(http().post(sessions).send(masterclass)),
+    ]);
+
+    expect(answers.map((res) => res.status).sort((a, b) => a - b)).toEqual([201, 409]);
+    expect(answers.find((res) => res.status === 409)?.body).toMatchObject({ conflictsWith: { kind: 'oneOffSession' } });
+  });
+
+  it('refuse a bad field with 400', async () => {
+    const { as, groups, sessions } = await coach();
+    const refused = async (url: string, body: object, field: string) => {
+      const res = await as(http().post(url).send(body)).expect(400);
+      expect(res.body.message).toEqual([expect.stringMatching(new RegExp(`^${field}: `))]);
+    };
+
+    await refused(groups, { ...football, capacity: 0 }, 'capacity');
+    await refused(groups, { ...football, capacity: 1001 }, 'capacity');
+    await refused(groups, { ...football, weekdays: [] }, 'weekdays');
+    await refused(groups, { ...football, title: 'x'.repeat(101) }, 'title');
+    await refused(groups, { ...football, title: '  ' }, 'title');
+    await refused(groups, { ...football, description: 'x'.repeat(2001) }, 'description');
+    await refused(sessions, { ...masterclass, endsAt: masterclass.startsAt }, 'endsAt');
+    await refused(sessions, { ...masterclass, endsAt: '2030-01-09T13:00:00.000Z' }, 'endsAt');
+    await refused(sessions, { ...masterclass, startsAt: 'x' }, 'startsAt');
+  });
+
+  it('list one-off sessions not over yet, earliest first, and remove them', async () => {
+    const { owner, anna, as, sessions } = await coach();
+    await app.get(PrismaService).oneOffSession.create({
+      data: {
+        businessId: owner.business.id,
+        staffId: anna,
+        title: 'Old',
+        startsAt: new Date('2020-01-07T12:00:00Z'),
+        endsAt: new Date('2020-01-07T13:00:00Z'),
+        capacity: 5,
+      },
+    });
+    const later = await as(
+      http()
+        .post(sessions)
+        .send({ ...masterclass, startsAt: '2030-01-09T12:00:00.000Z', endsAt: '2030-01-09T13:00:00.000Z' }),
+    ).expect(201);
+    const sooner = await as(http().post(sessions).send(masterclass)).expect(201);
+
+    await as(http().get(sessions)).expect(200).expect([sooner.body, later.body]);
+    await as(http().delete(`${sessions}/${sooner.body.id}`)).expect(204);
+    await as(http().delete(`${sessions}/${sooner.body.id}`)).expect(404);
+  });
+
+  it('are changed by a master on their own schedule only', async () => {
+    const owner = await signUpOwner(app);
+    const master = await memberWithSchedule(owner.business.id, 'MASTER');
+    const anna = await addStaff(owner);
+    const group = await http()
+      .post(groupsUrl(owner.business.id, anna))
+      .set('Cookie', owner.cookie)
+      .send(football)
+      .expect(201);
+    const as = (req: request.Test) => req.set('Cookie', master.cookie);
+    const annas = `${groupsUrl(owner.business.id, anna)}/${group.body.id}`;
+
+    await as(http().post(groupsUrl(owner.business.id, anna)).send(football)).expect(403);
+    await as(http().put(annas).send(football)).expect(403);
+    await as(http().delete(annas)).expect(403);
+    await as(http().put(`${annas}/cancellations/2030-01-08`)).expect(403);
+    await as(http().post(sessionsUrl(owner.business.id, anna)).send(masterclass)).expect(403);
+    await as(http().get(groupsUrl(owner.business.id, anna))).expect(200);
+    await as(http().post(groupsUrl(owner.business.id, master.staffId)).send(football)).expect(201);
+  });
+
+  it("can't be reached through another master's or another business's address", async () => {
+    const { owner, as, groups } = await coach();
+    const boris = await addStaff(owner, 'Boris');
+    const group = await as(http().post(groups).send(football)).expect(201);
+    const elsewhere = await addStaff(await signUpOwner(app));
+    const borisUrl = `${groupsUrl(owner.business.id, boris)}/${group.body.id}`;
+
+    await as(http().put(borisUrl).send(football)).expect(404);
+    await as(http().delete(borisUrl)).expect(404);
+    await as(http().put(`${borisUrl}/cancellations/2030-01-08`)).expect(404);
+    await as(http().get(groupsUrl(owner.business.id, elsewhere))).expect(404);
+    await as(http().get(sessionsUrl(owner.business.id, elsewhere))).expect(404);
   });
 });
 

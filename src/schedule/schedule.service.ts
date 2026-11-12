@@ -4,7 +4,8 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import { addDays, DAY, dateOfWall, type LocalDate, wallAt, wallOfDate } from './local-time.js';
+import { dateColumn, localDateOf, withIsoTimes } from './db-values.js';
+import { addDays, DAY, type LocalDate, todayIn, wallOfDate } from './local-time.js';
 import {
   type DayOverrideDto,
   type DayOverrideInput,
@@ -22,21 +23,11 @@ import { freeSlots } from './slots.js';
 const weeklySelect = { weekday: true, startMinute: true, durationMinutes: true, slotMinutes: true, title: true };
 const weeklyOrder = [{ weekday: 'asc' }, { startMinute: 'asc' }] as const;
 
-// A DATE column comes back as midnight UTC of that day.
-const localDate = (date: Date): LocalDate => date.toISOString().slice(0, 10);
-const dateColumn = (date: LocalDate) => new Date(`${date}T00:00:00Z`);
-
 // Written only through dayOverrideInput; read back through the same shape, not cast.
 const dayWindows = z.array(dayWindowSchema);
 const toDayOverride = ({ date, windows }: { date: Date; windows: unknown }): DayOverrideDto => ({
-  date: localDate(date),
+  date: localDateOf(date),
   windows: dayWindows.parse(windows),
-});
-
-const withIsoTimes = <T extends { startsAt: Date; endsAt: Date }>({ startsAt, endsAt, ...rest }: T) => ({
-  ...rest,
-  startsAt: startsAt.toISOString(),
-  endsAt: endsAt.toISOString(),
 });
 
 @Injectable()
@@ -131,7 +122,7 @@ export class ScheduleService {
       where: { id: businessId },
       select: { timeZone: true },
     });
-    return dateOfWall(wallAt(timeZone, now.getTime()));
+    return todayIn(timeZone, now);
   }
 
   // The ones not over yet, earliest first.
@@ -192,7 +183,7 @@ export class ScheduleService {
       weekly,
       dayOverrides: overrides.map((override) => ({ staffId: override.staffId, ...toDayOverride(override) })),
       groups,
-      cancellations: cancellations.map(({ groupId, date }) => ({ groupId, date: localDate(date) })),
+      cancellations: cancellations.map(({ groupId, date }) => ({ groupId, date: localDateOf(date) })),
       oneOffSessions,
       busy,
       from,
