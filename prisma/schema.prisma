@@ -254,8 +254,8 @@ model DayOverride {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
 
-  @@unique([staffId, date])
-  @@index([businessId, staffId, date])
+  /// With business_id, so a write by it filters by the business like every other query.
+  @@unique([businessId, staffId, date])
   @@map("day_overrides")
 }
 

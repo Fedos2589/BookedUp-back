@@ -101,7 +101,7 @@ export class ScheduleService {
   ): Promise<DayOverrideDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     const saved = await this.prisma.dayOverride.upsert({
-      where: { staffId_date: { staffId, date: dateColumn(date) } },
+      where: { businessId_staffId_date: { businessId, staffId, date: dateColumn(date) } },
       create: { businessId, staffId, date: dateColumn(date), windows },
       update: { windows },
       select: { date: true, windows: true },

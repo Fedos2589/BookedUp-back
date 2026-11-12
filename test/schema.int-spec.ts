@@ -302,7 +302,7 @@ describe('the schedule in groups mode', () => {
     await override();
 
     const error = await override().catch((e: unknown) => e);
-    expect(violatedUniqueConstraint(error)).toBe('day_overrides_staff_id_date_key');
+    expect(violatedUniqueConstraint(error)).toBe('day_overrides_business_id_staff_id_date_key');
   });
 
   it('refuses a cancellation that points at a group of another business', async () => {
