@@ -27,6 +27,8 @@ const session = (startsAt: string, endsAt: string): OneOffSession => ({
 });
 
 const nothing = { groups: [], sessions: [], cancellations: [] };
+// Before every session these tests use (2030).
+const now = new Date('2026-11-12T00:00:00Z');
 
 describe('groupConflict', () => {
   const tennis = group({ id: '00000000-0000-7000-8000-0000000000f2', title: 'Tennis', weekdays: [4, 6] });
@@ -34,7 +36,7 @@ describe('groupConflict', () => {
   it('finds a group that meets at the same time on a shared weekday', () => {
     const candidate = group({ startMinute: 15 * 60 + 30 });
 
-    expect(groupConflict(candidate, { ...nothing, groups: [tennis] }, timeZone)).toEqual({
+    expect(groupConflict(candidate, { ...nothing, groups: [tennis] }, timeZone, now)).toEqual({
       kind: 'group',
       id: tennis.id,
       title: 'Tennis',
@@ -45,21 +47,33 @@ describe('groupConflict', () => {
   it('lets groups on different weekdays, or one after another, be', () => {
     const others = { ...nothing, groups: [tennis] };
 
-    expect(groupConflict(group({ weekdays: [2, 5] }), others, timeZone)).toBeUndefined();
-    expect(groupConflict(group({ startMinute: 16 * 60 }), others, timeZone)).toBeUndefined();
+    expect(groupConflict(group({ weekdays: [2, 5] }), others, timeZone, now)).toBeUndefined();
+    expect(groupConflict(group({ startMinute: 16 * 60 }), others, timeZone, now)).toBeUndefined();
   });
 
   it('finds Sunday 23:00 for two hours overlapping Monday 00:30 (the week is a ring)', () => {
     const lateSunday = group({ weekdays: [7], startMinute: 23 * 60, durationMinutes: 120 });
     const earlyMonday = group({ id: tennis.id, title: 'Tennis', weekdays: [1], startMinute: 30 });
 
-    expect(groupConflict(lateSunday, { ...nothing, groups: [earlyMonday] }, timeZone)?.id).toBe(tennis.id);
+    expect(groupConflict(lateSunday, { ...nothing, groups: [earlyMonday] }, timeZone, now)?.id).toBe(tennis.id);
+  });
+
+  it('lets a one-off session that is over be: the group meets after it', () => {
+    // Tue 2030-01-08 15:00 Moscow is 12:00 UTC; the session over it ended at 14:00 UTC.
+    const done = session('2030-01-08T12:30:00Z', '2030-01-08T14:00:00Z');
+
+    expect(
+      groupConflict(group({}), { ...nothing, sessions: [done] }, timeZone, new Date('2030-01-08T14:00:00Z')),
+    ).toBeUndefined();
+    expect(
+      groupConflict(group({}), { ...nothing, sessions: [done] }, timeZone, new Date('2030-01-08T13:59:00Z'))?.id,
+    ).toBe(done.id);
   });
 
   it('does not compare a group with itself', () => {
     const candidate = group({});
 
-    expect(groupConflict(candidate, { ...nothing, groups: [candidate] }, timeZone)).toBeUndefined();
+    expect(groupConflict(candidate, { ...nothing, groups: [candidate] }, timeZone, now)).toBeUndefined();
   });
 
   it('finds a one-off session over one of its meetings, unless that date is cancelled', () => {
@@ -67,7 +81,7 @@ describe('groupConflict', () => {
     const masterclass = session('2030-01-08T12:30:00Z', '2030-01-08T14:00:00Z');
     const candidate = group({});
 
-    expect(groupConflict(candidate, { ...nothing, sessions: [masterclass] }, timeZone)).toEqual({
+    expect(groupConflict(candidate, { ...nothing, sessions: [masterclass] }, timeZone, now)).toEqual({
       kind: 'oneOffSession',
       id: masterclass.id,
       title: 'Masterclass',
@@ -75,7 +89,7 @@ describe('groupConflict', () => {
     });
     const cancelled = [{ groupId: candidate.id, date: '2030-01-08' }];
     expect(
-      groupConflict(candidate, { ...nothing, sessions: [masterclass], cancellations: cancelled }, timeZone),
+      groupConflict(candidate, { ...nothing, sessions: [masterclass], cancellations: cancelled }, timeZone, now),
     ).toBeUndefined();
   });
 });

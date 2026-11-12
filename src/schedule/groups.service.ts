@@ -75,7 +75,7 @@ export class GroupsService {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     const id = await this.underLock(businessId, staffId, now, async (tx, check) => {
       const group = await tx.group.create({ data: { businessId, staffId, ...input }, select: groupSelect });
-      await check((schedule, timeZone) => groupConflict(group, schedule, timeZone), 'startMinute');
+      await check((schedule, timeZone) => groupConflict(group, schedule, timeZone, now), 'startMinute');
       return group.id;
     });
     return this.groupOf(businessId, staffId, id, now);
@@ -103,7 +103,7 @@ export class GroupsService {
         DELETE FROM group_cancellations
         WHERE business_id = ${businessId}::uuid AND group_id = ${groupId}::uuid
           AND NOT (EXTRACT(ISODOW FROM date)::smallint = ANY (${group.weekdays}::smallint[]))`;
-      await check((schedule, timeZone) => groupConflict(group, schedule, timeZone), 'startMinute');
+      await check((schedule, timeZone) => groupConflict(group, schedule, timeZone, now), 'startMinute');
     });
     return this.groupOf(businessId, staffId, groupId, now);
   }
@@ -156,7 +156,7 @@ export class GroupsService {
         where: { businessId, groupId, date: dateColumn(date) },
       });
       if (!group || count === 0) throw new NotFoundException();
-      await check((schedule, timeZone) => groupConflict(group, schedule, timeZone), 'date');
+      await check((schedule, timeZone) => groupConflict(group, schedule, timeZone, now), 'date');
     });
   }
 

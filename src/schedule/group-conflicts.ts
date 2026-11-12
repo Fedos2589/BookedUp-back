@@ -41,11 +41,19 @@ function meetingOver(
 }
 
 // The first thing a group (new or changed) would overlap among the master's other groups and
-// their one-off sessions, or undefined. The group itself, by id, is not an «other».
-export function groupConflict(candidate: Group, others: GroupsSchedule, timeZone: string): Conflict | undefined {
+// their one-off sessions not over yet at `now`, or undefined. The group itself, by id, is not an
+// «other»; a session that is over is in the past, and the group meets after it.
+export function groupConflict(
+  candidate: Group,
+  others: GroupsSchedule,
+  timeZone: string,
+  now: Date,
+): Conflict | undefined {
   const group = others.groups.find((other) => other.id !== candidate.id && meetSameTime(candidate, other));
   if (group) return { kind: 'group', id: group.id, title: group.title, date: null };
-  const session = others.sessions.find((each) => meetingOver(candidate, each, others.cancellations, timeZone));
+  const session = others.sessions.find(
+    (each) => each.endsAt > now && meetingOver(candidate, each, others.cancellations, timeZone),
+  );
   if (session)
     return { kind: 'oneOffSession', id: session.id, title: session.title, startsAt: session.startsAt.toISOString() };
   return undefined;

@@ -520,6 +520,32 @@ describe('the groups of a master', () => {
     expect(res.body.conflictsWith).toMatchObject({ kind: 'oneOffSession', id: justOver.id });
   });
 
+  it('let a group take the weekday and time of a one-off session that is over', async () => {
+    const { owner, anna, as, groups } = await coach();
+    const hoursAgo = (n: number) => new Date(Date.now() - n * 3_600_000);
+    const startedAt = hoursAgo(2);
+    await app.get(PrismaService).oneOffSession.create({
+      data: {
+        businessId: owner.business.id,
+        staffId: anna,
+        title: 'Done',
+        startsAt: startedAt,
+        endsAt: hoursAgo(1),
+        capacity: 5,
+      },
+    });
+    // The same weekday and clock time in Moscow (UTC+3, no daylight saving).
+    const moscow = new Date(startedAt.getTime() + 3 * 3_600_000);
+    const weekday = moscow.getUTCDay() || 7;
+    const startMinute = moscow.getUTCHours() * 60 + moscow.getUTCMinutes();
+
+    await as(
+      http()
+        .post(groups)
+        .send({ ...football, weekdays: [weekday], startMinute, durationMinutes: 60 }),
+    ).expect(201);
+  });
+
   it('refuse a bad field with 400', async () => {
     const { as, groups, sessions } = await coach();
     const refused = async (url: string, body: object, field: string) => {
