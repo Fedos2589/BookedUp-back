@@ -9,8 +9,9 @@ description: Используй при работе с prisma/schema.prisma, м�
 
 - `prisma/schema.prisma` — модель данных; клиент генерируется в `src/generated/prisma` (не коммитится, не правится). Новая миграция: `npx prisma migrate dev --create-only --name <что>` → проверить SQL (дописать то, чего Prisma не выражает: CHECK, `EXCLUDE`) → `npm run db:migrate` → `npx prisma generate` (Prisma 7 не генерирует клиент сам после миграции).
 - Таблицы — snake_case во множественном числе (`@@map`), колонки — snake_case (`@map`), время — `@db.Timestamptz(3)`. Значения по умолчанию задаёт база, чтобы голый SQL (сиды, ручные правки) работал так же: id — `@default(dbgenerated("uuidv7()"))` (Postgres 18), `updated_at` — `@default(now()) @updatedAt` (при UPDATE голым SQL сам не сдвигается — обновляйте его в запросе). `test/schema.int-spec.ts` проверяет, что у каждой таблицы, кроме глобальных (`businesses`, `users`, способы входа), есть `business_id NOT NULL` и что в базе нет `timestamp` без пояса: новая глобальная таблица — осознанное исключение в этом тесте (сейчас это ещё `password_logins` и `sessions`).
-
 - `src/prisma/` — `PrismaService`, глобальный модуль.
+
+### Связи внутри бизнеса
 
 Когда у таблицы два родителя из одного бизнеса (запись: `business_id` + `location_id`, `staff_id`, `client_id`), база должна не дать записи одного бизнеса сослаться на филиал или мастера другого. Родитель объявляет `@@unique([businessId, id])`, ребёнок ссылается составным ключом `(business_id, location_id) → locations(business_id, id)`. Вводим с первой такой таблицей (E5–E6).
 
