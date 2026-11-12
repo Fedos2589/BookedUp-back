@@ -1,3 +1,5 @@
+import { BadRequestException } from '@nestjs/common';
+
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { type LocalDate, todayIn } from './local-time.js';
 
@@ -18,4 +20,10 @@ export async function todayOfBusiness(prisma: PrismaService, businessId: string,
     select: { timeZone: true },
   });
   return todayIn(timeZone, now);
+}
+
+// A write for a day already gone would never show up in a list (they start today), so it could
+// be neither seen nor removed: refused instead, as a 400 on `date`.
+export async function refusePastDate(prisma: PrismaService, businessId: string, date: LocalDate, now: Date) {
+  if (date < (await todayOfBusiness(prisma, businessId, now))) throw new BadRequestException(['date: In the past']);
 }

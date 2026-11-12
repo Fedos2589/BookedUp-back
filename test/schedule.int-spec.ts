@@ -571,6 +571,40 @@ describe('the groups of a master', () => {
   });
 });
 
+describe('a date in the past', () => {
+  it('is refused with 400 where a write would never show up in a list', async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    const as = (req: request.Test) => req.set('Cookie', owner.cookie);
+    const group = await as(
+      http()
+        .post(groupsUrl(owner.business.id, anna))
+        .send({ title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 }),
+    ).expect(201);
+    const lastTuesday = '2020-01-07';
+
+    const override = await as(
+      http()
+        .put(`${overridesUrl(owner.business.id, anna)}/${lastTuesday}`)
+        .send({ windows: [] }),
+    ).expect(400);
+    expect(override.body.message).toEqual(['date: In the past']);
+    const cancellation = await as(
+      http().put(`${groupsUrl(owner.business.id, anna)}/${group.body.id}/cancellations/${lastTuesday}`),
+    ).expect(400);
+    expect(cancellation.body.message).toEqual(['date: In the past']);
+    const session = await as(
+      http().post(sessionsUrl(owner.business.id, anna)).send({
+        title: 'Masterclass',
+        startsAt: '2020-01-07T12:00:00.000Z',
+        endsAt: '2020-01-07T13:00:00.000Z',
+        capacity: 5,
+      }),
+    ).expect(400);
+    expect(session.body.message).toEqual(['endsAt: In the past']);
+  });
+});
+
 describe('the mode of a schedule', () => {
   it('is HOURS for a new master and is changed by whoever may change the schedule', async () => {
     const owner = await signUpOwner(app);

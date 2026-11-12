@@ -100,7 +100,10 @@ export class GroupsController {
 
   @Put('groups/:groupId/cancellations/:date')
   @ApiOkResponse({ description: 'The group, that date cancelled (again is fine)', schema: openApi(groupSchema) })
-  @ApiBadRequestResponse({ description: 'Not a date, or not a day it meets', schema: openApi(validationErrorSchema) })
+  @ApiBadRequestResponse({
+    description: 'Not a date, a date before today, or not a day it meets',
+    schema: openApi(validationErrorSchema),
+  })
   cancel(
     @CurrentUser() actor: AuthUser,
     @Param('businessId', uuid) businessId: string,
@@ -139,7 +142,10 @@ export class GroupsController {
 
   @Post('one-off-sessions')
   @ApiCreatedResponse({ description: 'Added', schema: openApi(oneOffSessionSchema) })
-  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiBadRequestResponse({
+    description: 'A field is invalid, or it is over already',
+    schema: openApi(validationErrorSchema),
+  })
   @ApiConflictResponse({
     description: 'Overlaps a meeting of a group (not cancelled) or another one-off session',
     schema: openApi(scheduleConflictSchema),

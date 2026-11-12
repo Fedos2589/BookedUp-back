@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import { dateColumn, localDateOf, todayOfBusiness, withIsoTimes } from './db-values.js';
+import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
 import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
 import {
   type DayOverrideDto,
@@ -98,8 +98,10 @@ export class ScheduleService {
     staffId: string,
     date: LocalDate,
     { windows }: DayOverrideInput,
+    now: Date,
   ): Promise<DayOverrideDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    await refusePastDate(this.prisma, businessId, date, now);
     const saved = await this.prisma.dayOverride.upsert({
       where: { businessId_staffId_date: { businessId, staffId, date: dateColumn(date) } },
       create: { businessId, staffId, date: dateColumn(date), windows },

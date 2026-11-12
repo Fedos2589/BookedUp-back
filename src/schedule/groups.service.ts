@@ -4,7 +4,7 @@ import type { AuthUser } from '../auth/auth-types.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import { dateColumn, localDateOf, todayOfBusiness, withIsoTimes } from './db-values.js';
+import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
 import { type Conflict, groupConflict, type GroupsSchedule, sessionConflict } from './group-conflicts.js';
 import type { GroupDto, GroupInput, OneOffSessionDto, OneOffSessionInput, ScheduleConflict } from './groups.schema.js';
 import { addDays, isoWeekday, type LocalDate, todayIn } from './local-time.js';
@@ -125,6 +125,7 @@ export class GroupsService {
     now: Date,
   ): Promise<GroupDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    await refusePastDate(this.prisma, businessId, date, now);
     await this.underLock(businessId, staffId, now, async (tx) => {
       const group = await tx.group.findFirst({ where: { id: groupId, businessId, staffId }, select: groupSelect });
       if (!group) throw new NotFoundException();
@@ -177,6 +178,8 @@ export class GroupsService {
     now: Date,
   ): Promise<OneOffSessionDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    // Over already: it would never be listed (sessions not over yet), so neither seen nor removed.
+    if (input.endsAt <= now) throw new BadRequestException(['endsAt: In the past']);
     // Checked before the insert, under the lock: the 409 is built from what the transaction
     // sees. The EXCLUDE stays the floor under it (a row written around this service).
     return this.underLock(businessId, staffId, now, async (tx, check) => {

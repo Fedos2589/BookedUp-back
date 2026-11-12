@@ -103,7 +103,7 @@ export class StaffScheduleController {
   @Put('day-overrides/:date')
   @ApiOkResponse({ description: 'The date as saved, added or replaced', schema: openApi(dayOverrideSchema) })
   @ApiBadRequestResponse({
-    description: 'Not a date, a window is invalid, or two windows overlap',
+    description: 'Not a date, a date before today, a window is invalid, or two windows overlap',
     schema: openApi(validationErrorSchema),
   })
   putDayOverride(
@@ -113,7 +113,7 @@ export class StaffScheduleController {
     @Param('date', { schema: localDate }) date: string,
     @Body({ schema: dayOverrideInput }) body: DayOverrideInput,
   ): Promise<DayOverrideDto> {
-    return this.schedule.putDayOverride(actor, businessId, staffId, date, body);
+    return this.schedule.putDayOverride(actor, businessId, staffId, date, body, new Date());
   }
 
   @Delete('day-overrides/:date')
