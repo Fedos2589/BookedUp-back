@@ -35,7 +35,13 @@ describe('the team of a business', () => {
     const boris = await http().post(staffUrl(owner.business.id)).set('Cookie', owner.cookie).send({ name: 'Boris' });
 
     expect(anna.status).toBe(201);
-    expect(anna.body).toEqual({ id: expect.any(String), name: 'Anna', userId: null, archived: false });
+    expect(anna.body).toEqual({
+      id: expect.any(String),
+      name: 'Anna',
+      userId: null,
+      archived: false,
+      scheduleMode: 'HOURS',
+    });
     await http()
       .get(staffUrl(owner.business.id))
       .set('Cookie', owner.cookie)

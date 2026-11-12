@@ -1,30 +1,33 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { violatedExclusion } from '../prisma/unique-violation.js';
 import { StaffService } from '../staff/staff.service.js';
-import { DAY, wallOfDate } from './local-time.js';
-import type {
-  OneOffConflict,
-  OneOffWindowDto,
-  OneOffWindowInput,
-  SlotDto,
-  SlotsQuery,
-  TimeOffDto,
-  TimeOffInput,
-  WeeklySchedule,
-  WeeklyScheduleInput,
+import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
+import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
+import {
+  type DayOverrideDto,
+  type DayOverrideInput,
+  dayWindowSchema,
+  type ScheduleModeDto,
+  type SlotDto,
+  type SlotsQuery,
+  type TimeOffDto,
+  type TimeOffInput,
+  type WeeklySchedule,
+  type WeeklyScheduleInput,
 } from './schedule.schema.js';
 import { freeSlots } from './slots.js';
 
 const weeklySelect = { weekday: true, startMinute: true, durationMinutes: true, slotMinutes: true, title: true };
 const weeklyOrder = [{ weekday: 'asc' }, { startMinute: 'asc' }] as const;
 
-const withIsoTimes = <T extends { startsAt: Date; endsAt: Date }>({ startsAt, endsAt, ...rest }: T) => ({
-  ...rest,
-  startsAt: startsAt.toISOString(),
-  endsAt: endsAt.toISOString(),
+// Written only through dayOverrideInput; read back through the same shape, not cast.
+const dayWindows = z.array(dayWindowSchema);
+const toDayOverride = ({ date, windows }: { date: Date; windows: unknown }): DayOverrideDto => ({
+  date: localDateOf(date),
+  windows: dayWindows.parse(windows),
 });
 
 @Injectable()
@@ -33,6 +36,17 @@ export class ScheduleService {
     private readonly prisma: PrismaService,
     private readonly staff: StaffService,
   ) {}
+
+  async setMode(
+    actor: AuthUser,
+    businessId: string,
+    staffId: string,
+    { mode }: ScheduleModeDto,
+  ): Promise<ScheduleModeDto> {
+    await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    await this.prisma.staff.updateMany({ where: { id: staffId, businessId }, data: { scheduleMode: mode } });
+    return { mode };
+  }
 
   async weekly(businessId: string, staffId: string): Promise<WeeklySchedule> {
     await this.staff.findIn(businessId, staffId);
@@ -66,49 +80,42 @@ export class ScheduleService {
     return { windows: saved };
   }
 
-  // The ones not over yet, earliest first.
-  async oneOffWindows(businessId: string, staffId: string, now: Date): Promise<OneOffWindowDto[]> {
+  // From today on the business's clock, by date.
+  async dayOverrides(businessId: string, staffId: string, now: Date): Promise<DayOverrideDto[]> {
     await this.staff.findIn(businessId, staffId);
-    const windows = await this.prisma.oneOffWindow.findMany({
-      where: { businessId, staffId, endsAt: { gt: now } },
-      orderBy: { startsAt: 'asc' },
-      select: { id: true, staffId: true, startsAt: true, endsAt: true, slotMinutes: true, title: true },
+    const today = await todayOfBusiness(this.prisma, businessId, now);
+    const overrides = await this.prisma.dayOverride.findMany({
+      where: { businessId, staffId, date: { gte: dateColumn(today) } },
+      orderBy: { date: 'asc' },
+      select: { date: true, windows: true },
     });
-    return windows.map(withIsoTimes);
+    return overrides.map(toDayOverride);
   }
 
-  // Overlap with another one of the same master is the database's answer (EXCLUDE), not a read
-  // before the insert that a concurrent one could make stale.
-  async addOneOffWindow(
+  async putDayOverride(
     actor: AuthUser,
     businessId: string,
     staffId: string,
-    input: OneOffWindowInput,
-  ): Promise<OneOffWindowDto> {
+    date: LocalDate,
+    { windows }: DayOverrideInput,
+    now: Date,
+  ): Promise<DayOverrideDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    try {
-      const window = await this.prisma.oneOffWindow.create({
-        data: { businessId, staffId, ...input },
-        select: { id: true, staffId: true, startsAt: true, endsAt: true, slotMinutes: true, title: true },
-      });
-      return withIsoTimes(window);
-    } catch (error) {
-      if (violatedExclusion(error) === 'OneOffWindow') {
-        const body: OneOffConflict = {
-          statusCode: 409,
-          error: 'Conflict',
-          message: 'Overlaps another one-off window of this master',
-          field: 'startsAt',
-        };
-        throw new ConflictException(body);
-      }
-      throw error;
-    }
+    await refusePastDate(this.prisma, businessId, date, now);
+    const saved = await this.prisma.dayOverride.upsert({
+      where: { businessId_staffId_date: { businessId, staffId, date: dateColumn(date) } },
+      create: { businessId, staffId, date: dateColumn(date), windows },
+      update: { windows },
+      select: { date: true, windows: true },
+    });
+    return toDayOverride(saved);
   }
 
-  async removeOneOffWindow(actor: AuthUser, businessId: string, staffId: string, id: string): Promise<void> {
+  async removeDayOverride(actor: AuthUser, businessId: string, staffId: string, date: LocalDate): Promise<void> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    const { count } = await this.prisma.oneOffWindow.deleteMany({ where: { id, businessId, staffId } });
+    const { count } = await this.prisma.dayOverride.deleteMany({
+      where: { businessId, staffId, date: dateColumn(date) },
+    });
     if (count === 0) throw new NotFoundException();
   }
 
@@ -138,20 +145,44 @@ export class ScheduleService {
     if (count === 0) throw new NotFoundException();
   }
 
-  // Masters still on the team. The instants read are a generous margin around the days asked:
-  // a time zone is at most 14 hours from UTC, and a one-off window lasts at most a day.
+  // Masters still on the team, each from the sources of their mode only. The instants read are a
+  // generous margin around the days asked: a time zone is at most 14 hours from UTC, and a
+  // one-off session lasts at most a day; dates start the day before, for windows past midnight.
   async slots(businessId: string, { from, to, staffId }: SlotsQuery, now: Date): Promise<SlotDto[]> {
-    const staffWhere = { businessId, staff: { archivedAt: null }, ...(staffId && { staffId }) };
+    const onTeam = (scheduleMode: 'HOURS' | 'GROUPS') => ({
+      businessId,
+      staff: { archivedAt: null, scheduleMode },
+      ...(staffId && { staffId }),
+    });
+    const anyMode = { businessId, staff: { archivedAt: null }, ...(staffId && { staffId }) };
     const around = {
       startsAt: { lt: new Date(wallOfDate(to) + 3 * DAY) },
       endsAt: { gt: new Date(wallOfDate(from) - 2 * DAY) },
     };
-    const [business, weekly, oneOff, busy] = await Promise.all([
+    const dates = { gte: dateColumn(addDays(from, -1)), lte: dateColumn(to) };
+    const [business, weekly, overrides, groups, cancellations, oneOffSessions, busy] = await Promise.all([
       this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
-      this.prisma.weeklyWindow.findMany({ where: staffWhere }),
-      this.prisma.oneOffWindow.findMany({ where: { ...staffWhere, ...around } }),
-      this.prisma.timeOff.findMany({ where: { ...staffWhere, ...around } }),
+      this.prisma.weeklyWindow.findMany({ where: onTeam('HOURS') }),
+      this.prisma.dayOverride.findMany({ where: { ...onTeam('HOURS'), date: dates } }),
+      this.prisma.group.findMany({ where: onTeam('GROUPS') }),
+      this.prisma.groupCancellation.findMany({
+        where: { businessId, date: dates, group: onTeam('GROUPS') },
+        select: { groupId: true, date: true },
+      }),
+      this.prisma.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around } }),
+      this.prisma.timeOff.findMany({ where: { ...anyMode, ...around } }),
     ]);
-    return freeSlots({ timeZone: business.timeZone, weekly, oneOff, busy, from, to, notBefore: now }).map(withIsoTimes);
+    return freeSlots({
+      timeZone: business.timeZone,
+      weekly,
+      dayOverrides: overrides.map((override) => ({ staffId: override.staffId, ...toDayOverride(override) })),
+      groups,
+      cancellations: cancellations.map(({ groupId, date }) => ({ groupId, date: localDateOf(date) })),
+      oneOffSessions,
+      busy,
+      from,
+      to,
+      notBefore: now,
+    }).map(withIsoTimes);
   }
 }

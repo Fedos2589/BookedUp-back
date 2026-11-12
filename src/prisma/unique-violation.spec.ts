@@ -7,18 +7,18 @@ const exclusionError = (message: string, code = '23P01') =>
   new Prisma.PrismaClientKnownRequestError(message, {
     code: 'P2039',
     clientVersion: '7.10.1',
-    meta: { modelName: 'OneOffWindow', driverAdapterError: { name: 'DriverAdapterError', cause: { code, message } } },
+    meta: { modelName: 'OneOffSession', driverAdapterError: { name: 'DriverAdapterError', cause: { code, message } } },
   });
 
 describe('violatedExclusion', () => {
   it('names the table whose exclusion constraint refused the row', () => {
-    const english = 'conflicting key value violates exclusion constraint "one_off_windows_no_overlap"';
-    expect(violatedExclusion(exclusionError(english))).toBe('OneOffWindow');
+    const english = 'conflicting key value violates exclusion constraint "one_off_sessions_no_overlap"';
+    expect(violatedExclusion(exclusionError(english))).toBe('OneOffSession');
   });
 
   it('does not depend on the language of the server messages', () => {
-    const russian = 'конфликтующее значение ключа нарушает ограничение-исключение «one_off_windows_no_overlap»';
-    expect(violatedExclusion(exclusionError(russian))).toBe('OneOffWindow');
+    const russian = 'конфликтующее значение ключа нарушает ограничение-исключение «one_off_sessions_no_overlap»';
+    expect(violatedExclusion(exclusionError(russian))).toBe('OneOffSession');
   });
 
   it('is undefined for another database error, or not a database error', () => {

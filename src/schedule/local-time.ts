@@ -85,3 +85,5 @@ export const addDays = (date: LocalDate, days: number): LocalDate => dateOfWall(
 
 // ISO: 1 is Monday, 7 is Sunday.
 export const isoWeekday = (date: LocalDate): number => new Date(wallOfDate(date)).getUTCDay() || 7;
+
+export const todayIn = (timeZone: string, now: Date): LocalDate => dateOfWall(wallAt(timeZone, now.getTime()));

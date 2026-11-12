@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import { conflictErrorSchema } from '../common/api-errors.js';
-import { addDays, DAY, MINUTE } from './local-time.js';
+import { addDays } from './local-time.js';
 import { firstOverlap } from './weekly-overlap.js';
 
 // What a window is for («Football»); blank means nothing.
@@ -14,10 +13,10 @@ const title = z
 
 // For a check across fields: zod 4 runs an object's refine even when a field failed (the parse
 // goes on to collect every issue), so without this the check sees a raw string — 500, not 400.
-const whenFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 };
+export const whenFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 };
 
 const slotMinutes = z.int().min(5).max(1440);
-const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
+export const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
 
 export const weeklyWindowSchema = z.object({
   weekday: z.int().min(1).max(7).describe('ISO: 1 is Monday, 7 is Sunday'),
@@ -47,32 +46,39 @@ export const weeklyScheduleInput = z
   });
 export type WeeklyScheduleInput = z.infer<typeof weeklyScheduleInput>;
 
-export const oneOffWindowSchema = z.object({
-  id: z.uuid(),
-  staffId: z.uuid(),
-  startsAt: z.iso.datetime(),
-  endsAt: z.iso.datetime(),
+// Hours mode: a date's own windows. Placed on one weekday, the week-ring overlap check is a day's.
+export const dayWindowSchema = z.object({
+  startMinute: z.int().min(0).max(1439).describe("Minutes after midnight on the business's clock"),
+  durationMinutes: z.int().min(1).max(1440),
   slotMinutes,
-  title: z.string().nullable(),
 });
-export type OneOffWindowDto = z.infer<typeof oneOffWindowSchema>;
+export type DayWindowDto = z.infer<typeof dayWindowSchema>;
 
-export const oneOffWindowInput = z
-  .object({ startsAt: instant, endsAt: instant, slotMinutes, title })
-  .refine((window) => window.endsAt.getTime() - window.startsAt.getTime() <= DAY, {
-    path: ['endsAt'],
-    message: 'At most a day after startsAt',
-    ...whenFieldsValid,
-  })
-  .refine((window) => window.startsAt.getTime() + window.slotMinutes * MINUTE <= window.endsAt.getTime(), {
-    path: ['slotMinutes'],
-    message: 'Longer than the window',
-    ...whenFieldsValid,
+const dayWindowInput = dayWindowSchema.refine((window) => window.slotMinutes <= window.durationMinutes, {
+  path: ['slotMinutes'],
+  message: 'Longer than the window',
+  ...whenFieldsValid,
+});
+
+export const localDate = z.iso.date().describe("A day on the business's calendar");
+
+export const dayOverrideSchema = z.object({
+  date: localDate,
+  windows: z.array(dayWindowSchema).describe('None is a day off'),
+});
+export type DayOverrideDto = z.infer<typeof dayOverrideSchema>;
+
+export const dayOverrideInput = z
+  .object({ windows: z.array(dayWindowInput).max(48) })
+  .superRefine(({ windows }, ctx) => {
+    const overlap = firstOverlap(windows.map((window) => ({ ...window, weekday: 1 })));
+    if (overlap)
+      ctx.addIssue({ code: 'custom', path: ['windows', overlap[1]], message: `Overlaps windows.${overlap[0]}` });
   });
-export type OneOffWindowInput = z.infer<typeof oneOffWindowInput>;
+export type DayOverrideInput = z.infer<typeof dayOverrideInput>;
 
-export const oneOffConflictSchema = conflictErrorSchema(['startsAt']);
-export type OneOffConflict = z.infer<typeof oneOffConflictSchema>;
+export const scheduleModeSchema = z.object({ mode: z.enum(['HOURS', 'GROUPS']) });
+export type ScheduleModeDto = z.infer<typeof scheduleModeSchema>;
 
 export const timeOffSchema = z.object({
   id: z.uuid(),
@@ -106,6 +112,11 @@ export const slotSchema = z.object({
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   title: z.string().nullable(),
+  description: z.string().nullable(),
+  capacity: z.int().min(1).describe('How many people it is for: 1 in hours mode'),
+  booked: z.int().min(0).describe('How many have booked it; 0 until bookings exist'),
+  groupId: z.uuid().nullable().describe('The group it is a meeting of'),
+  oneOffSessionId: z.uuid().nullable().describe('The one-off session it is'),
 });
 export type SlotDto = z.infer<typeof slotSchema>;
 

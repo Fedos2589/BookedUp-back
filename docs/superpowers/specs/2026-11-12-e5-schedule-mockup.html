@@ -1,0 +1,126 @@
+<h2>«График» мастера: как разложить часы и группы?</h2>
+<p class="subtitle">
+  Оба варианта показывают одно и то же: часы приёма Пн–Пт и группу «Футбол, дети 7–10» по Вт и Чт 15:00–16:00 до 12
+  человек. Внизу — как группу увидит клиент.
+</p>
+
+<style>
+  .phone {
+    width: 340px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    padding: 14px;
+    background: #fff;
+    color: #222;
+    font-size: 13px;
+  }
+  .phone h4 {
+    margin: 10px 0 6px;
+    font-size: 15px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+  }
+  .day {
+    width: 34px;
+    font-weight: 600;
+  }
+  .t {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+  .muted {
+    color: #999;
+  }
+  .chip {
+    background: #efeaff;
+    color: #5b3fd6;
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+  .group {
+    border: 1px solid #e3dcff;
+    border-radius: 10px;
+    padding: 8px;
+    margin: 6px 0;
+  }
+  .btn {
+    display: inline-block;
+    border: 1px solid #7b5cf0;
+    color: #7b5cf0;
+    border-radius: 8px;
+    padding: 4px 10px;
+    margin-top: 6px;
+  }
+  .client {
+    border: 1px dashed #aaa;
+    border-radius: 10px;
+    padding: 8px;
+    margin-top: 10px;
+    background: #fafafa;
+  }
+</style>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Два раздела: «Часы приёма» и «Группы»</h3>
+      <p>Часы задаются по дням, как на твоём скриншоте. Группа — отдельная карточка: название, дни, время, мест.</p>
+      <div class="phone">
+        <h4>Часы приёма</h4>
+        <div class="row">
+          <span class="day">Пн</span><span class="t">10:00</span>–<span class="t">19:00</span
+          ><span class="muted">по 60 мин</span>
+        </div>
+        <div class="row">
+          <span class="day">Вт</span><span class="t">10:00</span>–<span class="t">14:00</span
+          ><span class="muted">по 60 мин</span>
+        </div>
+        <div class="row">
+          <span class="day">Ср</span><span class="t">10:00</span>–<span class="t">19:00</span
+          ><span class="muted">по 60 мин</span>
+        </div>
+        <div class="row"><span class="day">Сб</span><span class="muted">не работаю</span></div>
+        <h4>Группы</h4>
+        <div class="group"><b>Футбол, дети 7–10</b><br />Вт, Чт · 15:00–16:00 · до 12 человек</div>
+        <div class="group"><b>Большой теннис</b><br />Пн, Ср · 18:00–19:30 · до 4 человек</div>
+        <span class="btn">+ Группа</span>
+        <h4>Отдельные даты</h4>
+        <span class="btn">+ Дата</span>
+        <div class="client">
+          <span class="muted">Клиент видит в Вт, 17 ноя:</span><br />11:00 · 12:00 · 13:00<br /><span class="chip"
+            >15:00 Футбол, дети 7–10 — свободно 2 из 12</span
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Одна неделя: в каждом дне и часы, и группы</h3>
+      <p>Видно весь день сразу. Группу на несколько дней создаёшь один раз, и она появляется в каждом из них.</p>
+      <div class="phone">
+        <h4>Неделя</h4>
+        <div class="row"><span class="day">Пн</span><span class="t">10:00</span>–<span class="t">19:00</span></div>
+        <div class="row"><span class="day"></span><span class="chip">18:00–19:30 Большой теннис · 4</span></div>
+        <div class="row"><span class="day">Вт</span><span class="t">10:00</span>–<span class="t">14:00</span></div>
+        <div class="row"><span class="day"></span><span class="chip">15:00–16:00 Футбол, дети 7–10 · 12</span></div>
+        <div class="row"><span class="day">Ср</span><span class="t">10:00</span>–<span class="t">19:00</span></div>
+        <div class="row"><span class="day"></span><span class="chip">18:00–19:30 Большой теннис · 4</span></div>
+        <div class="row"><span class="day">Чт</span><span class="muted">часов нет</span></div>
+        <div class="row"><span class="day"></span><span class="chip">15:00–16:00 Футбол, дети 7–10 · 12</span></div>
+        <div class="row"><span class="day">Сб</span><span class="muted">не работаю</span></div>
+        <span class="btn">+ Часы</span> <span class="btn">+ Группа</span>
+        <h4>Отдельные даты</h4>
+        <span class="btn">+ Дата</span>
+      </div>
+    </div>
+  </div>
+</div>

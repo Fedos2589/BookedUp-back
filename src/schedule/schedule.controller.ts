@@ -2,7 +2,6 @@ import { CurrentUser } from '@nestjs/authentication';
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
-  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNoContentResponse,
@@ -18,11 +17,13 @@ import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
-  oneOffConflictSchema,
-  type OneOffWindowDto,
-  type OneOffWindowInput,
-  oneOffWindowInput,
-  oneOffWindowSchema,
+  type DayOverrideDto,
+  type DayOverrideInput,
+  dayOverrideInput,
+  dayOverrideSchema,
+  localDate,
+  type ScheduleModeDto,
+  scheduleModeSchema,
   type SlotDto,
   slotSchema,
   type SlotsQuery,
@@ -54,6 +55,18 @@ const uuid = { schema: z.uuid() };
 export class StaffScheduleController {
   constructor(private readonly schedule: ScheduleService) {}
 
+  @Put('schedule-mode')
+  @ApiOkResponse({ description: 'The mode as saved', schema: openApi(scheduleModeSchema) })
+  @ApiBadRequestResponse({ description: 'Not a mode', schema: openApi(validationErrorSchema) })
+  setMode(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('staffId', uuid) staffId: string,
+    @Body({ schema: scheduleModeSchema }) body: ScheduleModeDto,
+  ): Promise<ScheduleModeDto> {
+    return this.schedule.setMode(actor, businessId, staffId, body);
+  }
+
   @Get('weekly-windows')
   @ApiOkResponse({ description: 'The week, Monday first', schema: openApi(weeklyScheduleSchema) })
   weekly(
@@ -78,41 +91,41 @@ export class StaffScheduleController {
     return this.schedule.replaceWeekly(actor, businessId, staffId, body);
   }
 
-  @Get('one-off-windows')
-  @ApiOkResponse({ description: 'The ones not over yet, earliest first', schema: openApi(z.array(oneOffWindowSchema)) })
-  oneOffWindows(
+  @Get('day-overrides')
+  @ApiOkResponse({ description: 'From today on, by date', schema: openApi(z.array(dayOverrideSchema)) })
+  dayOverrides(
     @Param('businessId', uuid) businessId: string,
     @Param('staffId', uuid) staffId: string,
-  ): Promise<OneOffWindowDto[]> {
-    return this.schedule.oneOffWindows(businessId, staffId, new Date());
+  ): Promise<DayOverrideDto[]> {
+    return this.schedule.dayOverrides(businessId, staffId, new Date());
   }
 
-  @Post('one-off-windows')
-  @ApiCreatedResponse({ description: 'Added', schema: openApi(oneOffWindowSchema) })
-  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
-  @ApiConflictResponse({
-    description: 'Overlaps another one-off window of this master',
-    schema: openApi(oneOffConflictSchema),
+  @Put('day-overrides/:date')
+  @ApiOkResponse({ description: 'The date as saved, added or replaced', schema: openApi(dayOverrideSchema) })
+  @ApiBadRequestResponse({
+    description: 'Not a date, a date before today, a window is invalid, or two windows overlap',
+    schema: openApi(validationErrorSchema),
   })
-  addOneOffWindow(
+  putDayOverride(
     @CurrentUser() actor: AuthUser,
     @Param('businessId', uuid) businessId: string,
     @Param('staffId', uuid) staffId: string,
-    @Body({ schema: oneOffWindowInput }) body: OneOffWindowInput,
-  ): Promise<OneOffWindowDto> {
-    return this.schedule.addOneOffWindow(actor, businessId, staffId, body);
+    @Param('date', { schema: localDate }) date: string,
+    @Body({ schema: dayOverrideInput }) body: DayOverrideInput,
+  ): Promise<DayOverrideDto> {
+    return this.schedule.putDayOverride(actor, businessId, staffId, date, body, new Date());
   }
 
-  @Delete('one-off-windows/:id')
+  @Delete('day-overrides/:date')
   @HttpCode(204)
-  @ApiNoContentResponse({ description: 'Removed' })
-  removeOneOffWindow(
+  @ApiNoContentResponse({ description: 'Removed: the weekday is back' })
+  removeDayOverride(
     @CurrentUser() actor: AuthUser,
     @Param('businessId', uuid) businessId: string,
     @Param('staffId', uuid) staffId: string,
-    @Param('id', uuid) id: string,
+    @Param('date', { schema: localDate }) date: string,
   ): Promise<void> {
-    return this.schedule.removeOneOffWindow(actor, businessId, staffId, id);
+    return this.schedule.removeDayOverride(actor, businessId, staffId, date);
   }
 
   @Get('time-off')
