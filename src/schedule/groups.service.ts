@@ -3,11 +3,12 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import type { AuthUser } from '../auth/auth-types.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { violatedExclusion } from '../prisma/unique-violation.js';
 import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
 import { type Conflict, groupConflict, type GroupsSchedule, sessionConflict } from './group-conflicts.js';
 import type { GroupDto, GroupInput, OneOffSessionDto, OneOffSessionInput, ScheduleConflict } from './groups.schema.js';
-import { addDays, isoWeekday, type LocalDate, todayIn } from './local-time.js';
+import { addDays, DAY, isoWeekday, type LocalDate, todayIn } from './local-time.js';
 
 const groupSelect = {
   id: true,
@@ -182,11 +183,30 @@ export class GroupsService {
     if (input.endsAt <= now) throw new BadRequestException(['endsAt: In the past']);
     // Checked before the insert, under the lock: the 409 is built from what the transaction
     // sees. The EXCLUDE stays the floor under it (a row written around this service).
-    return this.underLock(businessId, staffId, now, async (tx, check) => {
-      await check((schedule, timeZone) => sessionConflict(input, schedule, timeZone), 'startsAt');
-      const session = await tx.oneOffSession.create({ data: { businessId, staffId, ...input }, select: sessionSelect });
-      return withIsoTimes(session);
-    });
+    try {
+      return await this.underLock(businessId, staffId, now, async (tx, check) => {
+        await check((schedule, timeZone) => sessionConflict(input, schedule, timeZone), 'startsAt');
+        const session = await tx.oneOffSession.create({
+          data: { businessId, staffId, ...input },
+          select: sessionSelect,
+        });
+        return withIsoTimes(session);
+      });
+    } catch (error) {
+      // Code and EXCLUDE disagree (a row written around this service): still a 409, not a 500.
+      if (violatedExclusion(error) !== 'OneOffSession') throw error;
+      const other = await this.prisma.oneOffSession.findFirst({
+        where: { businessId, staffId, startsAt: { lt: input.endsAt }, endsAt: { gt: input.startsAt } },
+        select: sessionSelect,
+      });
+      if (!other) throw error;
+      throw conflictError('startsAt', {
+        kind: 'oneOffSession',
+        id: other.id,
+        title: other.title,
+        startsAt: other.startsAt.toISOString(),
+      });
+    }
   }
 
   async removeOneOffSession(actor: AuthUser, businessId: string, staffId: string, id: string): Promise<void> {
@@ -196,8 +216,10 @@ export class GroupsService {
   }
 
   // One transaction behind the staff row's lock. `check` reads the master's groups-mode schedule
-  // as the write left it (sessions not over yet, cancellations from yesterday on: a session can
-  // only meet those) and throws a 409 when the rule finds a conflict.
+  // as the write left it and throws a 409 when the rule finds a conflict. What it reads reaches
+  // back as far as anything checked can: a session is not over yet but lasts up to a day, so it
+  // may start yesterday — and meet sessions that ended since, and a group meeting from the day
+  // before (past midnight), whose cancellation is dated two days ago.
   private async underLock<T>(
     businessId: string,
     staffId: string,
@@ -220,7 +242,7 @@ export class GroupsService {
           where: { id: businessId },
           select: { timeZone: true },
         });
-        const since = addDays(todayIn(timeZone, now), -1);
+        const since = addDays(todayIn(timeZone, now), -2);
         const [groups, cancellations, sessions] = await Promise.all([
           tx.group.findMany({ where: { businessId, staffId }, select: groupSelect }),
           tx.groupCancellation.findMany({
@@ -228,7 +250,7 @@ export class GroupsService {
             select: { groupId: true, date: true },
           }),
           tx.oneOffSession.findMany({
-            where: { businessId, staffId, endsAt: { gt: now } },
+            where: { businessId, staffId, endsAt: { gt: new Date(now.getTime() - DAY) } },
             select: { ...sessionSelect, staffId: true },
           }),
         ]);

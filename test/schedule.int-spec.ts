@@ -493,6 +493,33 @@ describe('the groups of a master', () => {
     await as(http().get(groups)).expect(200).expect([group.body]);
   });
 
+  it('give 409, not 500, for a session that starts in the past over one just over', async () => {
+    const { owner, anna, as, sessions } = await coach();
+    const minutes = (n: number) => new Date(Date.now() + n * 60_000);
+    const justOver = await app.get(PrismaService).oneOffSession.create({
+      data: {
+        businessId: owner.business.id,
+        staffId: anna,
+        title: 'Morning',
+        startsAt: minutes(-30),
+        endsAt: minutes(-1),
+        capacity: 5,
+      },
+    });
+
+    const res = await as(
+      http()
+        .post(sessions)
+        .send({
+          title: 'Late start',
+          startsAt: minutes(-20).toISOString(),
+          endsAt: minutes(60).toISOString(),
+          capacity: 5,
+        }),
+    ).expect(409);
+    expect(res.body.conflictsWith).toMatchObject({ kind: 'oneOffSession', id: justOver.id });
+  });
+
   it('refuse a bad field with 400', async () => {
     const { as, groups, sessions } = await coach();
     const refused = async (url: string, body: object, field: string) => {
