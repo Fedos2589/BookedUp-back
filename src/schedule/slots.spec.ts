@@ -1,4 +1,4 @@
-import { freeSlots, type OneOffWindow, type WeeklyWindow } from './slots.js';
+import { type DayOverride, freeSlots, type Group, type OneOffSession, type WeeklyWindow } from './slots.js';
 
 const anna = '00000000-0000-7000-8000-00000000000a';
 const boris = '00000000-0000-7000-8000-00000000000b';
@@ -14,12 +14,17 @@ const weekly = (window: Partial<WeeklyWindow>): WeeklyWindow => ({
 });
 
 const at = (iso: string) => new Date(iso);
+// What a slot of hours mode carries besides its time.
+const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
 const starts = (slots: { startsAt: Date }[]) => slots.map((slot) => slot.startsAt.toISOString());
 
 const base = {
   timeZone: 'Europe/Moscow',
   weekly: [] as WeeklyWindow[],
-  oneOff: [] as OneOffWindow[],
+  dayOverrides: [] as DayOverride[],
+  groups: [] as Group[],
+  cancellations: [] as { groupId: string; date: string }[],
+  oneOffSessions: [] as OneOffSession[],
   busy: [],
   from: '2026-11-16', // a Monday
   to: '2026-11-16',
@@ -31,9 +36,27 @@ describe('freeSlots', () => {
     const slots = freeSlots({ ...base, weekly: [weekly({ durationMinutes: 180 })] });
 
     expect(slots).toEqual([
-      { staffId: anna, startsAt: at('2026-11-16T07:00:00Z'), endsAt: at('2026-11-16T08:00:00Z'), title: null },
-      { staffId: anna, startsAt: at('2026-11-16T08:00:00Z'), endsAt: at('2026-11-16T09:00:00Z'), title: null },
-      { staffId: anna, startsAt: at('2026-11-16T09:00:00Z'), endsAt: at('2026-11-16T10:00:00Z'), title: null },
+      {
+        staffId: anna,
+        startsAt: at('2026-11-16T07:00:00Z'),
+        endsAt: at('2026-11-16T08:00:00Z'),
+        title: null,
+        ...oneSeat,
+      },
+      {
+        staffId: anna,
+        startsAt: at('2026-11-16T08:00:00Z'),
+        endsAt: at('2026-11-16T09:00:00Z'),
+        title: null,
+        ...oneSeat,
+      },
+      {
+        staffId: anna,
+        startsAt: at('2026-11-16T09:00:00Z'),
+        endsAt: at('2026-11-16T10:00:00Z'),
+        title: null,
+        ...oneSeat,
+      },
     ]);
   });
 
@@ -50,7 +73,13 @@ describe('freeSlots', () => {
     });
 
     expect(slots).toEqual([
-      { staffId: anna, startsAt: at('2026-11-16T14:00:00Z'), endsAt: at('2026-11-16T15:30:00Z'), title: 'Football' },
+      {
+        staffId: anna,
+        startsAt: at('2026-11-16T14:00:00Z'),
+        endsAt: at('2026-11-16T15:30:00Z'),
+        title: 'Football',
+        ...oneSeat,
+      },
     ]);
   });
 
@@ -78,72 +107,6 @@ describe('freeSlots', () => {
     ]);
     expect(starts(freeSlots({ ...base, weekly: [night], from: '2026-11-16', to: '2026-11-16' }))).toEqual([
       '2026-11-15T21:00:00.000Z',
-    ]);
-  });
-
-  it('cuts a one-off window into slots from its start', () => {
-    const slots = freeSlots({
-      ...base,
-      oneOff: [
-        {
-          staffId: anna,
-          startsAt: at('2026-11-16T15:00:00Z'),
-          endsAt: at('2026-11-16T17:30:00Z'),
-          slotMinutes: 60,
-          title: 'Extra training',
-        },
-      ],
-    });
-
-    expect(slots).toEqual([
-      {
-        staffId: anna,
-        startsAt: at('2026-11-16T15:00:00Z'),
-        endsAt: at('2026-11-16T16:00:00Z'),
-        title: 'Extra training',
-      },
-      {
-        staffId: anna,
-        startsAt: at('2026-11-16T16:00:00Z'),
-        endsAt: at('2026-11-16T17:00:00Z'),
-        title: 'Extra training',
-      },
-    ]);
-  });
-
-  it('takes the one-off slots that start on the days asked, by the business clock', () => {
-    // 22:30 UTC on the 16th is 01:30 on the 17th in Moscow.
-    const late = { staffId: anna, slotMinutes: 60, title: null };
-    const slots = freeSlots({
-      ...base,
-      oneOff: [
-        { ...late, startsAt: at('2026-11-15T21:30:00Z'), endsAt: at('2026-11-15T22:30:00Z') },
-        { ...late, startsAt: at('2026-11-16T22:30:00Z'), endsAt: at('2026-11-16T23:30:00Z') },
-      ],
-    });
-
-    expect(starts(slots)).toEqual(['2026-11-15T21:30:00.000Z']);
-  });
-
-  it('lets a one-off window take its time over the weekly slots of the same master', () => {
-    const slots = freeSlots({
-      ...base,
-      weekly: [weekly({ durationMinutes: 180 }), weekly({ staffId: boris, startMinute: 11 * 60 })],
-      oneOff: [
-        {
-          staffId: anna,
-          startsAt: at('2026-11-16T08:30:00Z'),
-          endsAt: at('2026-11-16T09:30:00Z'),
-          slotMinutes: 60,
-          title: 'Masterclass',
-        },
-      ],
-    });
-
-    expect(slots.map(({ staffId, startsAt, title }) => [staffId, startsAt.toISOString(), title])).toEqual([
-      [anna, '2026-11-16T07:00:00.000Z', null],
-      [boris, '2026-11-16T08:00:00.000Z', null],
-      [anna, '2026-11-16T08:30:00.000Z', 'Masterclass'],
     ]);
   });
 
@@ -266,6 +229,137 @@ describe('freeSlots', () => {
         ['2026-10-25T00:00:00.000Z', '2026-10-25T01:00:00.000Z'], // 02:00 CEST, the first one
         ['2026-10-25T02:00:00.000Z', '2026-10-25T03:00:00.000Z'], // 03:00 CET
       ]);
+    });
+  });
+
+  describe('day overrides (hours mode)', () => {
+    it('replace the weekly slots that start on their date', () => {
+      const slots = freeSlots({
+        ...base,
+        weekly: [weekly({ durationMinutes: 180 }), weekly({ staffId: boris })],
+        dayOverrides: [
+          {
+            staffId: anna,
+            date: '2026-11-16',
+            windows: [{ startMinute: 12 * 60, durationMinutes: 60, slotMinutes: 60 }],
+          },
+        ],
+      });
+
+      expect(slots.map(({ staffId, startsAt }) => [staffId, startsAt.toISOString()])).toEqual([
+        [boris, '2026-11-16T07:00:00.000Z'],
+        [anna, '2026-11-16T09:00:00.000Z'], // 12:00 Moscow, from the override
+      ]);
+      expect(slots[1]).toMatchObject(oneSeat);
+    });
+
+    it('with no windows are a day off', () => {
+      const slots = freeSlots({
+        ...base,
+        weekly: [weekly({ durationMinutes: 180 })],
+        dayOverrides: [{ staffId: anna, date: '2026-11-16', windows: [] }],
+      });
+
+      expect(slots).toEqual([]);
+    });
+
+    it('keep the night slots of the day before; their own slots that would overlap them go', () => {
+      // Sunday 23:00 for two hours, hourly; Monday overridden with 00:00–02:00, hourly.
+      const slots = freeSlots({
+        ...base,
+        weekly: [weekly({ weekday: 7, startMinute: 23 * 60, durationMinutes: 120 })],
+        dayOverrides: [
+          { staffId: anna, date: '2026-11-16', windows: [{ startMinute: 0, durationMinutes: 120, slotMinutes: 60 }] },
+        ],
+        from: '2026-11-15',
+        to: '2026-11-16',
+      });
+
+      expect(starts(slots)).toEqual([
+        '2026-11-15T20:00:00.000Z', // Sun 23:00, weekly
+        '2026-11-15T21:00:00.000Z', // Mon 00:00, weekly from Sunday
+        '2026-11-15T22:00:00.000Z', // Mon 01:00, the override
+      ]);
+    });
+  });
+
+  describe('groups mode', () => {
+    const football: Group = {
+      id: '00000000-0000-7000-8000-0000000000f1',
+      staffId: anna,
+      title: 'Football, kids 7–10',
+      description: 'Bring water',
+      weekdays: [2, 4],
+      startMinute: 15 * 60,
+      durationMinutes: 60,
+      capacity: 12,
+    };
+    const week = { from: '2026-11-16', to: '2026-11-22' };
+
+    it('gives a group as one slot a meeting, with its capacity, description and id', () => {
+      const slots = freeSlots({ ...base, ...week, groups: [football] });
+
+      expect(slots).toEqual(
+        ['2026-11-17T12:00:00Z', '2026-11-19T12:00:00Z'].map((start) => ({
+          staffId: anna,
+          startsAt: at(start),
+          endsAt: new Date(at(start).getTime() + 3_600_000),
+          title: 'Football, kids 7–10',
+          description: 'Bring water',
+          capacity: 12,
+          booked: 0,
+          groupId: football.id,
+          oneOffSessionId: null,
+        })),
+      );
+    });
+
+    it('leaves a cancelled date of a group out', () => {
+      const slots = freeSlots({
+        ...base,
+        ...week,
+        groups: [football],
+        cancellations: [{ groupId: football.id, date: '2026-11-17' }],
+      });
+
+      expect(starts(slots)).toEqual(['2026-11-19T12:00:00.000Z']);
+    });
+
+    it('gives a one-off session as one slot with its id', () => {
+      const session: OneOffSession = {
+        id: '00000000-0000-7000-8000-0000000000e1',
+        staffId: anna,
+        title: 'Masterclass',
+        description: null,
+        startsAt: at('2026-11-18T15:00:00Z'),
+        endsAt: at('2026-11-18T17:30:00Z'),
+        capacity: 30,
+      };
+
+      expect(freeSlots({ ...base, ...week, oneOffSessions: [session] })).toEqual([
+        {
+          staffId: anna,
+          startsAt: session.startsAt,
+          endsAt: session.endsAt,
+          title: 'Masterclass',
+          description: null,
+          capacity: 30,
+          booked: 0,
+          groupId: null,
+          oneOffSessionId: session.id,
+        },
+      ]);
+    });
+
+    it('takes time off out of group slots too', () => {
+      const slots = freeSlots({
+        ...base,
+        ...week,
+        groups: [football],
+        busy: [{ staffId: anna, startsAt: at('2026-11-19T00:00:00Z'), endsAt: at('2026-11-20T00:00:00Z') }],
+      });
+
+      expect(starts(slots)).toEqual(['2026-11-17T12:00:00.000Z']);
     });
   });
 });

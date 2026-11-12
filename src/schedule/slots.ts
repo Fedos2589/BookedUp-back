@@ -1,3 +1,4 @@
+import { groupOccurrences } from './group-occurrences.js';
 import {
   addDays,
   clockOf,
@@ -22,13 +23,44 @@ export interface WeeklyWindow {
   title: string | null;
 }
 
-// The same, once, between two instants.
-export interface OneOffWindow {
+// Hours mode: a date whose windows replace the weekly ones that start on it; none is a day off.
+export interface DayWindow {
+  startMinute: number;
+  durationMinutes: number;
+  slotMinutes: number;
+}
+
+export interface DayOverride {
   staffId: string;
+  date: LocalDate;
+  windows: readonly DayWindow[];
+}
+
+// Groups mode: one slot a meeting, for up to `capacity` people.
+export interface Group {
+  id: string;
+  staffId: string;
+  title: string;
+  description: string | null;
+  weekdays: readonly number[]; // ISO: 1 is Monday, 7 is Sunday
+  startMinute: number;
+  durationMinutes: number;
+  capacity: number;
+}
+
+export interface GroupCancellation {
+  groupId: string;
+  date: LocalDate;
+}
+
+export interface OneOffSession {
+  id: string;
+  staffId: string;
+  title: string;
+  description: string | null;
   startsAt: Date;
   endsAt: Date;
-  slotMinutes: number;
-  title: string | null;
+  capacity: number;
 }
 
 // Time a master can't be booked: time off now, bookings from E6.
@@ -38,17 +70,30 @@ export interface Busy {
   endsAt: Date;
 }
 
-export interface Slot {
+// What a slot is besides its time: who and how many it is for. `booked` stays 0 until bookings (E6).
+interface Seats {
   staffId: string;
+  title: string | null;
+  description: string | null;
+  capacity: number;
+  booked: number;
+  groupId: string | null;
+  oneOffSessionId: string | null;
+}
+
+export interface Slot extends Seats {
   startsAt: Date;
   endsAt: Date;
-  title: string | null;
 }
 
 export interface SlotQuery {
   timeZone: string;
+  // Only the sources of each master's mode: the caller leaves the other mode's out.
   weekly: readonly WeeklyWindow[];
-  oneOff: readonly OneOffWindow[];
+  dayOverrides: readonly DayOverride[];
+  groups: readonly Group[];
+  cancellations: readonly GroupCancellation[];
+  oneOffSessions: readonly OneOffSession[];
   busy: readonly Busy[];
   // The days asked for, on the business's clock, both included. A slot belongs to the day it starts.
   from: LocalDate;
@@ -57,46 +102,81 @@ export interface SlotQuery {
 }
 
 // A slot while it is worked out: instants as numbers, and the day it starts on the business's clock.
-interface Candidate {
-  staffId: string;
+interface Candidate extends Seats {
   start: number;
   end: number;
-  title: string | null;
   date: LocalDate;
 }
 
+const oneSeat = (staffId: string, title: string | null): Seats => ({
+  staffId,
+  title,
+  description: null,
+  capacity: 1,
+  booked: 0,
+  groupId: null,
+  oneOffSessionId: null,
+});
+
 // Slots start on the clock (10:00, 11:00 …) and last slotMinutes of real time. A start the
 // clocks jump over is skipped; a start that happens twice is the first one.
-function* weeklySlots({ timeZone, weekly, from, to }: SlotQuery): Generator<Candidate> {
+function* slotsOfDay(
+  window: DayWindow,
+  date: LocalDate,
+  seats: Seats,
+  instantOf: (wall: number) => number | undefined,
+): Generator<Candidate> {
+  const nextDate = addDays(date, 1);
+  const end = window.startMinute + window.durationMinutes;
+  for (let minute = window.startMinute; minute + window.slotMinutes <= end; minute += window.slotMinutes) {
+    const start = instantOf(wallOfDate(date) + minute * MINUTE);
+    if (start === undefined) continue;
+    const slotDate = minute < MINUTES_PER_DAY ? date : nextDate;
+    yield { ...seats, start, end: start + window.slotMinutes * MINUTE, date: slotDate };
+  }
+}
+
+const dayKey = (staffId: string, date: LocalDate) => `${staffId} ${date}`;
+
+// Weekly windows, except on a date a day override replaces; the override's windows instead.
+function* hoursSlots({ timeZone, weekly, dayOverrides, from, to }: SlotQuery): Generator<Candidate> {
   const instantOf = clockOf(timeZone);
+  const overridden = new Set(dayOverrides.map(({ staffId, date }) => dayKey(staffId, date)));
   // From the day before: a window that runs past midnight puts slots on the first day asked.
   for (let date = addDays(from, -1); date <= to; date = addDays(date, 1)) {
     const weekday = isoWeekday(date);
-    const nextDate = addDays(date, 1);
-    for (const window of weekly.filter((each) => each.weekday === weekday)) {
-      const end = window.startMinute + window.durationMinutes;
-      for (let minute = window.startMinute; minute + window.slotMinutes <= end; minute += window.slotMinutes) {
-        const start = instantOf(wallOfDate(date) + minute * MINUTE);
-        if (start === undefined) continue;
-        yield slotOf(window, start, minute < MINUTES_PER_DAY ? date : nextDate);
-      }
-    }
+    for (const window of weekly.filter((each) => each.weekday === weekday))
+      if (!overridden.has(dayKey(window.staffId, date)))
+        yield* slotsOfDay(window, date, oneSeat(window.staffId, window.title), instantOf);
+  }
+  for (const { staffId, date, windows } of dayOverrides)
+    for (const window of windows) yield* slotsOfDay(window, date, oneSeat(staffId, null), instantOf);
+}
+
+function* groupSlots({ timeZone, groups, cancellations, from, to }: SlotQuery): Generator<Candidate> {
+  for (const group of groups) {
+    const cancelled = new Set(cancellations.filter(({ groupId }) => groupId === group.id).map(({ date }) => date));
+    const seats = {
+      staffId: group.staffId,
+      title: group.title,
+      description: group.description,
+      capacity: group.capacity,
+      booked: 0,
+      groupId: group.id,
+      oneOffSessionId: null,
+    };
+    for (const meeting of groupOccurrences(group, cancelled, timeZone, addDays(from, -1), to))
+      yield { ...seats, ...meeting };
   }
 }
 
-function* oneOffSlots({ timeZone, oneOff }: SlotQuery): Generator<Candidate> {
-  for (const window of oneOff) {
-    const step = window.slotMinutes * MINUTE;
-    for (let start = window.startsAt.getTime(); start + step <= window.endsAt.getTime(); start += step)
-      yield slotOf(window, start, dateOfWall(wallAt(timeZone, start)));
+function* sessionSlots({ timeZone, oneOffSessions }: SlotQuery): Generator<Candidate> {
+  for (const { id, staffId, title, description, startsAt, endsAt, capacity } of oneOffSessions) {
+    const start = startsAt.getTime();
+    const seats = { staffId, title, description, capacity, booked: 0, groupId: null, oneOffSessionId: id };
+    yield { ...seats, start, end: endsAt.getTime(), date: dateOfWall(wallAt(timeZone, start)) };
   }
 }
-
-const slotOf = (
-  { staffId, slotMinutes, title }: Pick<WeeklyWindow, 'staffId' | 'slotMinutes' | 'title'>,
-  start: number,
-  date: LocalDate,
-): Candidate => ({ staffId, start, end: start + slotMinutes * MINUTE, title, date });
 
 // Whether a slot overlaps any interval of its own master; touching is not overlapping.
 function overlapsAny(intervals: readonly Busy[]): (slot: Candidate) => boolean {
@@ -121,19 +201,17 @@ function withoutOverlaps(sorted: Candidate[]): Candidate[] {
   });
 }
 
-// What a client may book: the windows' slots on the days asked, minus busy time, from notBefore
-// on, earliest first. A one-off window takes its time from the weekly slots under it.
+// What a client may book: the slots of each master's mode on the days asked, minus busy time,
+// from notBefore on, earliest first.
 export function freeSlots(query: SlotQuery): Slot[] {
-  const underOneOff = overlapsAny(query.oneOff);
   const busy = overlapsAny(query.busy);
   const notBefore = query.notBefore.getTime();
-  const weekly = [...weeklySlots(query)].filter((slot) => !underOneOff(slot));
-  const all = [...weekly, ...oneOffSlots(query)].sort(
+  const all = [...hoursSlots(query), ...groupSlots(query), ...sessionSlots(query)].sort(
     (a, b) => a.start - b.start || a.staffId.localeCompare(b.staffId),
   );
   return withoutOverlaps(all)
     .filter(({ date }) => query.from <= date && date <= query.to)
     .filter((slot) => slot.start >= notBefore)
     .filter((slot) => !busy(slot))
-    .map(({ staffId, start, end, title }) => ({ staffId, startsAt: new Date(start), endsAt: new Date(end), title }));
+    .map(({ start, end, date: _date, ...seats }) => ({ ...seats, startsAt: new Date(start), endsAt: new Date(end) }));
 }

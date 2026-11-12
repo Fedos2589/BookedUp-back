@@ -15,6 +15,8 @@ const memberOf = (businessId: string, role: MemberRole) => memberOfBusiness(app,
 const staffUrl = (businessId: string, staffId: string) => `/businesses/${businessId}/staff/${staffId}`;
 const weeklyUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/weekly-windows`;
 const timeOffUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/time-off`;
+// What a slot of hours mode carries besides its time.
+const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
 const slotsUrl = (businessId: string) => `/businesses/${businessId}/slots`;
 
 // A Monday far enough ahead that its slots are never in the past. The business is in Moscow (UTC+3).
@@ -291,9 +293,27 @@ describe('the free slots of a business', () => {
       .expect(200);
 
     expect(res.body).toEqual([
-      { staffId: anna, startsAt: '2030-01-07T07:00:00.000Z', endsAt: '2030-01-07T08:00:00.000Z', title: null },
-      { staffId: anna, startsAt: '2030-01-07T09:00:00.000Z', endsAt: '2030-01-07T10:00:00.000Z', title: null },
-      { staffId: boris, startsAt: '2030-01-08T14:00:00.000Z', endsAt: '2030-01-08T15:00:00.000Z', title: 'Football' },
+      {
+        staffId: anna,
+        startsAt: '2030-01-07T07:00:00.000Z',
+        endsAt: '2030-01-07T08:00:00.000Z',
+        title: null,
+        ...oneSeat,
+      },
+      {
+        staffId: anna,
+        startsAt: '2030-01-07T09:00:00.000Z',
+        endsAt: '2030-01-07T10:00:00.000Z',
+        title: null,
+        ...oneSeat,
+      },
+      {
+        staffId: boris,
+        startsAt: '2030-01-08T14:00:00.000Z',
+        endsAt: '2030-01-08T15:00:00.000Z',
+        title: 'Football',
+        ...oneSeat,
+      },
     ]);
     await http()
       .get(slotsUrl(owner.business.id))

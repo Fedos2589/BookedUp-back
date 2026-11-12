@@ -101,8 +101,17 @@ export class ScheduleService {
       this.prisma.weeklyWindow.findMany({ where: staffWhere }),
       this.prisma.timeOff.findMany({ where: { ...staffWhere, ...around } }),
     ]);
-    return freeSlots({ timeZone: business.timeZone, weekly, oneOff: [], busy, from, to, notBefore: now }).map(
-      withIsoTimes,
-    );
+    return freeSlots({
+      timeZone: business.timeZone,
+      weekly,
+      dayOverrides: [],
+      groups: [],
+      cancellations: [],
+      oneOffSessions: [],
+      busy,
+      from,
+      to,
+      notBefore: now,
+    }).map(withIsoTimes);
   }
 }
