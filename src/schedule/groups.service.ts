@@ -109,6 +109,12 @@ export class GroupsService {
         select: groupSelect,
       });
       if (!group) throw new NotFoundException();
+      // A cancelled day it no longer meets on would show on its card, and come back to life if
+      // that weekday ever returned.
+      await tx.$executeRaw`
+        DELETE FROM group_cancellations
+        WHERE business_id = ${businessId}::uuid AND group_id = ${groupId}::uuid
+          AND NOT (EXTRACT(ISODOW FROM date)::smallint = ANY (${group.weekdays}::smallint[]))`;
       await check((schedule, timeZone) => groupConflict(group, schedule, timeZone), 'startMinute');
     });
     return this.groupOf(businessId, staffId, groupId, now);

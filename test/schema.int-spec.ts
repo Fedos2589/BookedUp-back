@@ -275,6 +275,11 @@ describe('the schedule in groups mode', () => {
     await expect(insertGroup(coach, [0, 2])).rejects.toThrow(/groups_weekdays/);
     await expect(insertGroup(coach, [8])).rejects.toThrow(/groups_weekdays/);
     await expect(insertGroup(coach, [2, 4], 0)).rejects.toThrow(/groups_capacity/);
+    await expect(
+      prisma.$executeRaw`
+        INSERT INTO groups (business_id, staff_id, title, weekdays, start_minute, duration_minutes, capacity)
+        VALUES (${coach.businessId}::uuid, ${coach.staffId}::uuid, 'Football', NULL, 900, 60, 4)`,
+    ).rejects.toThrow(/weekdays/);
     await expect(insertGroup(coach, [2, 4])).resolves.toBe(1);
   });
 

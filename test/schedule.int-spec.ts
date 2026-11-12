@@ -359,6 +359,26 @@ describe('the groups of a master', () => {
     await as(http().get(groups)).expect(200).expect([]);
   });
 
+  it('drop the cancellations of days a changed group no longer meets on', async () => {
+    const { as, groups } = await coach();
+    const group = await as(http().post(groups).send(football)).expect(201);
+    const url = `${groups}/${group.body.id}`;
+    await as(http().put(`${url}/cancellations/2030-01-08`)).expect(200); // a Tuesday
+    await as(http().put(`${url}/cancellations/2030-01-10`)).expect(200); // a Thursday
+
+    await as(
+      http()
+        .put(url)
+        .send({ ...football, weekdays: [3, 4] }),
+    )
+      .expect(200)
+      .expect({ ...group.body, weekdays: [3, 4], cancellations: ['2030-01-10'] });
+    // Back on Tuesdays: the old Tuesday is not cancelled again by itself.
+    await as(http().put(url).send(football))
+      .expect(200)
+      .expect({ ...group.body, cancellations: ['2030-01-10'] });
+  });
+
   it('refuse a group that meets at the time of another with 409 naming it', async () => {
     const { as, groups } = await coach();
     const first = await as(http().post(groups).send(football)).expect(201);
