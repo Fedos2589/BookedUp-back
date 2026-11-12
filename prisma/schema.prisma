@@ -216,9 +216,8 @@ model Invitation {
 }
 
 /// When a master takes clients, every week: from start_minute on the business's clock, for
-/// duration_minutes (may run past midnight), cut into slots of slot_minutes. A title names what
-/// the time is for («Football»); a window as long as its slot is one named session. Saved as a
-/// whole week per master, which is where overlaps are refused (src/schedule).
+/// duration_minutes (may run past midnight), cut into slots of slot_minutes (hours mode). Saved
+/// as a whole week per master, which is where overlaps are refused (src/schedule).
 model WeeklyWindow {
   id              String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   businessId      String   @map("business_id") @db.Uuid

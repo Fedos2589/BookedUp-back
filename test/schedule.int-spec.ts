@@ -429,6 +429,28 @@ describe('the groups of a master', () => {
     expect(answers.find((res) => res.status === 409)?.body).toMatchObject({ conflictsWith: { kind: 'oneOffSession' } });
   });
 
+  it('give one 201 and one 409 when a group and a session race for one time', async () => {
+    // Five pairs, each on its own master: without the staff row's lock both would go in.
+    const pairs = await Promise.all(
+      [1, 2, 3, 4, 5].map(async () => {
+        const { as, groups, sessions } = await coach();
+        return Promise.all([as(http().post(groups).send(football)), as(http().post(sessions).send(masterclass))]);
+      }),
+    );
+
+    for (const answers of pairs) expect(answers.map((res) => res.status).sort((a, b) => a - b)).toEqual([201, 409]);
+  });
+
+  it('list the cancellations of a group from today on', async () => {
+    const { owner, as, groups } = await coach();
+    const group = await as(http().post(groups).send(football)).expect(201);
+    await app.get(PrismaService).groupCancellation.create({
+      data: { businessId: owner.business.id, groupId: group.body.id, date: new Date('2020-01-07') },
+    });
+
+    await as(http().get(groups)).expect(200).expect([group.body]);
+  });
+
   it('refuse a bad field with 400', async () => {
     const { as, groups, sessions } = await coach();
     const refused = async (url: string, body: object, field: string) => {

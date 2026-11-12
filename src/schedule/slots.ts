@@ -12,8 +12,7 @@ import {
 } from './local-time.js';
 
 // When a master takes clients, every week: from startMinute (on the business's clock) for
-// durationMinutes, cut into slots of slotMinutes. A window may run past midnight. A title names
-// what the time is for («Football») — a window as long as its slot is one named session.
+// durationMinutes, cut into slots of slotMinutes (hours mode). A window may run past midnight.
 export interface WeeklyWindow {
   staffId: string;
   weekday: number; // ISO: 1 is Monday, 7 is Sunday
