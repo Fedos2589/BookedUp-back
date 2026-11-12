@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import { conflictErrorSchema } from '../common/api-errors.js';
-import { addDays, DAY, MINUTE } from './local-time.js';
+import { addDays } from './local-time.js';
 import { firstOverlap } from './weekly-overlap.js';
 
 // What a window is for («Football»); blank means nothing.
@@ -46,33 +45,6 @@ export const weeklyScheduleInput = z
       ctx.addIssue({ code: 'custom', path: ['windows', overlap[1]], message: `Overlaps windows.${overlap[0]}` });
   });
 export type WeeklyScheduleInput = z.infer<typeof weeklyScheduleInput>;
-
-export const oneOffWindowSchema = z.object({
-  id: z.uuid(),
-  staffId: z.uuid(),
-  startsAt: z.iso.datetime(),
-  endsAt: z.iso.datetime(),
-  slotMinutes,
-  title: z.string().nullable(),
-});
-export type OneOffWindowDto = z.infer<typeof oneOffWindowSchema>;
-
-export const oneOffWindowInput = z
-  .object({ startsAt: instant, endsAt: instant, slotMinutes, title })
-  .refine((window) => window.endsAt.getTime() - window.startsAt.getTime() <= DAY, {
-    path: ['endsAt'],
-    message: 'At most a day after startsAt',
-    ...whenFieldsValid,
-  })
-  .refine((window) => window.startsAt.getTime() + window.slotMinutes * MINUTE <= window.endsAt.getTime(), {
-    path: ['slotMinutes'],
-    message: 'Longer than the window',
-    ...whenFieldsValid,
-  });
-export type OneOffWindowInput = z.infer<typeof oneOffWindowInput>;
-
-export const oneOffConflictSchema = conflictErrorSchema(['startsAt']);
-export type OneOffConflict = z.infer<typeof oneOffConflictSchema>;
 
 export const timeOffSchema = z.object({
   id: z.uuid(),

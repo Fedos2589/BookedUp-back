@@ -2,7 +2,6 @@ import { CurrentUser } from '@nestjs/authentication';
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
-  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNoContentResponse,
@@ -18,11 +17,6 @@ import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
-  oneOffConflictSchema,
-  type OneOffWindowDto,
-  type OneOffWindowInput,
-  oneOffWindowInput,
-  oneOffWindowSchema,
   type SlotDto,
   slotSchema,
   type SlotsQuery,
@@ -76,43 +70,6 @@ export class StaffScheduleController {
     @Body({ schema: weeklyScheduleInput }) body: WeeklyScheduleInput,
   ): Promise<WeeklySchedule> {
     return this.schedule.replaceWeekly(actor, businessId, staffId, body);
-  }
-
-  @Get('one-off-windows')
-  @ApiOkResponse({ description: 'The ones not over yet, earliest first', schema: openApi(z.array(oneOffWindowSchema)) })
-  oneOffWindows(
-    @Param('businessId', uuid) businessId: string,
-    @Param('staffId', uuid) staffId: string,
-  ): Promise<OneOffWindowDto[]> {
-    return this.schedule.oneOffWindows(businessId, staffId, new Date());
-  }
-
-  @Post('one-off-windows')
-  @ApiCreatedResponse({ description: 'Added', schema: openApi(oneOffWindowSchema) })
-  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
-  @ApiConflictResponse({
-    description: 'Overlaps another one-off window of this master',
-    schema: openApi(oneOffConflictSchema),
-  })
-  addOneOffWindow(
-    @CurrentUser() actor: AuthUser,
-    @Param('businessId', uuid) businessId: string,
-    @Param('staffId', uuid) staffId: string,
-    @Body({ schema: oneOffWindowInput }) body: OneOffWindowInput,
-  ): Promise<OneOffWindowDto> {
-    return this.schedule.addOneOffWindow(actor, businessId, staffId, body);
-  }
-
-  @Delete('one-off-windows/:id')
-  @HttpCode(204)
-  @ApiNoContentResponse({ description: 'Removed' })
-  removeOneOffWindow(
-    @CurrentUser() actor: AuthUser,
-    @Param('businessId', uuid) businessId: string,
-    @Param('staffId', uuid) staffId: string,
-    @Param('id', uuid) id: string,
-  ): Promise<void> {
-    return this.schedule.removeOneOffWindow(actor, businessId, staffId, id);
   }
 
   @Get('time-off')

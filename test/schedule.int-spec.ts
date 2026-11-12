@@ -14,7 +14,6 @@ const memberOf = (businessId: string, role: MemberRole) => memberOfBusiness(app,
 
 const staffUrl = (businessId: string, staffId: string) => `/businesses/${businessId}/staff/${staffId}`;
 const weeklyUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/weekly-windows`;
-const oneOffUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/one-off-windows`;
 const timeOffUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/time-off`;
 const slotsUrl = (businessId: string) => `/businesses/${businessId}/slots`;
 
@@ -131,7 +130,6 @@ describe('the weekly windows of a master', () => {
       .set('Cookie', owner.cookie)
       .send({ windows: [] })
       .expect(404);
-    await http().get(oneOffUrl(owner.business.id, elsewhere)).set('Cookie', owner.cookie).expect(404);
     await http().get(timeOffUrl(owner.business.id, elsewhere)).set('Cookie', owner.cookie).expect(404);
   });
 
@@ -163,66 +161,6 @@ describe('the weekly windows of a master', () => {
     await http().put(weeklyUrl(owner.business.id, anna)).set('Cookie', admin.cookie).send(week).expect(200);
     // Every member sees everyone's week.
     await http().get(weeklyUrl(owner.business.id, admin.staffId)).set('Cookie', master.cookie).expect(200);
-  });
-});
-
-describe('the one-off windows of a master', () => {
-  const extra = { startsAt: '2030-01-08T14:00:00.000Z', endsAt: '2030-01-08T16:00:00.000Z', slotMinutes: 60 };
-
-  it('are added, listed and removed', async () => {
-    const owner = await signUpOwner(app);
-    const anna = await addStaff(owner);
-    const url = oneOffUrl(owner.business.id, anna);
-
-    const created = await http()
-      .post(url)
-      .set('Cookie', owner.cookie)
-      .send({ ...extra, title: 'Masterclass' })
-      .expect(201);
-    expect(created.body).toEqual({ id: expect.any(String), staffId: anna, ...extra, title: 'Masterclass' });
-    await http().get(url).set('Cookie', owner.cookie).expect(200).expect([created.body]);
-
-    await http().delete(`${url}/${created.body.id}`).set('Cookie', owner.cookie).expect(204);
-    await http().get(url).set('Cookie', owner.cookie).expect(200).expect([]);
-    await http().delete(`${url}/${created.body.id}`).set('Cookie', owner.cookie).expect(404);
-  });
-
-  it('refuses one that overlaps another of the same master with 409, and a slot that does not fit with 400', async () => {
-    const owner = await signUpOwner(app);
-    const anna = await addStaff(owner);
-    const boris = await addStaff(owner, 'Boris');
-    await http().post(oneOffUrl(owner.business.id, anna)).set('Cookie', owner.cookie).send(extra).expect(201);
-
-    const overlap = await http()
-      .post(oneOffUrl(owner.business.id, anna))
-      .set('Cookie', owner.cookie)
-      .send({ ...extra, startsAt: '2030-01-08T15:00:00.000Z', endsAt: '2030-01-08T17:00:00.000Z' })
-      .expect(409);
-    expect(overlap.body).toMatchObject({ field: 'startsAt' });
-    await http().post(oneOffUrl(owner.business.id, boris)).set('Cookie', owner.cookie).send(extra).expect(201);
-    await http()
-      .post(oneOffUrl(owner.business.id, anna))
-      .set('Cookie', owner.cookie)
-      .send({ ...extra, startsAt: '2030-01-09T14:00:00.000Z', endsAt: '2030-01-09T14:30:00.000Z' })
-      .expect(400);
-    const long = await http()
-      .post(oneOffUrl(owner.business.id, anna))
-      .set('Cookie', owner.cookie)
-      .send({ ...extra, startsAt: '2030-01-10T14:00:00.000Z', endsAt: '2030-01-11T14:01:00.000Z' })
-      .expect(400);
-    expect(long.body.message).toEqual(['endsAt: At most a day after startsAt']);
-  });
-
-  it("can't be removed through another master's address", async () => {
-    const owner = await signUpOwner(app);
-    const anna = await addStaff(owner);
-    const boris = await addStaff(owner, 'Boris');
-    const created = await http().post(oneOffUrl(owner.business.id, anna)).set('Cookie', owner.cookie).send(extra);
-
-    await http()
-      .delete(`${oneOffUrl(owner.business.id, boris)}/${created.body.id}`)
-      .set('Cookie', owner.cookie)
-      .expect(404);
   });
 });
 
@@ -282,9 +220,7 @@ describe("a master and someone else's schedule", () => {
     const owner = await signUpOwner(app);
     const master = await memberWithSchedule(owner.business.id, 'MASTER');
     const anna = await addStaff(owner);
-    const extra = { startsAt: '2030-01-08T14:00:00.000Z', endsAt: '2030-01-08T16:00:00.000Z', slotMinutes: 60 };
     const leave = { startsAt: '2030-01-07T08:00:00.000Z', endsAt: '2030-01-07T09:00:00.000Z' };
-    const window_ = await http().post(oneOffUrl(owner.business.id, anna)).set('Cookie', owner.cookie).send(extra);
     const timeOff = await http().post(timeOffUrl(owner.business.id, anna)).set('Cookie', owner.cookie).send(leave);
     const as = (req: request.Test) => req.set('Cookie', master.cookie).expect(403);
 
@@ -293,20 +229,9 @@ describe("a master and someone else's schedule", () => {
         .put(weeklyUrl(owner.business.id, anna))
         .send({ windows: [window()] }),
     );
-    await as(
-      http()
-        .post(oneOffUrl(owner.business.id, anna))
-        .send({ ...extra, startsAt: '2030-01-09T14:00:00.000Z', endsAt: '2030-01-09T16:00:00.000Z' }),
-    );
-    await as(http().delete(`${oneOffUrl(owner.business.id, anna)}/${window_.body.id}`));
     await as(http().post(timeOffUrl(owner.business.id, anna)).send(leave));
     await as(http().delete(`${timeOffUrl(owner.business.id, anna)}/${timeOff.body.id}`));
 
-    await http()
-      .get(oneOffUrl(owner.business.id, anna))
-      .set('Cookie', master.cookie)
-      .expect(200)
-      .expect([window_.body]);
     await http()
       .get(timeOffUrl(owner.business.id, anna))
       .set('Cookie', master.cookie)
@@ -332,12 +257,6 @@ describe('a date that is no date', () => {
       .set('Cookie', owner.cookie)
       .expect(400);
     expect(slots.body.message).toEqual([expect.stringMatching(/^from: /), expect.stringMatching(/^to: Invalid/)]);
-    const oneOff = await http()
-      .post(oneOffUrl(owner.business.id, anna))
-      .set('Cookie', owner.cookie)
-      .send({ startsAt: 'x', endsAt: valid, slotMinutes: 60 })
-      .expect(400);
-    expect(oneOff.body.message).toEqual([expect.stringMatching(/^startsAt: /)]);
     const timeOff = await http()
       .post(timeOffUrl(owner.business.id, anna))
       .set('Cookie', owner.cookie)
@@ -397,7 +316,6 @@ describe('the free slots of a business', () => {
       startsAt: new Date('2020-01-06T07:00:00Z'),
       endsAt: new Date('2020-01-06T08:00:00Z'),
     };
-    await app.get(PrismaService).oneOffWindow.create({ data: { ...past, slotMinutes: 60 } });
     await app.get(PrismaService).timeOff.create({ data: past });
 
     await http()
@@ -406,7 +324,6 @@ describe('the free slots of a business', () => {
       .set('Cookie', owner.cookie)
       .expect(200)
       .expect([]);
-    await http().get(oneOffUrl(owner.business.id, anna)).set('Cookie', owner.cookie).expect(200).expect([]);
     await http().get(timeOffUrl(owner.business.id, anna)).set('Cookie', owner.cookie).expect(200).expect([]);
   });
 

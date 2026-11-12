@@ -1,14 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { violatedExclusion } from '../prisma/unique-violation.js';
 import { StaffService } from '../staff/staff.service.js';
 import { DAY, wallOfDate } from './local-time.js';
 import type {
-  OneOffConflict,
-  OneOffWindowDto,
-  OneOffWindowInput,
   SlotDto,
   SlotsQuery,
   TimeOffDto,
@@ -67,52 +63,6 @@ export class ScheduleService {
   }
 
   // The ones not over yet, earliest first.
-  async oneOffWindows(businessId: string, staffId: string, now: Date): Promise<OneOffWindowDto[]> {
-    await this.staff.findIn(businessId, staffId);
-    const windows = await this.prisma.oneOffWindow.findMany({
-      where: { businessId, staffId, endsAt: { gt: now } },
-      orderBy: { startsAt: 'asc' },
-      select: { id: true, staffId: true, startsAt: true, endsAt: true, slotMinutes: true, title: true },
-    });
-    return windows.map(withIsoTimes);
-  }
-
-  // Overlap with another one of the same master is the database's answer (EXCLUDE), not a read
-  // before the insert that a concurrent one could make stale.
-  async addOneOffWindow(
-    actor: AuthUser,
-    businessId: string,
-    staffId: string,
-    input: OneOffWindowInput,
-  ): Promise<OneOffWindowDto> {
-    await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    try {
-      const window = await this.prisma.oneOffWindow.create({
-        data: { businessId, staffId, ...input },
-        select: { id: true, staffId: true, startsAt: true, endsAt: true, slotMinutes: true, title: true },
-      });
-      return withIsoTimes(window);
-    } catch (error) {
-      if (violatedExclusion(error) === 'OneOffWindow') {
-        const body: OneOffConflict = {
-          statusCode: 409,
-          error: 'Conflict',
-          message: 'Overlaps another one-off window of this master',
-          field: 'startsAt',
-        };
-        throw new ConflictException(body);
-      }
-      throw error;
-    }
-  }
-
-  async removeOneOffWindow(actor: AuthUser, businessId: string, staffId: string, id: string): Promise<void> {
-    await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    const { count } = await this.prisma.oneOffWindow.deleteMany({ where: { id, businessId, staffId } });
-    if (count === 0) throw new NotFoundException();
-  }
-
-  // The ones not over yet, earliest first.
   async timeOff(businessId: string, staffId: string, now: Date): Promise<TimeOffDto[]> {
     await this.staff.findIn(businessId, staffId);
     const timeOff = await this.prisma.timeOff.findMany({
@@ -146,12 +96,13 @@ export class ScheduleService {
       startsAt: { lt: new Date(wallOfDate(to) + 3 * DAY) },
       endsAt: { gt: new Date(wallOfDate(from) - 2 * DAY) },
     };
-    const [business, weekly, oneOff, busy] = await Promise.all([
+    const [business, weekly, busy] = await Promise.all([
       this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
       this.prisma.weeklyWindow.findMany({ where: staffWhere }),
-      this.prisma.oneOffWindow.findMany({ where: { ...staffWhere, ...around } }),
       this.prisma.timeOff.findMany({ where: { ...staffWhere, ...around } }),
     ]);
-    return freeSlots({ timeZone: business.timeZone, weekly, oneOff, busy, from, to, notBefore: now }).map(withIsoTimes);
+    return freeSlots({ timeZone: business.timeZone, weekly, oneOff: [], busy, from, to, notBefore: now }).map(
+      withIsoTimes,
+    );
   }
 }

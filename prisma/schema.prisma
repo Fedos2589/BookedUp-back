@@ -16,6 +16,11 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ScheduleMode {
+  HOURS
+  GROUPS
+}
+
 enum MemberRole {
   OWNER
   ADMIN
@@ -36,13 +41,16 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  locations     Location[]
-  memberships   Membership[]
-  staff         Staff[]
-  invitations   Invitation[]
-  weeklyWindows WeeklyWindow[]
-  oneOffWindows OneOffWindow[]
-  timeOffs      TimeOff[]
+  locations          Location[]
+  memberships        Membership[]
+  staff              Staff[]
+  invitations        Invitation[]
+  weeklyWindows      WeeklyWindow[]
+  dayOverrides       DayOverride[]
+  groups             Group[]
+  groupCancellations GroupCancellation[]
+  oneOffSessions     OneOffSession[]
+  timeOffs           TimeOff[]
 
   @@map("businesses")
 }
@@ -146,24 +154,29 @@ model Membership {
 /// Membership. A master without an account is a Staff with no user (an admin keeps their
 /// schedule); an owner or admin who takes clients too is a member with a Staff linked to them.
 model Staff {
-  id         String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  businessId String    @map("business_id") @db.Uuid
-  name       String
+  id           String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId   String       @map("business_id") @db.Uuid
+  name         String
   /// The account behind this schedule, if any. The foreign key goes to the membership, not
   /// to the user, so it can only be a member of this same business.
-  userId     String?   @map("user_id") @db.Uuid
+  userId       String?      @map("user_id") @db.Uuid
   /// Left the team. Kept, not deleted: past bookings (E6) point at it.
-  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt   DateTime?    @map("archived_at") @db.Timestamptz(3)
+  /// What clients book with this master: hours cut into one-person slots, or groups. The
+  /// other mode's schedule is kept, and left out of the slots.
+  scheduleMode ScheduleMode @default(HOURS) @map("schedule_mode")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  invitations   Invitation[]
-  weeklyWindows WeeklyWindow[]
-  oneOffWindows OneOffWindow[]
-  timeOffs      TimeOff[]
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invitations    Invitation[]
+  weeklyWindows  WeeklyWindow[]
+  dayOverrides   DayOverride[]
+  groups         Group[]
+  oneOffSessions OneOffSession[]
+  timeOffs       TimeOff[]
   /// Removing a member who has a schedule unlinks it first (E3 step 2), in one transaction.
-  membership    Membership?    @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
+  membership     Membership?     @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
 
   /// What bookings (E6) will reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
   @@unique([businessId, id])
@@ -227,16 +240,79 @@ model WeeklyWindow {
   @@map("weekly_windows")
 }
 
-/// A window once, between two instants (an extra session). Overlapping ones of one master are
-/// refused by an EXCLUDE constraint in the migration; over weekly slots it wins for its time.
-model OneOffWindow {
+/// Hours mode: a date whose windows replace the weekly ones that start on it. No windows is
+/// a day off. One per master and date (the business's calendar).
+model DayOverride {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  staffId    String   @map("staff_id") @db.Uuid
+  date       DateTime @db.Date
+  /// [{ startMinute, durationMinutes, slotMinutes }], checked by the API's schema.
+  windows    Json
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([staffId, date])
+  @@index([businessId, staffId, date])
+  @@map("day_overrides")
+}
+
+/// Groups mode: a named session on some weekdays at one time, for up to `capacity` people.
+/// Groups of one master never overlap (checked in src/schedule under a lock on the staff row).
+model Group {
+  id              String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  staffId         String   @map("staff_id") @db.Uuid
+  title           String
+  /// What it is, how to get ready, what to bring.
+  description     String?
+  /// ISO: 1 is Monday, 7 is Sunday.
+  weekdays        Int[]    @db.SmallInt
+  startMinute     Int      @map("start_minute") @db.SmallInt
+  durationMinutes Int      @map("duration_minutes") @db.SmallInt
+  capacity        Int      @db.SmallInt
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff         Staff               @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
+  cancellations GroupCancellation[]
+
+  @@unique([businessId, id])
+  @@index([businessId, staffId])
+  @@map("groups")
+}
+
+/// A date a group does not meet (the business's calendar).
+model GroupCancellation {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  groupId    String   @map("group_id") @db.Uuid
+  date       DateTime @db.Date
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  group    Group    @relation(fields: [businessId, groupId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([groupId, date])
+  @@map("group_cancellations")
+}
+
+/// Groups mode: a session once, between two instants. Overlapping ones of one master are
+/// refused by an EXCLUDE constraint in the migration; one over a group's meeting by src/schedule.
+model OneOffSession {
   id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   businessId  String   @map("business_id") @db.Uuid
   staffId     String   @map("staff_id") @db.Uuid
+  title       String
+  description String?
   startsAt    DateTime @map("starts_at") @db.Timestamptz(3)
   endsAt      DateTime @map("ends_at") @db.Timestamptz(3)
-  slotMinutes Int      @map("slot_minutes") @db.SmallInt
-  title       String?
+  capacity    Int      @db.SmallInt
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -244,7 +320,7 @@ model OneOffWindow {
   staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
 
   @@index([businessId, staffId, startsAt])
-  @@map("one_off_windows")
+  @@map("one_off_sessions")
 }
 
 /// Time a master can't be booked (leave, sick day, a break), taken out of every window.

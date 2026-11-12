@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { inject } from 'vitest';
 
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { violatedExclusion, violatedUniqueConstraint } from '../src/prisma/unique-violation.js';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: inject('databaseUrl') }),
@@ -248,5 +249,68 @@ describe('owners: every business has exactly one', () => {
 
     const owners = await prisma.membership.findMany({ where: { businessId: business.id, role: 'OWNER' } });
     expect(owners.map((m) => m.userId)).toEqual([heir.id]);
+  });
+});
+
+describe('the schedule in groups mode', () => {
+  const staffOf = async () => {
+    const business = await createBusiness();
+    const staff = await prisma.staff.create({ data: { businessId: business.id, name: 'Coach' } });
+    return { businessId: business.id, staffId: staff.id };
+  };
+
+  const insertGroup = (
+    { businessId, staffId }: { businessId: string; staffId: string },
+    weekdays: number[],
+    capacity = 4,
+  ) =>
+    prisma.$executeRaw`
+      INSERT INTO groups (business_id, staff_id, title, weekdays, start_minute, duration_minutes, capacity)
+      VALUES (${businessId}::uuid, ${staffId}::uuid, 'Football', ${weekdays}::smallint[], 900, 60, ${capacity})`;
+
+  it('refuses a group with no weekdays, a weekday outside 1–7, or capacity 0', async () => {
+    const coach = await staffOf();
+
+    await expect(insertGroup(coach, [])).rejects.toThrow(/groups_weekdays/);
+    await expect(insertGroup(coach, [0, 2])).rejects.toThrow(/groups_weekdays/);
+    await expect(insertGroup(coach, [8])).rejects.toThrow(/groups_weekdays/);
+    await expect(insertGroup(coach, [2, 4], 0)).rejects.toThrow(/groups_capacity/);
+    await expect(insertGroup(coach, [2, 4])).resolves.toBe(1);
+  });
+
+  it('refuses two one-off sessions of one master that overlap', async () => {
+    const coach = await staffOf();
+    const session = (startsAt: string, endsAt: string) =>
+      prisma.oneOffSession.create({
+        data: { ...coach, title: 'Masterclass', startsAt: new Date(startsAt), endsAt: new Date(endsAt), capacity: 10 },
+      });
+    await session('2030-01-08T12:00:00Z', '2030-01-08T13:00:00Z');
+
+    const error = await session('2030-01-08T12:30:00Z', '2030-01-08T13:30:00Z').catch((e: unknown) => e);
+    expect(violatedExclusion(error)).toBe('OneOffSession');
+    await expect(session('2030-01-08T13:00:00Z', '2030-01-08T14:00:00Z')).resolves.toBeDefined();
+  });
+
+  it('refuses a second day override for the same master and date', async () => {
+    const coach = await staffOf();
+    const override = () => prisma.dayOverride.create({ data: { ...coach, date: new Date('2030-01-08'), windows: [] } });
+    await override();
+
+    const error = await override().catch((e: unknown) => e);
+    expect(violatedUniqueConstraint(error)).toBe('day_overrides_staff_id_date_key');
+  });
+
+  it('refuses a cancellation that points at a group of another business', async () => {
+    const coach = await staffOf();
+    const group = await prisma.group.create({
+      data: { ...coach, title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 },
+    });
+    const other = await createBusiness();
+
+    await expect(
+      prisma.groupCancellation.create({
+        data: { businessId: other.id, groupId: group.id, date: new Date('2030-01-08') },
+      }),
+    ).rejects.toMatchObject({ code: 'P2003' });
   });
 });
