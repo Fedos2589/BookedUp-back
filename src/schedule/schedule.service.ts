@@ -1,19 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
-import type {
-  ScheduleModeDto,
-  SlotDto,
-  SlotsQuery,
-  TimeOffDto,
-  TimeOffInput,
-  WeeklySchedule,
-  WeeklyScheduleInput,
+import { addDays, DAY, dateOfWall, type LocalDate, wallAt, wallOfDate } from './local-time.js';
+import {
+  type DayOverrideDto,
+  type DayOverrideInput,
+  dayWindowSchema,
+  type ScheduleModeDto,
+  type SlotDto,
+  type SlotsQuery,
+  type TimeOffDto,
+  type TimeOffInput,
+  type WeeklySchedule,
+  type WeeklyScheduleInput,
 } from './schedule.schema.js';
-import { type DayWindow, freeSlots } from './slots.js';
+import { freeSlots } from './slots.js';
 
 const weeklySelect = { weekday: true, startMinute: true, durationMinutes: true, slotMinutes: true, title: true };
 const weeklyOrder = [{ weekday: 'asc' }, { startMinute: 'asc' }] as const;
@@ -21,6 +25,13 @@ const weeklyOrder = [{ weekday: 'asc' }, { startMinute: 'asc' }] as const;
 // A DATE column comes back as midnight UTC of that day.
 const localDate = (date: Date): LocalDate => date.toISOString().slice(0, 10);
 const dateColumn = (date: LocalDate) => new Date(`${date}T00:00:00Z`);
+
+// Written only through dayOverrideInput; read back through the same shape, not cast.
+const dayWindows = z.array(dayWindowSchema);
+const toDayOverride = ({ date, windows }: { date: Date; windows: unknown }): DayOverrideDto => ({
+  date: localDate(date),
+  windows: dayWindows.parse(windows),
+});
 
 const withIsoTimes = <T extends { startsAt: Date; endsAt: Date }>({ startsAt, endsAt, ...rest }: T) => ({
   ...rest,
@@ -76,6 +87,51 @@ export class ScheduleService {
       });
     });
     return { windows: saved };
+  }
+
+  // From today on the business's clock, by date.
+  async dayOverrides(businessId: string, staffId: string, now: Date): Promise<DayOverrideDto[]> {
+    await this.staff.findIn(businessId, staffId);
+    const today = await this.todayOf(businessId, now);
+    const overrides = await this.prisma.dayOverride.findMany({
+      where: { businessId, staffId, date: { gte: dateColumn(today) } },
+      orderBy: { date: 'asc' },
+      select: { date: true, windows: true },
+    });
+    return overrides.map(toDayOverride);
+  }
+
+  async putDayOverride(
+    actor: AuthUser,
+    businessId: string,
+    staffId: string,
+    date: LocalDate,
+    { windows }: DayOverrideInput,
+  ): Promise<DayOverrideDto> {
+    await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    const saved = await this.prisma.dayOverride.upsert({
+      where: { staffId_date: { staffId, date: dateColumn(date) } },
+      create: { businessId, staffId, date: dateColumn(date), windows },
+      update: { windows },
+      select: { date: true, windows: true },
+    });
+    return toDayOverride(saved);
+  }
+
+  async removeDayOverride(actor: AuthUser, businessId: string, staffId: string, date: LocalDate): Promise<void> {
+    await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    const { count } = await this.prisma.dayOverride.deleteMany({
+      where: { businessId, staffId, date: dateColumn(date) },
+    });
+    if (count === 0) throw new NotFoundException();
+  }
+
+  private async todayOf(businessId: string, now: Date): Promise<LocalDate> {
+    const { timeZone } = await this.prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { timeZone: true },
+    });
+    return dateOfWall(wallAt(timeZone, now.getTime()));
   }
 
   // The ones not over yet, earliest first.
@@ -134,12 +190,7 @@ export class ScheduleService {
     return freeSlots({
       timeZone: business.timeZone,
       weekly,
-      // Checked by the schema on the way in.
-      dayOverrides: overrides.map(({ staffId, date, windows }) => ({
-        staffId,
-        date: localDate(date),
-        windows: windows as unknown as DayWindow[],
-      })),
+      dayOverrides: overrides.map((override) => ({ staffId: override.staffId, ...toDayOverride(override) })),
       groups,
       cancellations: cancellations.map(({ groupId, date }) => ({ groupId, date: localDate(date) })),
       oneOffSessions,

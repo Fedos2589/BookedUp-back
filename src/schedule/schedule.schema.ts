@@ -46,6 +46,37 @@ export const weeklyScheduleInput = z
   });
 export type WeeklyScheduleInput = z.infer<typeof weeklyScheduleInput>;
 
+// Hours mode: a date's own windows. Placed on one weekday, the week-ring overlap check is a day's.
+export const dayWindowSchema = z.object({
+  startMinute: z.int().min(0).max(1439).describe("Minutes after midnight on the business's clock"),
+  durationMinutes: z.int().min(1).max(1440),
+  slotMinutes,
+});
+export type DayWindowDto = z.infer<typeof dayWindowSchema>;
+
+const dayWindowInput = dayWindowSchema.refine((window) => window.slotMinutes <= window.durationMinutes, {
+  path: ['slotMinutes'],
+  message: 'Longer than the window',
+  ...whenFieldsValid,
+});
+
+export const localDate = z.iso.date().describe("A day on the business's calendar");
+
+export const dayOverrideSchema = z.object({
+  date: localDate,
+  windows: z.array(dayWindowSchema).describe('None is a day off'),
+});
+export type DayOverrideDto = z.infer<typeof dayOverrideSchema>;
+
+export const dayOverrideInput = z
+  .object({ windows: z.array(dayWindowInput).max(48) })
+  .superRefine(({ windows }, ctx) => {
+    const overlap = firstOverlap(windows.map((window) => ({ ...window, weekday: 1 })));
+    if (overlap)
+      ctx.addIssue({ code: 'custom', path: ['windows', overlap[1]], message: `Overlaps windows.${overlap[0]}` });
+  });
+export type DayOverrideInput = z.infer<typeof dayOverrideInput>;
+
 export const scheduleModeSchema = z.object({ mode: z.enum(['HOURS', 'GROUPS']) });
 export type ScheduleModeDto = z.infer<typeof scheduleModeSchema>;
 

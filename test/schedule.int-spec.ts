@@ -18,6 +18,7 @@ const timeOffUrl = (businessId: string, staffId: string) => `${staffUrl(business
 // What a slot of hours mode carries besides its time.
 const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
 const modeUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/schedule-mode`;
+const overridesUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/day-overrides`;
 const slotsUrl = (businessId: string) => `/businesses/${businessId}/slots`;
 
 // A Monday far enough ahead that its slots are never in the past. The business is in Moscow (UTC+3).
@@ -164,6 +165,140 @@ describe('the weekly windows of a master', () => {
     await http().put(weeklyUrl(owner.business.id, anna)).set('Cookie', admin.cookie).send(week).expect(200);
     // Every member sees everyone's week.
     await http().get(weeklyUrl(owner.business.id, admin.staffId)).set('Cookie', master.cookie).expect(200);
+  });
+});
+
+describe('the day overrides of a master', () => {
+  const tuesday = '2030-01-08';
+  const noon = { startMinute: 12 * 60, durationMinutes: 120, slotMinutes: 60 };
+
+  it('are put, listed by date and removed', async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    const url = overridesUrl(owner.business.id, anna);
+    const as = (req: request.Test) => req.set('Cookie', owner.cookie);
+
+    await as(
+      http()
+        .put(`${url}/2030-01-10`)
+        .send({ windows: [noon] }),
+    )
+      .expect(200)
+      .expect({ date: '2030-01-10', windows: [noon] });
+    await as(
+      http()
+        .put(`${url}/${tuesday}`)
+        .send({ windows: [noon] }),
+    ).expect(200);
+    await as(
+      http()
+        .put(`${url}/${tuesday}`)
+        .send({ windows: [{ ...noon, startMinute: 9 * 60 }] }),
+    ).expect(200);
+    await as(http().get(url))
+      .expect(200)
+      .expect([
+        { date: tuesday, windows: [{ ...noon, startMinute: 9 * 60 }] },
+        { date: '2030-01-10', windows: [noon] },
+      ]);
+
+    await as(http().delete(`${url}/${tuesday}`)).expect(204);
+    await as(http().delete(`${url}/${tuesday}`)).expect(404);
+    await as(http().get(url))
+      .expect(200)
+      .expect([{ date: '2030-01-10', windows: [noon] }]);
+  });
+
+  it('with no windows are a day off, and the slots of that day go', async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    await http()
+      .put(weeklyUrl(owner.business.id, anna))
+      .set('Cookie', owner.cookie)
+      .send({ windows: [window({ weekday: 2 })] });
+
+    await http()
+      .put(`${overridesUrl(owner.business.id, anna)}/${tuesday}`)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [] })
+      .expect(200);
+
+    await http()
+      .get(slotsUrl(owner.business.id))
+      .query({ from: tuesday, to: tuesday })
+      .set('Cookie', owner.cookie)
+      .expect(200)
+      .expect([]);
+  });
+
+  it('refuse overlapping windows, or a slot longer than its window, with 400 and keep the old one', async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    const url = `${overridesUrl(owner.business.id, anna)}/${tuesday}`;
+    await http()
+      .put(url)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [noon] })
+      .expect(200);
+
+    const overlap = await http()
+      .put(url)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [noon, { ...noon, startMinute: 13 * 60 }] })
+      .expect(400);
+    expect(overlap.body.message).toEqual(['windows.1: Overlaps windows.0']);
+    await http()
+      .put(url)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [{ ...noon, slotMinutes: 180 }] })
+      .expect(400);
+
+    await http()
+      .get(overridesUrl(owner.business.id, anna))
+      .set('Cookie', owner.cookie)
+      .expect(200)
+      .expect([{ date: tuesday, windows: [noon] }]);
+  });
+
+  it('leave out dates before today', async () => {
+    const owner = await signUpOwner(app);
+    const anna = await addStaff(owner);
+    await app.get(PrismaService).dayOverride.create({
+      data: { businessId: owner.business.id, staffId: anna, date: new Date('2020-01-07'), windows: [] },
+    });
+
+    await http().get(overridesUrl(owner.business.id, anna)).set('Cookie', owner.cookie).expect(200).expect([]);
+  });
+
+  it("may be changed by a master for their own schedule only, and read by them for anyone's", async () => {
+    const owner = await signUpOwner(app);
+    const master = await memberWithSchedule(owner.business.id, 'MASTER');
+    const anna = await addStaff(owner);
+    const put = (staffId: string) =>
+      http()
+        .put(`${overridesUrl(owner.business.id, staffId)}/${tuesday}`)
+        .set('Cookie', master.cookie)
+        .send({ windows: [] });
+
+    await put(anna).expect(403);
+    await http()
+      .delete(`${overridesUrl(owner.business.id, anna)}/${tuesday}`)
+      .set('Cookie', master.cookie)
+      .expect(403);
+    await put(master.staffId).expect(200);
+    await http().get(overridesUrl(owner.business.id, anna)).set('Cookie', master.cookie).expect(200).expect([]);
+  });
+
+  it("answers 404 for another business's master", async () => {
+    const owner = await signUpOwner(app);
+    const elsewhere = await addStaff(await signUpOwner(app));
+
+    await http().get(overridesUrl(owner.business.id, elsewhere)).set('Cookie', owner.cookie).expect(404);
+    await http()
+      .put(`${overridesUrl(owner.business.id, elsewhere)}/${tuesday}`)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [] })
+      .expect(404);
   });
 });
 
@@ -323,6 +458,12 @@ describe('a date that is no date', () => {
       .set('Cookie', owner.cookie)
       .expect(400);
     expect(slots.body.message).toEqual([expect.stringMatching(/^from: /), expect.stringMatching(/^to: Invalid/)]);
+    const override = await http()
+      .put(`${overridesUrl(owner.business.id, anna)}/2030-02-30`)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [] })
+      .expect(400);
+    expect(override.body.message).toEqual(['Invalid ISO date']); // a path parameter has no field path, like :staffId
     const timeOff = await http()
       .post(timeOffUrl(owner.business.id, anna))
       .set('Cookie', owner.cookie)

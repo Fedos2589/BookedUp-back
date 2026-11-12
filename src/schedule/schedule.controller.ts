@@ -17,6 +17,11 @@ import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
+  type DayOverrideDto,
+  type DayOverrideInput,
+  dayOverrideInput,
+  dayOverrideSchema,
+  localDate,
   type ScheduleModeDto,
   scheduleModeSchema,
   type SlotDto,
@@ -84,6 +89,43 @@ export class StaffScheduleController {
     @Body({ schema: weeklyScheduleInput }) body: WeeklyScheduleInput,
   ): Promise<WeeklySchedule> {
     return this.schedule.replaceWeekly(actor, businessId, staffId, body);
+  }
+
+  @Get('day-overrides')
+  @ApiOkResponse({ description: 'From today on, by date', schema: openApi(z.array(dayOverrideSchema)) })
+  dayOverrides(
+    @Param('businessId', uuid) businessId: string,
+    @Param('staffId', uuid) staffId: string,
+  ): Promise<DayOverrideDto[]> {
+    return this.schedule.dayOverrides(businessId, staffId, new Date());
+  }
+
+  @Put('day-overrides/:date')
+  @ApiOkResponse({ description: 'The date as saved, added or replaced', schema: openApi(dayOverrideSchema) })
+  @ApiBadRequestResponse({
+    description: 'Not a date, a window is invalid, or two windows overlap',
+    schema: openApi(validationErrorSchema),
+  })
+  putDayOverride(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('staffId', uuid) staffId: string,
+    @Param('date', { schema: localDate }) date: string,
+    @Body({ schema: dayOverrideInput }) body: DayOverrideInput,
+  ): Promise<DayOverrideDto> {
+    return this.schedule.putDayOverride(actor, businessId, staffId, date, body);
+  }
+
+  @Delete('day-overrides/:date')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Removed: the weekday is back' })
+  removeDayOverride(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('staffId', uuid) staffId: string,
+    @Param('date', { schema: localDate }) date: string,
+  ): Promise<void> {
+    return this.schedule.removeDayOverride(actor, businessId, staffId, date);
   }
 
   @Get('time-off')
