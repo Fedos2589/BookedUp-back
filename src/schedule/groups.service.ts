@@ -3,7 +3,6 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import type { AuthUser } from '../auth/auth-types.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { violatedExclusion } from '../prisma/unique-violation.js';
 import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, withIsoTimes } from './db-values.js';
 import { type Conflict, groupConflict, type GroupsSchedule, sessionConflict } from './group-conflicts.js';
@@ -190,31 +189,13 @@ export class GroupsService {
     now: Date,
   ): Promise<OneOffSessionDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    try {
-      return await this.underLock(businessId, staffId, now, async (tx, check) => {
-        const session = await tx.oneOffSession.create({
-          data: { businessId, staffId, ...input },
-          select: sessionSelect,
-        });
-        await check(
-          ({ groups, cancellations }, timeZone) => sessionConflict(session, groups, cancellations, timeZone),
-          'startsAt',
-        );
-        return withIsoTimes(session);
-      });
-    } catch (error) {
-      if (violatedExclusion(error) !== 'OneOffSession') throw error;
-      const other = await this.prisma.oneOffSession.findFirstOrThrow({
-        where: { businessId, staffId, startsAt: { lt: input.endsAt }, endsAt: { gt: input.startsAt } },
-        select: sessionSelect,
-      });
-      throw conflictError('startsAt', {
-        kind: 'oneOffSession',
-        id: other.id,
-        title: other.title,
-        startsAt: other.startsAt.toISOString(),
-      });
-    }
+    // Checked before the insert, under the lock: the 409 is built from what the transaction
+    // sees. The EXCLUDE stays the floor under it (a row written around this service).
+    return this.underLock(businessId, staffId, now, async (tx, check) => {
+      await check((schedule, timeZone) => sessionConflict(input, schedule, timeZone), 'startsAt');
+      const session = await tx.oneOffSession.create({ data: { businessId, staffId, ...input }, select: sessionSelect });
+      return withIsoTimes(session);
+    });
   }
 
   async removeOneOffSession(actor: AuthUser, businessId: string, staffId: string, id: string): Promise<void> {

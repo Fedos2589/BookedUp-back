@@ -54,17 +54,22 @@ export function groupConflict(candidate: Group, others: GroupsSchedule, timeZone
   return undefined;
 }
 
-// The first group meeting a one-off session would overlap, or undefined. Session against
-// session is the database's EXCLUDE.
+// The first group meeting or other one-off session a one-off session would overlap, or
+// undefined. Groups first: a session over a meeting is the case a master can fix by cancelling.
+// A candidate already in `sessions` (by id) is not an «other».
 export function sessionConflict(
-  candidate: Pick<OneOffSession, 'startsAt' | 'endsAt'>,
-  groups: readonly Group[],
-  cancellations: readonly GroupCancellation[],
+  candidate: Pick<OneOffSession, 'startsAt' | 'endsAt'> & { id?: string },
+  { groups, sessions, cancellations }: GroupsSchedule,
   timeZone: string,
 ): Conflict | undefined {
   for (const group of groups) {
     const meeting = meetingOver(group, candidate, cancellations, timeZone);
     if (meeting) return { kind: 'group', id: group.id, title: group.title, date: meeting.date };
   }
+  const session = sessions.find(
+    (other) => other.id !== candidate.id && other.startsAt < candidate.endsAt && candidate.startsAt < other.endsAt,
+  );
+  if (session)
+    return { kind: 'oneOffSession', id: session.id, title: session.title, startsAt: session.startsAt.toISOString() };
   return undefined;
 }

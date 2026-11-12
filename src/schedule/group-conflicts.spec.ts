@@ -84,14 +84,24 @@ describe('sessionConflict', () => {
   it('finds the group meeting it would overlap, with its date', () => {
     const football = group({});
 
-    expect(sessionConflict(session('2030-01-10T11:00:00Z', '2030-01-10T12:30:00Z'), [football], [], timeZone)).toEqual({
+    expect(
+      sessionConflict(
+        session('2030-01-10T11:00:00Z', '2030-01-10T12:30:00Z'),
+        { ...nothing, groups: [football] },
+        timeZone,
+      ),
+    ).toEqual({
       kind: 'group',
       id: football.id,
       title: 'Football',
       date: '2030-01-10',
     });
     expect(
-      sessionConflict(session('2030-01-10T13:00:00Z', '2030-01-10T14:00:00Z'), [football], [], timeZone),
+      sessionConflict(
+        session('2030-01-10T13:00:00Z', '2030-01-10T14:00:00Z'),
+        { ...nothing, groups: [football] },
+        timeZone,
+      ),
     ).toBeUndefined();
   });
 
@@ -100,7 +110,11 @@ describe('sessionConflict', () => {
     const lateSunday = group({ weekdays: [7], startMinute: 23 * 60, durationMinutes: 120 });
 
     expect(
-      sessionConflict(session('2030-01-06T21:30:00Z', '2030-01-06T22:00:00Z'), [lateSunday], [], timeZone),
+      sessionConflict(
+        session('2030-01-06T21:30:00Z', '2030-01-06T22:00:00Z'),
+        { ...nothing, groups: [lateSunday] },
+        timeZone,
+      ),
     ).toEqual({ kind: 'group', id: lateSunday.id, title: 'Football', date: '2030-01-06' });
   });
 
@@ -109,7 +123,27 @@ describe('sessionConflict', () => {
     const cancelled = [{ groupId: football.id, date: '2030-01-10' }];
 
     expect(
-      sessionConflict(session('2030-01-10T11:00:00Z', '2030-01-10T12:30:00Z'), [football], cancelled, timeZone),
+      sessionConflict(
+        session('2030-01-10T11:00:00Z', '2030-01-10T12:30:00Z'),
+        { ...nothing, groups: [football], cancellations: cancelled },
+        timeZone,
+      ),
     ).toBeUndefined();
+  });
+
+  it('finds another one-off session it would overlap, not itself', () => {
+    const masterclass = session('2030-01-10T11:00:00Z', '2030-01-10T12:00:00Z');
+    const later = {
+      ...session('2030-01-10T11:30:00Z', '2030-01-10T13:00:00Z'),
+      id: '00000000-0000-7000-8000-0000000000e2',
+    };
+
+    expect(sessionConflict(later, { ...nothing, sessions: [masterclass, later] }, timeZone)).toEqual({
+      kind: 'oneOffSession',
+      id: masterclass.id,
+      title: 'Masterclass',
+      startsAt: '2030-01-10T11:00:00.000Z',
+    });
+    expect(sessionConflict(masterclass, { ...nothing, sessions: [masterclass] }, timeZone)).toBeUndefined();
   });
 });
