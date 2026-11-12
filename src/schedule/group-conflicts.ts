@@ -1,4 +1,4 @@
-import { groupOccurrences, type Meets } from './group-occurrences.js';
+import { cancelledDatesOf, groupOccurrences, type Meets } from './group-occurrences.js';
 import { addDays, dateOfWall, type LocalDate, wallAt } from './local-time.js';
 import type { Group, GroupCancellation, OneOffSession } from './slots.js';
 import { firstOverlap } from './weekly-overlap.js';
@@ -21,9 +21,6 @@ const byWeekday = ({ weekdays, startMinute, durationMinutes }: Meets) =>
 const meetSameTime = (a: Meets, b: Meets) =>
   byWeekday(a).some((one) => byWeekday(b).some((other) => firstOverlap([one, other]) !== undefined));
 
-const cancelledOf = (groupId: string, cancellations: readonly GroupCancellation[]) =>
-  new Set(cancellations.filter((each) => each.groupId === groupId).map(({ date }) => date));
-
 // The meeting of `group` that overlaps [startsAt, endsAt), if any. Meetings from the day before
 // count: a group past midnight runs into the next day.
 function meetingOver(
@@ -36,7 +33,7 @@ function meetingOver(
   const dayOf = (instant: number) => dateOfWall(wallAt(timeZone, instant));
   return groupOccurrences(
     group,
-    cancelledOf(group.id, cancellations),
+    cancelledDatesOf(group.id, cancellations),
     timeZone,
     addDays(dayOf(start), -1),
     dayOf(end),

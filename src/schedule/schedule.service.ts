@@ -4,8 +4,8 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import { dateColumn, localDateOf, withIsoTimes } from './db-values.js';
-import { addDays, DAY, type LocalDate, todayIn, wallOfDate } from './local-time.js';
+import { dateColumn, localDateOf, todayOfBusiness, withIsoTimes } from './db-values.js';
+import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
 import {
   type DayOverrideDto,
   type DayOverrideInput,
@@ -83,7 +83,7 @@ export class ScheduleService {
   // From today on the business's clock, by date.
   async dayOverrides(businessId: string, staffId: string, now: Date): Promise<DayOverrideDto[]> {
     await this.staff.findIn(businessId, staffId);
-    const today = await this.todayOf(businessId, now);
+    const today = await todayOfBusiness(this.prisma, businessId, now);
     const overrides = await this.prisma.dayOverride.findMany({
       where: { businessId, staffId, date: { gte: dateColumn(today) } },
       orderBy: { date: 'asc' },
@@ -115,14 +115,6 @@ export class ScheduleService {
       where: { businessId, staffId, date: dateColumn(date) },
     });
     if (count === 0) throw new NotFoundException();
-  }
-
-  private async todayOf(businessId: string, now: Date): Promise<LocalDate> {
-    const { timeZone } = await this.prisma.business.findUniqueOrThrow({
-      where: { id: businessId },
-      select: { timeZone: true },
-    });
-    return todayIn(timeZone, now);
   }
 
   // The ones not over yet, earliest first.

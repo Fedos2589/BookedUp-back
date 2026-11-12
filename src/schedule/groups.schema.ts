@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-import { localDate } from './schedule.schema.js';
-
-// For a check across fields: zod 4 runs an object's refine even when a field failed, so without
-// this the check would see raw input (see schedule.schema.ts).
-const whenFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 };
+import { instant, localDate, whenFieldsValid } from './schedule.schema.js';
 
 const title = z.string().trim().min(1).max(100);
 // What it is, how to get ready, what to bring. Plain text; blank means none.
@@ -15,7 +11,6 @@ const description = z
   .nullish()
   .transform((value) => value || null);
 const capacity = z.int().min(1).max(1000).describe('How many people it is for');
-const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
 
 const weekday = z.int().min(1).max(7);
 

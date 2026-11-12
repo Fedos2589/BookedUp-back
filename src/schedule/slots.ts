@@ -1,4 +1,4 @@
-import { groupOccurrences } from './group-occurrences.js';
+import { cancelledDatesOf, groupOccurrences } from './group-occurrences.js';
 import {
   addDays,
   clockOf,
@@ -154,7 +154,7 @@ function* hoursSlots({ timeZone, weekly, dayOverrides, from, to }: SlotQuery): G
 
 function* groupSlots({ timeZone, groups, cancellations, from, to }: SlotQuery): Generator<Candidate> {
   for (const group of groups) {
-    const cancelled = new Set(cancellations.filter(({ groupId }) => groupId === group.id).map(({ date }) => date));
+    const cancelled = cancelledDatesOf(group.id, cancellations);
     const seats = {
       staffId: group.staffId,
       title: group.title,

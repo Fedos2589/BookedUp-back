@@ -1,5 +1,9 @@
 import { addDays, clockOf, isoWeekday, type LocalDate, MINUTE, wallOfDate } from './local-time.js';
 
+// The dates a group doesn't meet, out of the cancellations of many groups.
+export const cancelledDatesOf = (groupId: string, cancellations: readonly { groupId: string; date: LocalDate }[]) =>
+  new Set(cancellations.filter((each) => each.groupId === groupId).map(({ date }) => date));
+
 // When a group actually meets: instants as numbers, and the day it starts on the business's clock.
 export interface Occurrence {
   start: number;

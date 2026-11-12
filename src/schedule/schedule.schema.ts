@@ -13,10 +13,10 @@ const title = z
 
 // For a check across fields: zod 4 runs an object's refine even when a field failed (the parse
 // goes on to collect every issue), so without this the check sees a raw string — 500, not 400.
-const whenFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 };
+export const whenFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 };
 
 const slotMinutes = z.int().min(5).max(1440);
-const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
+export const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
 
 export const weeklyWindowSchema = z.object({
   weekday: z.int().min(1).max(7).describe('ISO: 1 is Monday, 7 is Sunday'),

@@ -4,7 +4,7 @@ import type { AuthUser } from '../auth/auth-types.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import { dateColumn, localDateOf, withIsoTimes } from './db-values.js';
+import { dateColumn, localDateOf, todayOfBusiness, withIsoTimes } from './db-values.js';
 import { type Conflict, groupConflict, type GroupsSchedule, sessionConflict } from './group-conflicts.js';
 import type { GroupDto, GroupInput, OneOffSessionDto, OneOffSessionInput, ScheduleConflict } from './groups.schema.js';
 import { addDays, isoWeekday, type LocalDate, todayIn } from './local-time.js';
@@ -61,19 +61,7 @@ export class GroupsService {
 
   async groups(businessId: string, staffId: string, now: Date): Promise<GroupDto[]> {
     await this.staff.findIn(businessId, staffId);
-    const today = await this.todayOf(businessId, now);
-    const groups = await this.prisma.group.findMany({
-      where: { businessId, staffId },
-      orderBy: { id: 'asc' },
-      select: {
-        ...groupSelect,
-        cancellations: { where: { date: { gte: dateColumn(today) } }, orderBy: { date: 'asc' } },
-      },
-    });
-    return groups.map(({ staffId: _staffId, cancellations, ...group }) => ({
-      ...group,
-      cancellations: cancellations.map(({ date }) => localDateOf(date)),
-    }));
+    return this.findGroups({ businessId, staffId }, now);
   }
 
   async addGroup(
@@ -255,17 +243,30 @@ export class GroupsService {
     });
   }
 
+  // What a write answers with: the one group, as the list shows it.
   private async groupOf(businessId: string, staffId: string, groupId: string, now: Date): Promise<GroupDto> {
-    const group = (await this.groups(businessId, staffId, now)).find(({ id }) => id === groupId);
+    const [group] = await this.findGroups({ id: groupId, businessId, staffId }, now);
     if (!group) throw new NotFoundException();
     return group;
   }
 
-  private async todayOf(businessId: string, now: Date): Promise<LocalDate> {
-    const { timeZone } = await this.prisma.business.findUniqueOrThrow({
-      where: { id: businessId },
-      select: { timeZone: true },
+  // With their cancellations from today on, in the order they were added.
+  private async findGroups(
+    where: { id?: string; businessId: string; staffId: string },
+    now: Date,
+  ): Promise<GroupDto[]> {
+    const today = await todayOfBusiness(this.prisma, where.businessId, now);
+    const groups = await this.prisma.group.findMany({
+      where,
+      orderBy: { id: 'asc' },
+      select: {
+        ...groupSelect,
+        cancellations: { where: { date: { gte: dateColumn(today) } }, orderBy: { date: 'asc' } },
+      },
     });
-    return todayIn(timeZone, now);
+    return groups.map(({ staffId: _staffId, cancellations, ...group }) => ({
+      ...group,
+      cancellations: cancellations.map(({ date }) => localDateOf(date)),
+    }));
   }
 }
