@@ -45,13 +45,13 @@ CREATE UNIQUE INDEX "one_off_sessions_business_id_staff_id_id_key" ON "one_off_s
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_fkey" FOREIGN KEY ("business_id") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_staff_id_fkey" FOREIGN KEY ("business_id", "staff_id") REFERENCES "staff"("business_id", "id") ON DELETE NO ACTION ON UPDATE CASCADE;
+ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_staff_id_fkey" FOREIGN KEY ("business_id", "staff_id") REFERENCES "staff"("business_id", "id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_staff_id_group_id_fkey" FOREIGN KEY ("business_id", "staff_id", "group_id") REFERENCES "groups"("business_id", "staff_id", "id") ON DELETE NO ACTION ON UPDATE CASCADE;
+ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_staff_id_group_id_fkey" FOREIGN KEY ("business_id", "staff_id", "group_id") REFERENCES "groups"("business_id", "staff_id", "id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_staff_id_one_off_session_id_fkey" FOREIGN KEY ("business_id", "staff_id", "one_off_session_id") REFERENCES "one_off_sessions"("business_id", "staff_id", "id") ON DELETE NO ACTION ON UPDATE CASCADE;
+ALTER TABLE "appointments" ADD CONSTRAINT "appointments_business_id_staff_id_one_off_session_id_fkey" FOREIGN KEY ("business_id", "staff_id", "one_off_session_id") REFERENCES "one_off_sessions"("business_id", "staff_id", "id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 
 ALTER TABLE "appointments"

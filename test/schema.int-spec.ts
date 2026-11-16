@@ -483,6 +483,19 @@ describe('appointments', () => {
     expect(await prisma.appointment.count({ where: { businessId: master.businessId } })).toBe(0);
   });
 
+  it('does not carry seats along when a group changes its master', async () => {
+    const master = await staffOf();
+    const colleague = await prisma.staff.create({ data: { businessId: master.businessId, name: 'Colleague' } });
+    const group = await prisma.group.create({
+      data: { ...master, title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 },
+    });
+    await booking(master, '2030-01-08T15:00:00Z', '2030-01-08T16:00:00Z', { groupId: group.id });
+
+    await expect(
+      prisma.group.update({ where: { id: group.id }, data: { staffId: colleague.id } }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
   it('refuses a phone that is not E.164 and a blank name', async () => {
     const master = await staffOf();
     const withClient = (clientName: string, clientPhone: string) =>
