@@ -160,7 +160,7 @@ export class ScheduleService {
       endsAt: { gt: new Date(wallOfDate(from) - 2 * DAY) },
     };
     const dates = { gte: dateColumn(addDays(from, -1)), lte: dateColumn(to) };
-    const [business, weekly, overrides, groups, cancellations, oneOffSessions, busy] = await Promise.all([
+    const [business, weekly, overrides, groups, cancellations, oneOffSessions, busy, bookings] = await Promise.all([
       this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
       this.prisma.weeklyWindow.findMany({ where: onTeam('HOURS') }),
       this.prisma.dayOverride.findMany({ where: { ...onTeam('HOURS'), date: dates } }),
@@ -171,6 +171,10 @@ export class ScheduleService {
       }),
       this.prisma.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around } }),
       this.prisma.timeOff.findMany({ where: { ...anyMode, ...around } }),
+      this.prisma.appointment.findMany({
+        where: { ...anyMode, ...around, status: { not: 'CANCELLED' } },
+        select: { staffId: true, startsAt: true, endsAt: true, groupId: true, oneOffSessionId: true },
+      }),
     ]);
     return freeSlots({
       timeZone: business.timeZone,
@@ -180,6 +184,7 @@ export class ScheduleService {
       cancellations: cancellations.map(({ groupId, date }) => ({ groupId, date: localDateOf(date) })),
       oneOffSessions,
       busy,
+      bookings,
       from,
       to,
       notBefore: now,

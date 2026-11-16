@@ -1,4 +1,11 @@
-import { type DayOverride, freeSlots, type Group, type OneOffSession, type WeeklyWindow } from './slots.js';
+import {
+  type Booking,
+  type DayOverride,
+  freeSlots,
+  type Group,
+  type OneOffSession,
+  type WeeklyWindow,
+} from './slots.js';
 
 const anna = '00000000-0000-7000-8000-00000000000a';
 const boris = '00000000-0000-7000-8000-00000000000b';
@@ -15,7 +22,7 @@ const weekly = (window: Partial<WeeklyWindow>): WeeklyWindow => ({
 
 const at = (iso: string) => new Date(iso);
 // What a slot of hours mode carries besides its time.
-const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
+const oneSeat = { description: null, capacity: 1, booked: 0, full: false, groupId: null, oneOffSessionId: null };
 const starts = (slots: { startsAt: Date }[]) => slots.map((slot) => slot.startsAt.toISOString());
 
 const base = {
@@ -26,6 +33,7 @@ const base = {
   cancellations: [] as { groupId: string; date: string }[],
   oneOffSessions: [] as OneOffSession[],
   busy: [],
+  bookings: [] as Booking[],
   from: '2026-11-16', // a Monday
   to: '2026-11-16',
   notBefore: at('2026-01-01T00:00:00Z'),
@@ -308,6 +316,7 @@ describe('freeSlots', () => {
           description: 'Bring water',
           capacity: 12,
           booked: 0,
+          full: false,
           groupId: football.id,
           oneOffSessionId: null,
         })),
@@ -345,6 +354,7 @@ describe('freeSlots', () => {
           description: null,
           capacity: 30,
           booked: 0,
+          full: false,
           groupId: null,
           oneOffSessionId: session.id,
         },
@@ -360,6 +370,93 @@ describe('freeSlots', () => {
       });
 
       expect(starts(slots)).toEqual(['2026-11-17T12:00:00.000Z']);
+    });
+
+    const seat = (staffId: string, startsAt: string, groupId: string | null): Booking => ({
+      staffId,
+      startsAt: at(startsAt),
+      endsAt: new Date(at(startsAt).getTime() + 3_600_000),
+      groupId,
+      oneOffSessionId: null,
+    });
+    const tuesday = '2026-11-17T12:00:00Z';
+    const small = { ...football, capacity: 3 };
+
+    it('counts the seats booked in a meeting and keeps the slot while there is room', () => {
+      const bookings = [seat(anna, tuesday, small.id), seat(anna, tuesday, small.id)];
+
+      const [first] = freeSlots({ ...base, ...week, groups: [small], bookings });
+
+      expect(first).toMatchObject({ startsAt: at(tuesday), booked: 2, full: false });
+    });
+
+    it('keeps a full meeting in the answer, marked full', () => {
+      const bookings = [seat(anna, tuesday, small.id), seat(anna, tuesday, small.id), seat(anna, tuesday, small.id)];
+
+      const [first] = freeSlots({ ...base, ...week, groups: [small], bookings });
+
+      expect(first).toMatchObject({ startsAt: at(tuesday), booked: 3, full: true });
+    });
+
+    it('does not count a seat of another occurrence of the group or of another group', () => {
+      const bookings = [
+        seat(anna, '2026-11-19T12:00:00Z', small.id),
+        seat(anna, tuesday, '00000000-0000-7000-8000-0000000000f2'),
+      ];
+
+      const [first] = freeSlots({ ...base, ...week, groups: [small], bookings });
+
+      expect(first).toMatchObject({ startsAt: at(tuesday), booked: 0, full: false });
+    });
+
+    it('counts the seats booked in a one-off session', () => {
+      const session: OneOffSession = {
+        id: '00000000-0000-7000-8000-0000000000e1',
+        staffId: anna,
+        title: 'Masterclass',
+        description: null,
+        startsAt: at('2026-11-18T15:00:00Z'),
+        endsAt: at('2026-11-18T16:00:00Z'),
+        capacity: 1,
+      };
+      const booking: Booking = { ...seat(anna, '2026-11-18T15:00:00Z', null), oneOffSessionId: session.id };
+
+      const slots = freeSlots({ ...base, ...week, oneOffSessions: [session], bookings: [booking] });
+
+      expect(slots).toMatchObject([{ oneOffSessionId: session.id, booked: 1, full: true }]);
+    });
+
+    it('does not let seats of a meeting take other time of the master away', () => {
+      const bookings = [seat(anna, tuesday, small.id)];
+
+      const slots = freeSlots({ ...base, ...week, groups: [small], bookings });
+
+      expect(starts(slots)).toEqual(['2026-11-17T12:00:00.000Z', '2026-11-19T12:00:00.000Z']);
+    });
+  });
+
+  describe('bookings in hours mode', () => {
+    const hours = { ...base, weekly: [weekly({ durationMinutes: 180 })] };
+    const booking = (staffId: string, startsAt: string, endsAt: string): Booking => ({
+      staffId,
+      startsAt: at(startsAt),
+      endsAt: at(endsAt),
+      groupId: null,
+      oneOffSessionId: null,
+    });
+
+    it('takes the booked slot away, and only that one', () => {
+      const bookings = [booking(anna, '2026-11-16T08:00:00Z', '2026-11-16T09:00:00Z')];
+
+      const slots = freeSlots({ ...hours, bookings });
+
+      expect(starts(slots)).toEqual(['2026-11-16T07:00:00.000Z', '2026-11-16T09:00:00.000Z']);
+    });
+
+    it('does not take a slot away for a booking of another master', () => {
+      const bookings = [booking(boris, '2026-11-16T08:00:00Z', '2026-11-16T09:00:00Z')];
+
+      expect(freeSlots({ ...hours, bookings })).toHaveLength(3);
     });
   });
 });
