@@ -1,9 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-types.js';
+import { roleCan } from '../business/roles.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
-import { addDays, dateOfWall, HOUR, instantOf, wallAt, wallOfDate } from '../schedule/local-time.js';
+import { addDays, dateOfWall, startOfDay, wallAt } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
@@ -113,20 +114,15 @@ export class AppointmentsService {
         select: { role: true },
       }),
     ]);
-    // Where a local day begins; a midnight skipped by a clock change begins at the first hour that exists.
-    const startOf = (date: string) => {
-      const wall = wallOfDate(date);
-      return new Date(instantOf(timeZone, wall) ?? instantOf(timeZone, wall + HOUR) ?? wall);
-    };
     const rows = await this.prisma.appointment.findMany({
       where: {
         businessId,
         staffId,
-        ...(membership?.role === 'MASTER' && { staff: { userId: actor.id } }),
+        ...(!(membership && roleCan(membership.role, 'seeAllBookings')) && { staff: { userId: actor.id } }),
         ...(!includeCancelled && { status: { not: 'CANCELLED' } }),
         startsAt: {
-          gte: startOf(from),
-          lt: startOf(addDays(to, 1)),
+          gte: new Date(startOfDay(timeZone, from)),
+          lt: new Date(startOfDay(timeZone, addDays(to, 1))),
         },
       },
       select: appointmentSelect,
@@ -157,7 +153,7 @@ export class AppointmentsService {
       throw statusConflict('notStarted', 'The booking has not started yet');
     }
     const [updated] = await this.prisma.appointment.updateManyAndReturn({
-      where: { id, businessId, status: current.status },
+      where: { id, businessId, staffId: current.staffId, status: current.status },
       data: { status },
       select: appointmentSelect,
     });

@@ -3,7 +3,7 @@
 // moves the clock, not the instant.
 
 export const MINUTE = 60_000;
-export const HOUR = 60 * MINUTE;
+const HOUR = 60 * MINUTE;
 export const DAY = 24 * HOUR;
 export const MINUTES_PER_DAY = 24 * 60;
 
@@ -75,6 +75,17 @@ export function clockOf(timeZone: string): (wall: number) => number | undefined 
     const offset = offsetOfDay(Math.floor(wall / DAY));
     return offset === null ? instantOf(timeZone, wall) : wall - offset;
   };
+}
+
+// The instant a local day begins. A midnight a clock change skips (Brazil before 2019, Apia in 2011)
+// begins the day at the first hour that exists.
+export function startOfDay(timeZone: string, date: LocalDate): number {
+  const midnight = wallOfDate(date);
+  for (let hour = 0; hour <= 48; hour++) {
+    const instant = instantOf(timeZone, midnight + hour * HOUR);
+    if (instant !== undefined) return instant;
+  }
+  throw new Error(`No time of ${date} exists in ${timeZone}`);
 }
 
 export const wallOfDate = (date: LocalDate): number => Date.parse(`${date}T00:00:00Z`);

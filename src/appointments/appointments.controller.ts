@@ -77,6 +77,7 @@ export class AppointmentsController {
   }
 
   @Patch(':appointmentId/status')
+  @ApiNotFoundResponse({ description: 'No such booking in this business' })
   @ApiOkResponse({ description: 'The booking with its new status', schema: openApi(appointmentSchema) })
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiConflictResponse({

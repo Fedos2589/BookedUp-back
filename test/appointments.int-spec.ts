@@ -488,6 +488,26 @@ describe('changing the status of a booking', () => {
     }
   });
 
+  it('gives one 200 and one 409 to two changes of one booking at once', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await seed(businessId, staffId, 'CONFIRMED', past);
+
+    const results = await Promise.all([
+      change(owner.cookie, businessId, id, 'DONE'),
+      change(owner.cookie, businessId, id, 'CANCELLED'),
+    ]);
+
+    expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([200, 409]);
+  });
+
+  it('lets a master change the status of their own booking', async () => {
+    const { businessId } = await setUp();
+    const master = await memberWithSchedule(businessId, 'MASTER');
+    const id = await seed(businessId, master.staffId, 'BOOKED', slot(0).startsAt);
+
+    await change(master.cookie, businessId, id, 'CONFIRMED').expect(200);
+  });
+
   it('frees the slot once the booking is cancelled', async () => {
     const { owner, businessId, staffId } = await setUp();
     const { startsAt, endsAt } = slot(1);

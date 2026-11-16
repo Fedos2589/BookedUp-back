@@ -18,6 +18,8 @@ export const rolesManagedBy = (role: MemberRole): readonly MemberRole[] => manag
 const abilities = {
   // The team pages: staff, members, invitations. Which of them a role may touch is roleManages.
   manageTeam: (role: MemberRole) => manages[role].length > 0,
+  // Everyone's bookings in the calendar; a role without it sees only its own master's.
+  seeAllBookings: (role: MemberRole) => manages[role].length > 0,
 } as const satisfies Record<string, (role: MemberRole) => boolean>;
 
 export type BusinessAbility = keyof typeof abilities;
