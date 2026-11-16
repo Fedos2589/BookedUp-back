@@ -2,6 +2,7 @@ import { CurrentUser } from '@nestjs/authentication';
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNoContentResponse,
@@ -16,6 +17,7 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
+import { hasBookingsSchema } from './live-bookings.js';
 import {
   type DayOverrideDto,
   type DayOverrideInput,
@@ -140,13 +142,14 @@ export class StaffScheduleController {
   @Post('time-off')
   @ApiCreatedResponse({ description: 'Added', schema: openApi(timeOffSchema) })
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiConflictResponse({ description: 'Live bookings are in the way', schema: openApi(hasBookingsSchema) })
   addTimeOff(
     @CurrentUser() actor: AuthUser,
     @Param('businessId', uuid) businessId: string,
     @Param('staffId', uuid) staffId: string,
     @Body({ schema: timeOffInput }) body: TimeOffInput,
   ): Promise<TimeOffDto> {
-    return this.schedule.addTimeOff(actor, businessId, staffId, body);
+    return this.schedule.addTimeOff(actor, businessId, staffId, body, new Date());
   }
 
   @Delete('time-off/:id')

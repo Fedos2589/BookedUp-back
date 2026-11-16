@@ -29,6 +29,7 @@ import {
   scheduleConflictSchema,
 } from './groups.schema.js';
 import { GroupsService } from './groups.service.js';
+import { hasBookingsSchema } from './live-bookings.js';
 import { localDate } from './schedule.schema.js';
 
 const uuid = { schema: z.uuid() };
@@ -88,18 +89,20 @@ export class GroupsController {
 
   @Delete('groups/:groupId')
   @HttpCode(204)
-  @ApiNoContentResponse({ description: 'Removed, with its cancellations' })
+  @ApiNoContentResponse({ description: 'Archived: gone from the lists and slots, bookings keep pointing at it' })
+  @ApiConflictResponse({ description: 'Live bookings are in the way', schema: openApi(hasBookingsSchema) })
   remove(
     @CurrentUser() actor: AuthUser,
     @Param('businessId', uuid) businessId: string,
     @Param('staffId', uuid) staffId: string,
     @Param('groupId', uuid) groupId: string,
   ): Promise<void> {
-    return this.groups.removeGroup(actor, businessId, staffId, groupId);
+    return this.groups.removeGroup(actor, businessId, staffId, groupId, new Date());
   }
 
   @Put('groups/:groupId/cancellations/:date')
   @ApiOkResponse({ description: 'The group, that date cancelled (again is fine)', schema: openApi(groupSchema) })
+  @ApiConflictResponse({ description: 'Live bookings are in the way', schema: openApi(hasBookingsSchema) })
   @ApiBadRequestResponse({
     description: 'Not a date, a date before today, or not a day it meets',
     schema: openApi(validationErrorSchema),
@@ -161,13 +164,14 @@ export class GroupsController {
 
   @Delete('one-off-sessions/:id')
   @HttpCode(204)
-  @ApiNoContentResponse({ description: 'Removed' })
+  @ApiNoContentResponse({ description: 'Archived: gone from the lists and slots, bookings keep pointing at it' })
+  @ApiConflictResponse({ description: 'Live bookings are in the way', schema: openApi(hasBookingsSchema) })
   removeSession(
     @CurrentUser() actor: AuthUser,
     @Param('businessId', uuid) businessId: string,
     @Param('staffId', uuid) staffId: string,
     @Param('id', uuid) id: string,
   ): Promise<void> {
-    return this.groups.removeOneOffSession(actor, businessId, staffId, id);
+    return this.groups.removeOneOffSession(actor, businessId, staffId, id, new Date());
   }
 }

@@ -264,19 +264,21 @@ model DayOverride {
 /// Groups mode: a named session on some weekdays at one time, for up to `capacity` people.
 /// Groups of one master never overlap (checked in src/schedule under a lock on the staff row).
 model Group {
-  id              String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  businessId      String   @map("business_id") @db.Uuid
-  staffId         String   @map("staff_id") @db.Uuid
+  id              String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  staffId         String    @map("staff_id") @db.Uuid
   title           String
   /// What it is, how to get ready, what to bring.
   description     String?
   /// ISO: 1 is Monday, 7 is Sunday.
-  weekdays        Int[]    @db.SmallInt
-  startMinute     Int      @map("start_minute") @db.SmallInt
-  durationMinutes Int      @map("duration_minutes") @db.SmallInt
-  capacity        Int      @db.SmallInt
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  weekdays        Int[]     @db.SmallInt
+  startMinute     Int       @map("start_minute") @db.SmallInt
+  durationMinutes Int       @map("duration_minutes") @db.SmallInt
+  capacity        Int       @db.SmallInt
+  /// Deleted from the app: kept, because bookings point at it.
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   staff         Staff               @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
@@ -309,16 +311,18 @@ model GroupCancellation {
 /// Groups mode: a session once, between two instants. Overlapping ones of one master are
 /// refused by an EXCLUDE constraint in the migration; one over a group's meeting by src/schedule.
 model OneOffSession {
-  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  businessId  String   @map("business_id") @db.Uuid
-  staffId     String   @map("staff_id") @db.Uuid
+  id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId  String    @map("business_id") @db.Uuid
+  staffId     String    @map("staff_id") @db.Uuid
   title       String
   description String?
-  startsAt    DateTime @map("starts_at") @db.Timestamptz(3)
-  endsAt      DateTime @map("ends_at") @db.Timestamptz(3)
-  capacity    Int      @db.SmallInt
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startsAt    DateTime  @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime  @map("ends_at") @db.Timestamptz(3)
+  capacity    Int       @db.SmallInt
+  /// Deleted from the app: kept, because bookings point at it; its time is free again.
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)

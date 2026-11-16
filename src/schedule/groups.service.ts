@@ -8,7 +8,9 @@ import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
 import { type Conflict, groupConflict, type GroupsSchedule, sessionConflict } from './group-conflicts.js';
 import type { GroupDto, GroupInput, OneOffSessionDto, OneOffSessionInput, ScheduleConflict } from './groups.schema.js';
-import { addDays, DAY, isoWeekday, type LocalDate, todayIn } from './local-time.js';
+import { liveBookingIds, refuseIfAny } from './live-bookings.js';
+import { strandedBookings } from './stranded-bookings.js';
+import { addDays, DAY, dateOfWall, isoWeekday, type LocalDate, todayIn, wallAt } from './local-time.js';
 
 const groupSelect = {
   id: true,
@@ -92,7 +94,7 @@ export class GroupsService {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     await this.underLock(businessId, staffId, now, async (tx, check) => {
       const [group] = await tx.group.updateManyAndReturn({
-        where: { id: groupId, businessId, staffId },
+        where: { id: groupId, businessId, staffId, archivedAt: null },
         data: input,
         select: groupSelect,
       });
@@ -104,14 +106,31 @@ export class GroupsService {
         WHERE business_id = ${businessId}::uuid AND group_id = ${groupId}::uuid
           AND NOT (EXTRACT(ISODOW FROM date)::smallint = ANY (${group.weekdays}::smallint[]))`;
       await check((schedule, timeZone) => groupConflict(group, schedule, timeZone, now), 'startMinute');
+      // Seats still to come must keep a meeting and a place: the group is not changed under them.
+      const { timeZone } = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { timeZone: true },
+      });
+      const seats = await tx.appointment.findMany({
+        where: { businessId, groupId, endsAt: { gt: now }, status: { in: ['BOOKED', 'CONFIRMED'] } },
+        select: { id: true, startsAt: true, endsAt: true },
+      });
+      refuseIfAny(strandedBookings(group, seats, timeZone));
     });
     return this.groupOf(businessId, staffId, groupId, now);
   }
 
-  async removeGroup(actor: AuthUser, businessId: string, staffId: string, groupId: string): Promise<void> {
+  // Archived, not deleted: bookings (past ones too) point at it. Refused while live ones are still to come.
+  async removeGroup(actor: AuthUser, businessId: string, staffId: string, groupId: string, now: Date): Promise<void> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    const { count } = await this.prisma.group.deleteMany({ where: { id: groupId, businessId, staffId } });
-    if (count === 0) throw new NotFoundException();
+    await this.underLock(businessId, staffId, now, async (tx) => {
+      const { count } = await tx.group.updateMany({
+        where: { id: groupId, businessId, staffId, archivedAt: null },
+        data: { archivedAt: now },
+      });
+      if (count === 0) throw new NotFoundException();
+      refuseIfAny(await liveBookingIds(tx, businessId, { groupId, endsAt: { gt: now } }));
+    });
   }
 
   // Idempotent: cancelling a cancelled date changes nothing. Only a day the group meets — read
@@ -128,10 +147,24 @@ export class GroupsService {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     await refusePastDate(this.prisma, businessId, date, now);
     await this.underLock(businessId, staffId, now, async (tx) => {
-      const group = await tx.group.findFirst({ where: { id: groupId, businessId, staffId }, select: groupSelect });
+      const group = await tx.group.findFirst({
+        where: { id: groupId, businessId, staffId, archivedAt: null },
+        select: groupSelect,
+      });
       if (!group) throw new NotFoundException();
       if (!group.weekdays.includes(isoWeekday(date)))
         throw new BadRequestException(['date: Not a day this group meets']);
+      // A meeting belongs to the day it starts on the business's clock.
+      const { timeZone } = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { timeZone: true },
+      });
+      const coming = await tx.appointment.findMany({
+        where: { businessId, groupId, endsAt: { gt: now } },
+        select: { id: true, startsAt: true },
+      });
+      const onDate = coming.filter((each) => dateOfWall(wallAt(timeZone, each.startsAt.getTime())) === date);
+      refuseIfAny(await liveBookingIds(tx, businessId, { id: { in: onDate.map(({ id }) => id) } }));
       await tx.groupCancellation.createMany({
         data: [{ businessId, groupId, date: dateColumn(date) }],
         skipDuplicates: true,
@@ -151,7 +184,10 @@ export class GroupsService {
   ): Promise<void> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     await this.underLock(businessId, staffId, now, async (tx, check) => {
-      const group = await tx.group.findFirst({ where: { id: groupId, businessId, staffId }, select: groupSelect });
+      const group = await tx.group.findFirst({
+        where: { id: groupId, businessId, staffId, archivedAt: null },
+        select: groupSelect,
+      });
       const { count } = await tx.groupCancellation.deleteMany({
         where: { businessId, groupId, date: dateColumn(date) },
       });
@@ -164,7 +200,7 @@ export class GroupsService {
   async oneOffSessions(businessId: string, staffId: string, now: Date): Promise<OneOffSessionDto[]> {
     await this.staff.findIn(businessId, staffId);
     const sessions = await this.prisma.oneOffSession.findMany({
-      where: { businessId, staffId, endsAt: { gt: now } },
+      where: { businessId, staffId, archivedAt: null, endsAt: { gt: now } },
       orderBy: { startsAt: 'asc' },
       select: sessionSelect,
     });
@@ -196,7 +232,13 @@ export class GroupsService {
       // Code and EXCLUDE disagree (a row written around this service): still a 409, not a 500.
       if (violatedExclusion(error) !== 'OneOffSession') throw error;
       const other = await this.prisma.oneOffSession.findFirst({
-        where: { businessId, staffId, startsAt: { lt: input.endsAt }, endsAt: { gt: input.startsAt } },
+        where: {
+          businessId,
+          staffId,
+          archivedAt: null,
+          startsAt: { lt: input.endsAt },
+          endsAt: { gt: input.startsAt },
+        },
         select: sessionSelect,
       });
       if (!other) throw error;
@@ -209,10 +251,22 @@ export class GroupsService {
     }
   }
 
-  async removeOneOffSession(actor: AuthUser, businessId: string, staffId: string, id: string): Promise<void> {
+  async removeOneOffSession(
+    actor: AuthUser,
+    businessId: string,
+    staffId: string,
+    id: string,
+    now: Date,
+  ): Promise<void> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    const { count } = await this.prisma.oneOffSession.deleteMany({ where: { id, businessId, staffId } });
-    if (count === 0) throw new NotFoundException();
+    await this.underLock(businessId, staffId, now, async (tx) => {
+      const { count } = await tx.oneOffSession.updateMany({
+        where: { id, businessId, staffId, archivedAt: null },
+        data: { archivedAt: now },
+      });
+      if (count === 0) throw new NotFoundException();
+      refuseIfAny(await liveBookingIds(tx, businessId, { oneOffSessionId: id, endsAt: { gt: now } }));
+    });
   }
 
   // One transaction behind the staff row's lock. `check` reads the master's groups-mode schedule
@@ -244,13 +298,13 @@ export class GroupsService {
         });
         const since = addDays(todayIn(timeZone, now), -2);
         const [groups, cancellations, sessions] = await Promise.all([
-          tx.group.findMany({ where: { businessId, staffId }, select: groupSelect }),
+          tx.group.findMany({ where: { businessId, staffId, archivedAt: null }, select: groupSelect }),
           tx.groupCancellation.findMany({
             where: { businessId, group: { staffId }, date: { gte: dateColumn(since) } },
             select: { groupId: true, date: true },
           }),
           tx.oneOffSession.findMany({
-            where: { businessId, staffId, endsAt: { gt: new Date(now.getTime() - DAY) } },
+            where: { businessId, staffId, archivedAt: null, endsAt: { gt: new Date(now.getTime() - DAY) } },
             select: { ...sessionSelect, staffId: true },
           }),
         ]);
@@ -282,7 +336,7 @@ export class GroupsService {
   ): Promise<GroupDto[]> {
     const today = await todayOfBusiness(this.prisma, where.businessId, now);
     const groups = await this.prisma.group.findMany({
-      where,
+      where: { ...where, archivedAt: null },
       orderBy: { id: 'asc' },
       select: {
         ...groupSelect,

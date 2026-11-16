@@ -204,3 +204,111 @@ describe('booking an hours slot', () => {
     expect(await app.get(PrismaService).appointment.count({ where: { staffId } })).toBe(0);
   });
 });
+
+describe('booking a seat', () => {
+  // Tuesday 2030-01-08: the group meets 15:00–16:00 Moscow (12:00–13:00Z), a one-off session 17:00–18:00.
+  const tuesday = '2030-01-08';
+  const meeting = { startsAt: `${tuesday}T12:00:00.000Z`, endsAt: `${tuesday}T13:00:00.000Z` };
+  const sessionTime = { startsAt: `${tuesday}T14:00:00.000Z`, endsAt: `${tuesday}T15:00:00.000Z` };
+
+  const coach = async (capacity: number) => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const as = (req: request.Test) => req.set('Cookie', owner.cookie);
+    const staffId = (await as(http().post(`/businesses/${businessId}/staff`).send({ name: 'Anna' })).expect(201)).body
+      .id as string;
+    const base = `/businesses/${businessId}/staff/${staffId}`;
+    await as(http().put(`${base}/schedule-mode`).send({ mode: 'GROUPS' })).expect(200);
+    const group = (
+      await as(
+        http()
+          .post(`${base}/groups`)
+          .send({
+            title: 'Football',
+            description: null,
+            weekdays: [2],
+            startMinute: 900,
+            durationMinutes: 60,
+            capacity,
+          }),
+      ).expect(201)
+    ).body.id as string;
+    const seat = (extra: object, time = meeting) =>
+      as(
+        http()
+          .post(appointmentsUrl(businessId))
+          .send({ ...booking(staffId, time.startsAt, time.endsAt), ...extra }),
+      );
+    const booked = async () =>
+      (
+        (await as(http().get(slotsUrl(businessId)).query({ from: tuesday, to: tuesday })).expect(200)).body as {
+          groupId: string | null;
+          booked: number;
+          full: boolean;
+        }[]
+      ).find((each) => each.groupId === group);
+    return { as, base, businessId, staffId, group, seat, booked };
+  };
+
+  it('books a seat, and the places taken grow', async () => {
+    const { group, seat, booked } = await coach(3);
+
+    const res = await seat({ groupId: group }).expect(201);
+    await seat({ groupId: group }).expect(201);
+
+    expect(res.body).toMatchObject({ groupId: group, oneOffSessionId: null, ...meeting });
+    expect(await booked()).toMatchObject({ booked: 2, full: false });
+  });
+
+  it('books a seat in a one-off session', async () => {
+    const { as, base, seat } = await coach(3);
+    const session = (
+      await as(
+        http()
+          .post(`${base}/one-off-sessions`)
+          .send({ title: 'Masterclass', ...sessionTime, capacity: 1 }),
+      ).expect(201)
+    ).body.id as string;
+
+    const res = await seat({ oneOffSessionId: session }, sessionTime).expect(201);
+    const full = await seat({ oneOffSessionId: session }, sessionTime).expect(409);
+
+    expect(res.body).toMatchObject({ oneOffSessionId: session, groupId: null });
+    expect(full.body).toMatchObject({ statusCode: 409, code: 'full' });
+  });
+
+  it('gives one 201 and one 409 full to two requests for the last place', async () => {
+    const { businessId, staffId, group, seat } = await coach(1);
+
+    const results = await Promise.all([seat({ groupId: group }), seat({ groupId: group })]);
+
+    expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([201, 409]);
+    expect(results.find((res) => res.status === 409)?.body).toMatchObject({ code: 'full' });
+    expect(await app.get(PrismaService).appointment.count({ where: { businessId, staffId } })).toBe(1);
+  });
+
+  it('answers 409 notFree for a cancelled date, another time or an unknown group', async () => {
+    const { as, base, group, seat } = await coach(3);
+    await as(http().put(`${base}/groups/${group}/cancellations/${tuesday}`)).expect(200);
+
+    const cancelled = await seat({ groupId: group }).expect(409);
+    const unknown = await seat({ groupId: '00000000-0000-4000-8000-000000000000' }).expect(409);
+
+    expect(cancelled.body).toMatchObject({ code: 'notFree' });
+    expect(unknown.body).toMatchObject({ code: 'notFree' });
+  });
+
+  it('answers 409 notFree for a time that is not the meeting', async () => {
+    const { group, seat } = await coach(3);
+
+    const res = await seat({ groupId: group }, sessionTime).expect(409);
+
+    expect(res.body).toMatchObject({ code: 'notFree' });
+  });
+
+  it('refuses both a group and a session in one body', async () => {
+    const { group, seat } = await coach(3);
+
+    await seat({ groupId: group, oneOffSessionId: group }).expect(400);
+  });
+});

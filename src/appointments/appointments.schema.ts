@@ -20,10 +20,24 @@ const clientPhone = z
   .regex(/^\+[1-9]\d{6,14}$/, 'Not a phone number in the international format');
 
 export const appointmentInput = z
-  .object({ staffId: z.uuid(), startsAt: instant, endsAt: instant, clientName, clientPhone, note: blankIsNone(2000) })
+  .object({
+    staffId: z.uuid(),
+    startsAt: instant,
+    endsAt: instant,
+    clientName,
+    clientPhone,
+    note: blankIsNone(2000),
+    groupId: z.uuid().optional().describe('Book a seat in the meeting of this group at this time'),
+    oneOffSessionId: z.uuid().optional().describe('Book a seat in this one-off session'),
+  })
   .refine((booking) => booking.startsAt < booking.endsAt, {
     path: ['endsAt'],
     message: 'Not after startsAt',
+    ...whenFieldsValid,
+  })
+  .refine((booking) => !(booking.groupId && booking.oneOffSessionId), {
+    path: ['oneOffSessionId'],
+    message: 'A seat is in a group or in a one-off session, not both',
     ...whenFieldsValid,
   });
 export type AppointmentInput = z.infer<typeof appointmentInput>;
@@ -49,5 +63,7 @@ export const bookingConflictSchema = z.object({
   statusCode: z.literal(409),
   error: z.literal('Conflict'),
   message: z.string(),
-  code: z.enum(['notFree']),
+  code: z
+    .enum(['notFree', 'full'])
+    .describe('notFree: no such slot or taken; full: every seat of the meeting is taken'),
 });
