@@ -44,6 +44,20 @@ export type AppointmentInput = z.infer<typeof appointmentInput>;
 
 export const appointmentStatus = z.enum(['BOOKED', 'CONFIRMED', 'DONE', 'NO_SHOW', 'CANCELLED']);
 
+export type AppointmentStatus = z.infer<typeof appointmentStatus>;
+
+export const statusInput = z.object({ status: appointmentStatus });
+export type StatusInput = z.infer<typeof statusInput>;
+
+// BOOKED → CONFIRMED → DONE | NO_SHOW; BOOKED | CONFIRMED → CANCELLED. Nothing leaves the last three.
+export const nextStatuses: Record<AppointmentStatus, readonly AppointmentStatus[]> = {
+  BOOKED: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['DONE', 'NO_SHOW', 'CANCELLED'],
+  DONE: [],
+  NO_SHOW: [],
+  CANCELLED: [],
+};
+
 export const appointmentSchema = z.object({
   id: z.uuid(),
   staffId: z.uuid(),
@@ -73,3 +87,14 @@ export const appointmentsQuery = slotsQuery.safeExtend({
   includeCancelled: z.stringbool().default(false),
 });
 export type AppointmentsQuery = z.infer<typeof appointmentsQuery>;
+
+export const statusConflictSchema = z.object({
+  statusCode: z.literal(409),
+  error: z.literal('Conflict'),
+  message: z.string(),
+  code: z
+    .enum(['badTransition', 'notStarted'])
+    .describe(
+      'badTransition: not an allowed move from the current status; notStarted: DONE / NO_SHOW before the start',
+    ),
+});

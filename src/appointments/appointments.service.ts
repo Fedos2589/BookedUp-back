@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -7,7 +7,13 @@ import { addDays, dateOfWall, HOUR, instantOf, wallAt, wallOfDate } from '../sch
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import type { AppointmentDto, AppointmentInput, AppointmentsQuery } from './appointments.schema.js';
+import {
+  type AppointmentDto,
+  type AppointmentInput,
+  type AppointmentsQuery,
+  nextStatuses,
+  type StatusInput,
+} from './appointments.schema.js';
 
 const appointmentSelect = {
   id: true,
@@ -37,6 +43,9 @@ const full = () =>
     message: 'Every seat is taken',
     code: 'full',
   });
+
+const statusConflict = (code: 'badTransition' | 'notStarted', message: string) =>
+  new ConflictException({ statusCode: 409, error: 'Conflict', message, code });
 
 @Injectable()
 export class AppointmentsService {
@@ -124,5 +133,35 @@ export class AppointmentsService {
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
     });
     return rows.map(withIsoTimes);
+  }
+
+  // Moves a booking along Decision 2's statuses. The update names the status it read, so two requests
+  // racing over one booking can't both pass: the second finds it changed and gets the same 409.
+  async changeStatus(
+    actor: AuthUser,
+    businessId: string,
+    id: string,
+    { status }: StatusInput,
+    now: Date,
+  ): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({
+      where: { id, businessId },
+      select: { staffId: true, status: true, startsAt: true },
+    });
+    if (!current) throw new NotFoundException();
+    await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
+    if (!nextStatuses[current.status].includes(status)) {
+      throw statusConflict('badTransition', `A booking that is ${current.status} can't become ${status}`);
+    }
+    if ((status === 'DONE' || status === 'NO_SHOW') && current.startsAt > now) {
+      throw statusConflict('notStarted', 'The booking has not started yet');
+    }
+    const [updated] = await this.prisma.appointment.updateManyAndReturn({
+      where: { id, businessId, status: current.status },
+      data: { status },
+      select: appointmentSelect,
+    });
+    if (!updated) throw statusConflict('badTransition', 'The status has just changed');
+    return withIsoTimes(updated);
   }
 }

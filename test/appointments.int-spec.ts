@@ -419,3 +419,100 @@ describe('listing bookings for a range', () => {
     expect(took).toBeLessThan(1000);
   });
 });
+
+describe('changing the status of a booking', () => {
+  type Status = 'BOOKED' | 'CONFIRMED' | 'DONE' | 'NO_SHOW' | 'CANCELLED';
+  const statusUrl = (businessId: string, id: string) => `${appointmentsUrl(businessId)}/${id}/status`;
+  const seed = async (businessId: string, staffId: string, status: Status, startsAt: string) => {
+    const start = new Date(startsAt);
+    return (
+      await app.get(PrismaService).appointment.create({
+        data: {
+          businessId,
+          staffId,
+          startsAt: start,
+          endsAt: new Date(start.getTime() + 3_600_000),
+          status,
+          clientName: 'Olga',
+          clientPhone: '+79991234567',
+        },
+        select: { id: true },
+      })
+    ).id;
+  };
+  const change = (cookie: string, businessId: string, id: string, status: Status) =>
+    http().patch(statusUrl(businessId, id)).set('Cookie', cookie).send({ status });
+  const past = '2020-01-06T07:00:00.000Z';
+
+  it.each<[Status, Status, string]>([
+    ['BOOKED', 'CONFIRMED', slot(0).startsAt],
+    ['BOOKED', 'CANCELLED', slot(0).startsAt],
+    ['CONFIRMED', 'CANCELLED', slot(0).startsAt],
+    ['CONFIRMED', 'DONE', past],
+    ['CONFIRMED', 'NO_SHOW', past],
+  ])('moves %s to %s', async (from, to, startsAt) => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await seed(businessId, staffId, from, startsAt);
+
+    const res = await change(owner.cookie, businessId, id, to).expect(200);
+
+    expect(res.body).toMatchObject({ id, status: to });
+  });
+
+  it.each<[Status, Status]>([
+    ['BOOKED', 'DONE'],
+    ['BOOKED', 'CONFIRMED'],
+    ['CONFIRMED', 'BOOKED'],
+    ['DONE', 'CANCELLED'],
+    ['CANCELLED', 'CONFIRMED'],
+  ])('refuses %s to %s with 409 badTransition', async (from, to) => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await seed(businessId, staffId, from, past);
+    if (from === 'BOOKED' && to === 'CONFIRMED') {
+      // The one allowed pair above, here asked twice: the second time the booking is no longer BOOKED.
+      await change(owner.cookie, businessId, id, to).expect(200);
+    }
+
+    const res = await change(owner.cookie, businessId, id, to).expect(409);
+
+    expect(res.body).toMatchObject({ statusCode: 409, code: 'badTransition' });
+  });
+
+  it('refuses DONE and NO_SHOW before the booking starts with 409 notStarted', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await seed(businessId, staffId, 'CONFIRMED', slot(0).startsAt);
+
+    for (const status of ['DONE', 'NO_SHOW'] as const) {
+      const res = await change(owner.cookie, businessId, id, status).expect(409);
+      expect(res.body).toMatchObject({ code: 'notStarted' });
+    }
+  });
+
+  it('frees the slot once the booking is cancelled', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const { startsAt, endsAt } = slot(1);
+    const id = (
+      await http()
+        .post(appointmentsUrl(businessId))
+        .set('Cookie', owner.cookie)
+        .send(booking(staffId, startsAt, endsAt))
+        .expect(201)
+    ).body.id as string;
+    expect(await freeStarts(owner, businessId)).not.toContain(startsAt);
+
+    await change(owner.cookie, businessId, id, 'CANCELLED').expect(200);
+
+    expect(await freeStarts(owner, businessId)).toContain(startsAt);
+  });
+
+  it('answers 404 for a booking of another business and 403 for a master of someone else', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const stranger = await setUp();
+    const id = await seed(businessId, staffId, 'BOOKED', slot(0).startsAt);
+    const master = await memberWithSchedule(businessId, 'MASTER');
+
+    await change(stranger.owner.cookie, stranger.businessId, id, 'CONFIRMED').expect(404);
+    await change(master.cookie, businessId, id, 'CONFIRMED').expect(403);
+    await change(owner.cookie, businessId, id, 'CONFIRMED').expect(200);
+  });
+});

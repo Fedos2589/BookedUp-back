@@ -1,5 +1,5 @@
 import { CurrentUser } from '@nestjs/authentication';
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -21,6 +21,9 @@ import {
   type AppointmentInput,
   appointmentInput,
   appointmentsQuery,
+  statusConflictSchema,
+  statusInput,
+  type StatusInput,
   type AppointmentsQuery,
   appointmentSchema,
   bookingConflictSchema,
@@ -71,5 +74,22 @@ export class AppointmentsController {
     @Query({ schema: appointmentsQuery }) query: AppointmentsQuery,
   ): Promise<AppointmentDto[]> {
     return this.appointments.list(actor, businessId, query);
+  }
+
+  @Patch(':appointmentId/status')
+  @ApiOkResponse({ description: 'The booking with its new status', schema: openApi(appointmentSchema) })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiConflictResponse({
+    description:
+      'Not an allowed move from the current status (code badTransition), or DONE / NO_SHOW before the booking starts (code notStarted)',
+    schema: openApi(statusConflictSchema),
+  })
+  changeStatus(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('appointmentId', uuid) appointmentId: string,
+    @Body({ schema: statusInput }) body: StatusInput,
+  ): Promise<AppointmentDto> {
+    return this.appointments.changeStatus(actor, businessId, appointmentId, body, new Date());
   }
 }
