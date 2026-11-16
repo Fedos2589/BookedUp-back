@@ -56,28 +56,46 @@ export class AppointmentsService {
     private readonly schedule: ScheduleService,
   ) {}
 
-  // Books exactly one free slot of the master. Two requests for one slot take turns on the lock of
-  // the staff row, and the second finds the slot taken; the exclusion constraint in the database is
-  // the guarantee behind that, and only its refusal is turned into the same clear answer.
-  async create(
+  // Books exactly one free slot of the master, ahead of its start.
+  create(actor: AuthUser, businessId: string, input: AppointmentInput, now: Date): Promise<AppointmentDto> {
+    return this.take(actor, businessId, input, now, 'ahead');
+  }
+
+  // Someone who came to a meeting without a booking: a seat in a meeting that has started (today or
+  // on a day gone by), straight as DONE, and past `capacity` if need be — capacity limits booking
+  // ahead, not people already in the room.
+  walkIn(actor: AuthUser, businessId: string, input: AppointmentInput, now: Date): Promise<AppointmentDto> {
+    return this.take(actor, businessId, input, now, 'walkIn');
+  }
+
+  // Two requests for one slot take turns on the lock of the staff row, and the second finds the slot
+  // taken; the exclusion constraint in the database is the guarantee behind that, and only its
+  // refusal is turned into the same clear answer.
+  private async take(
     actor: AuthUser,
     businessId: string,
     { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, ...client }: AppointmentInput,
     now: Date,
+    mode: 'ahead' | 'walkIn',
   ): Promise<AppointmentDto> {
     const groupId = seatGroup ?? null;
     const oneOffSessionId = seatSession ?? null;
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    if (mode === 'walkIn' && startsAt > now) {
+      throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
+    }
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { timeZone: true },
     });
     // A slot belongs to the day it starts, on the business's clock.
     const date = dateOfWall(wallAt(timeZone, startsAt.getTime()));
+    // Booking ahead is offered what is still to come; a walk-in, the whole day it came on.
+    const notBefore = mode === 'walkIn' ? new Date(startOfDay(timeZone, date)) : now;
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
-        const slots = await this.schedule.slots(businessId, { from: date, to: date, staffId }, now, tx);
+        const slots = await this.schedule.slots(businessId, { from: date, to: date, staffId }, notBefore, tx);
         // The slot is the one meant: same start and end, and the same group or session (none: hours).
         const slot = slots.find(
           (each) =>
@@ -87,9 +105,18 @@ export class AppointmentsService {
             each.endsAt === endsAt.toISOString(),
         );
         if (!slot) throw notFree();
-        if (slot.full) throw full();
+        if (mode === 'ahead' && slot.full) throw full();
         return tx.appointment.create({
-          data: { businessId, staffId, startsAt, endsAt, groupId, oneOffSessionId, ...client },
+          data: {
+            businessId,
+            staffId,
+            startsAt,
+            endsAt,
+            groupId,
+            oneOffSessionId,
+            ...client,
+            ...(mode === 'walkIn' && { status: 'DONE' }),
+          },
           select: appointmentSelect,
         });
       });

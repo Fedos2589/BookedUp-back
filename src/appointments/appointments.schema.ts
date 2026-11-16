@@ -42,6 +42,13 @@ export const appointmentInput = z
   });
 export type AppointmentInput = z.infer<typeof appointmentInput>;
 
+// Someone who came to a meeting without a booking: always a seat, in a meeting that has started.
+export const walkInInput = appointmentInput.refine((booking) => booking.groupId || booking.oneOffSessionId, {
+  path: ['groupId'],
+  message: 'A walk-in is a seat: give groupId or oneOffSessionId',
+  ...whenFieldsValid,
+});
+
 export const appointmentStatus = z.enum(['BOOKED', 'CONFIRMED', 'DONE', 'NO_SHOW', 'CANCELLED']);
 
 export type AppointmentStatus = z.infer<typeof appointmentStatus>;
@@ -81,6 +88,16 @@ export const bookingConflictSchema = z.object({
   code: z
     .enum(['notFree', 'full'])
     .describe('notFree: no such slot or taken; full: every seat of the meeting is taken'),
+});
+
+// 409 for a walk-in. `code` tells the form what to say.
+export const walkInConflictSchema = z.object({
+  statusCode: z.literal(409),
+  error: z.literal('Conflict'),
+  message: z.string(),
+  code: z
+    .enum(['notFree', 'notStarted'])
+    .describe('notFree: no such meeting at this time; notStarted: the meeting is ahead — book a seat instead'),
 });
 
 // The days of the business's clock, both included (at most 31), as for slots; a booking is on the day it starts.

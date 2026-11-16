@@ -27,6 +27,8 @@ import {
   type AppointmentsQuery,
   appointmentSchema,
   bookingConflictSchema,
+  walkInConflictSchema,
+  walkInInput,
 } from './appointments.schema.js';
 import { AppointmentsService } from './appointments.service.js';
 
@@ -60,6 +62,25 @@ export class AppointmentsController {
     @Body({ schema: appointmentInput }) body: AppointmentInput,
   ): Promise<AppointmentDto> {
     return this.appointments.create(actor, businessId, body, new Date());
+  }
+
+  @Post('walk-ins')
+  @ApiCreatedResponse({
+    description: 'Added to the meeting as DONE, over its places if need be',
+    schema: openApi(appointmentSchema),
+  })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiConflictResponse({
+    description:
+      'Not a meeting of the master at this time (code notFree), or the meeting has not started yet (code notStarted: book a seat instead)',
+    schema: openApi(walkInConflictSchema),
+  })
+  walkIn(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Body({ schema: walkInInput }) body: AppointmentInput,
+  ): Promise<AppointmentDto> {
+    return this.appointments.walkIn(actor, businessId, body, new Date());
   }
 
   @Get()

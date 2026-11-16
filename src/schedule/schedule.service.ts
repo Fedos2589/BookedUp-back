@@ -168,11 +168,12 @@ export class ScheduleService {
   // Masters still on the team, each from the sources of their mode only. The instants read are a
   // generous margin around the days asked: a time zone is at most 14 hours from UTC, and a
   // one-off session lasts at most a day; dates start the day before, for windows past midnight.
+  // Only slots that start at `notBefore` or later: now, for what can be booked; a walk-in looks back.
   // `db` is the transaction when the answer must be read under a lock the caller holds.
   async slots(
     businessId: string,
     { from, to, staffId }: SlotsQuery,
-    now: Date,
+    notBefore: Date,
     db: Prisma.TransactionClient = this.prisma,
   ): Promise<SlotDto[]> {
     const onTeam = (scheduleMode: 'HOURS' | 'GROUPS') => ({
@@ -213,7 +214,7 @@ export class ScheduleService {
       bookings,
       from,
       to,
-      notBefore: now,
+      notBefore,
     }).map(withIsoTimes);
   }
 }

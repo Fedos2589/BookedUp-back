@@ -324,6 +324,104 @@ describe('booking a seat', () => {
   });
 });
 
+describe('adding someone who came without a booking', () => {
+  // The group meets on Tuesdays 15:00–16:00 Moscow (12:00–13:00Z). 2020-01-07 has passed, 2030-01-08 hasn't.
+  const pastTuesday = '2020-01-07';
+  const meetingOn = (date: string) => ({ startsAt: `${date}T12:00:00.000Z`, endsAt: `${date}T13:00:00.000Z` });
+
+  const coach = async (capacity: number) => {
+    const owner = await signUpOwner(app);
+    const businessId = owner.business.id;
+    const as = (req: request.Test) => req.set('Cookie', owner.cookie);
+    const staffId = (await as(http().post(`/businesses/${businessId}/staff`).send({ name: 'Anna' })).expect(201)).body
+      .id as string;
+    const base = `/businesses/${businessId}/staff/${staffId}`;
+    await as(http().put(`${base}/schedule-mode`).send({ mode: 'GROUPS' })).expect(200);
+    const group = (
+      await as(
+        http()
+          .post(`${base}/groups`)
+          .send({
+            title: 'Football',
+            description: null,
+            weekdays: [2],
+            startMinute: 900,
+            durationMinutes: 60,
+            capacity,
+          }),
+      ).expect(201)
+    ).body.id as string;
+    const walkIn = (date: string, extra: object = { groupId: group }, cookie = owner.cookie) => {
+      const { startsAt, endsAt } = meetingOn(date);
+      return http()
+        .post(`${appointmentsUrl(businessId)}/walk-ins`)
+        .set('Cookie', cookie)
+        .send({ ...booking(staffId, startsAt, endsAt), ...extra });
+    };
+    const booked = async (date: string) =>
+      (
+        (await as(http().get(slotsUrl(businessId)).query({ from: date, to: date })).expect(200)).body as {
+          groupId: string | null;
+          booked: number;
+        }[]
+      ).find((each) => each.groupId === group)?.booked;
+    return { as, base, businessId, staffId, group, walkIn, booked };
+  };
+
+  it('adds them to a meeting that has passed, as done', async () => {
+    const { group, walkIn } = await coach(3);
+
+    const res = await walkIn(pastTuesday).expect(201);
+
+    expect(res.body).toMatchObject({ groupId: group, status: 'DONE', ...meetingOn(pastTuesday) });
+  });
+
+  it('adds them over the places of a full meeting', async () => {
+    const { businessId, staffId, walkIn } = await coach(1);
+
+    await walkIn(pastTuesday).expect(201);
+    await walkIn(pastTuesday).expect(201);
+
+    expect(await app.get(PrismaService).appointment.count({ where: { businessId, staffId, status: 'DONE' } })).toBe(2);
+  });
+
+  it('refuses a meeting that has not started with 409 notStarted, and adds nothing', async () => {
+    const { walkIn, booked } = await coach(3);
+
+    const res = await walkIn('2030-01-08').expect(409);
+
+    expect(res.body).toMatchObject({ statusCode: 409, code: 'notStarted' });
+    expect(await booked('2030-01-08')).toBe(0);
+  });
+
+  it('answers 409 notFree for a cancelled date, a day without the meeting or an unknown group', async () => {
+    const { businessId, group, walkIn } = await coach(3);
+    // The API refuses to cancel a date that has passed; this one was cancelled back then.
+    await app
+      .get(PrismaService)
+      .groupCancellation.create({ data: { businessId, groupId: group, date: new Date('2020-01-14T00:00:00Z') } });
+
+    const cancelled = await walkIn('2020-01-14').expect(409);
+    const wrongDay = await walkIn('2020-01-08').expect(409);
+    const unknown = await walkIn(pastTuesday, { groupId: '00000000-0000-4000-8000-000000000000' }).expect(409);
+
+    for (const res of [cancelled, wrongDay, unknown]) expect(res.body).toMatchObject({ code: 'notFree' });
+  });
+
+  it('needs a group or a one-off session', async () => {
+    const { walkIn } = await coach(3);
+
+    await walkIn(pastTuesday, {}).expect(400);
+  });
+
+  it("refuses a master adding to someone else's meeting with 403", async () => {
+    const { businessId, walkIn } = await coach(3);
+    const master = await memberWithSchedule(businessId, 'MASTER');
+
+    await walkIn(pastTuesday, undefined, master.cookie).expect(403);
+  });
+});
+
 describe("the master's time after a visit", () => {
   // The status is seeded straight into the database: through the API a no-show can only come after
   // the start, and a slot that has started is no longer offered.
