@@ -450,6 +450,9 @@ describe('changing the status of a booking', () => {
     ['CONFIRMED', 'CANCELLED', slot(0).startsAt],
     ['CONFIRMED', 'DONE', past],
     ['CONFIRMED', 'NO_SHOW', past],
+    ['BOOKED', 'DONE', past],
+    ['BOOKED', 'NO_SHOW', past],
+    ['BOOKED', 'CANCELLED', past],
   ])('moves %s to %s', async (from, to, startsAt) => {
     const { owner, businessId, staffId } = await setUp();
     const id = await seed(businessId, staffId, from, startsAt);
@@ -460,7 +463,7 @@ describe('changing the status of a booking', () => {
   });
 
   it.each<[Status, Status]>([
-    ['BOOKED', 'DONE'],
+    ['DONE', 'NO_SHOW'],
     ['BOOKED', 'CONFIRMED'],
     ['CONFIRMED', 'BOOKED'],
     ['DONE', 'CANCELLED'],
@@ -480,11 +483,12 @@ describe('changing the status of a booking', () => {
 
   it('refuses DONE and NO_SHOW before the booking starts with 409 notStarted', async () => {
     const { owner, businessId, staffId } = await setUp();
-    const id = await seed(businessId, staffId, 'CONFIRMED', slot(0).startsAt);
-
-    for (const status of ['DONE', 'NO_SHOW'] as const) {
-      const res = await change(owner.cookie, businessId, id, status).expect(409);
-      expect(res.body).toMatchObject({ code: 'notStarted' });
+    for (const from of ['BOOKED', 'CONFIRMED'] as const) {
+      const id = await seed(businessId, staffId, from, slot(from === 'BOOKED' ? 0 : 1).startsAt);
+      for (const status of ['DONE', 'NO_SHOW'] as const) {
+        const res = await change(owner.cookie, businessId, id, status).expect(409);
+        expect(res.body).toMatchObject({ code: 'notStarted' });
+      }
     }
   });
 

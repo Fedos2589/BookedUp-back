@@ -49,9 +49,10 @@ export type AppointmentStatus = z.infer<typeof appointmentStatus>;
 export const statusInput = z.object({ status: appointmentStatus });
 export type StatusInput = z.infer<typeof statusInput>;
 
-// BOOKED → CONFIRMED → DONE | NO_SHOW; BOOKED | CONFIRMED → CANCELLED. Nothing leaves the last three.
+// BOOKED → CONFIRMED; BOOKED | CONFIRMED → DONE | NO_SHOW | CANCELLED: marking a visit needs no
+// confirming first. Nothing leaves the last three.
 export const nextStatuses: Record<AppointmentStatus, readonly AppointmentStatus[]> = {
-  BOOKED: ['CONFIRMED', 'CANCELLED'],
+  BOOKED: ['CONFIRMED', 'DONE', 'NO_SHOW', 'CANCELLED'],
   CONFIRMED: ['DONE', 'NO_SHOW', 'CANCELLED'],
   DONE: [],
   NO_SHOW: [],
