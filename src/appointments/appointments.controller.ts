@@ -27,6 +27,9 @@ import {
   type AppointmentsQuery,
   appointmentSchema,
   bookingConflictSchema,
+  type MoveInput,
+  moveConflictSchema,
+  moveInput,
   walkInConflictSchema,
   walkInInput,
 } from './appointments.schema.js';
@@ -113,5 +116,23 @@ export class AppointmentsController {
     @Body({ schema: statusInput }) body: StatusInput,
   ): Promise<AppointmentDto> {
     return this.appointments.changeStatus(actor, businessId, appointmentId, body, new Date());
+  }
+
+  @Patch(':appointmentId')
+  @ApiNotFoundResponse({ description: 'No such booking in this business, or no such master' })
+  @ApiOkResponse({ description: 'The booking in its new place', schema: openApi(appointmentSchema) })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiConflictResponse({
+    description:
+      'The new place is not a free slot (code notFree) or has no seat left (code full), or the booking is not BOOKED or CONFIRMED (code badTransition)',
+    schema: openApi(moveConflictSchema),
+  })
+  move(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('appointmentId', uuid) appointmentId: string,
+    @Body({ schema: moveInput }) body: MoveInput,
+  ): Promise<AppointmentDto> {
+    return this.appointments.move(actor, businessId, appointmentId, body, new Date());
   }
 }

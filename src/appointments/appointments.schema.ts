@@ -49,6 +49,27 @@ export const walkInInput = appointmentInput.refine((booking) => booking.groupId 
   ...whenFieldsValid,
 });
 
+// Where a booking goes: the same slot fields as booking, and the master stays if none is given.
+export const moveInput = z
+  .object({
+    staffId: z.uuid().optional().describe('The master to move to; none: the same master'),
+    startsAt: instant,
+    endsAt: instant,
+    groupId: z.uuid().optional().describe('Move to the meeting of this group at this time'),
+    oneOffSessionId: z.uuid().optional().describe('Move to this one-off session'),
+  })
+  .refine((move) => move.startsAt < move.endsAt, {
+    path: ['endsAt'],
+    message: 'Not after startsAt',
+    ...whenFieldsValid,
+  })
+  .refine((move) => !(move.groupId && move.oneOffSessionId), {
+    path: ['oneOffSessionId'],
+    message: 'A seat is in a group or in a one-off session, not both',
+    ...whenFieldsValid,
+  });
+export type MoveInput = z.infer<typeof moveInput>;
+
 export const appointmentStatus = z.enum(['BOOKED', 'CONFIRMED', 'DONE', 'NO_SHOW', 'CANCELLED']);
 
 export type AppointmentStatus = z.infer<typeof appointmentStatus>;
@@ -88,6 +109,16 @@ export const bookingConflictSchema = z.object({
   code: z
     .enum(['notFree', 'full'])
     .describe('notFree: no such slot or taken; full: every seat of the meeting is taken'),
+});
+
+// 409 for a move: the new place can't take it, or the booking can't move any more.
+export const moveConflictSchema = z.object({
+  statusCode: z.literal(409),
+  error: z.literal('Conflict'),
+  message: z.string(),
+  code: z
+    .enum(['notFree', 'full', 'badTransition'])
+    .describe('notFree / full: as for booking; badTransition: only BOOKED and CONFIRMED bookings move'),
 });
 
 // 409 for a walk-in. `code` tells the form what to say.

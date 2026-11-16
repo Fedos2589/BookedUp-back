@@ -718,3 +718,127 @@ describe('changing the status of a booking', () => {
     await change(owner.cookie, businessId, id, 'CONFIRMED').expect(200);
   });
 });
+
+describe('moving a booking', () => {
+  const move = (cookie: string, businessId: string, id: string, body: object) =>
+    http()
+      .patch(`${appointmentsUrl(businessId)}/${id}`)
+      .set('Cookie', cookie)
+      .send(body);
+  const book = async (cookie: string, businessId: string, staffId: string, at: { startsAt: string; endsAt: string }) =>
+    (
+      await http()
+        .post(appointmentsUrl(businessId))
+        .set('Cookie', cookie)
+        .send(booking(staffId, at.startsAt, at.endsAt))
+        .expect(201)
+    ).body.id as string;
+  const listed = async (cookie: string, businessId: string) =>
+    (
+      await http()
+        .get(appointmentsUrl(businessId))
+        .query({ from: monday, to: monday })
+        .set('Cookie', cookie)
+        .expect(200)
+    ).body as { id: string; startsAt: string; staffId: string }[];
+
+  it('moves a booking to a free slot and frees the old one', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    const res = await move(owner.cookie, businessId, id, { staffId, ...slot(2) }).expect(200);
+
+    expect(res.body).toMatchObject({ id, staffId, ...slot(2), status: 'BOOKED', clientName: 'Olga' });
+    expect(await freeStarts(owner, businessId)).toEqual([slot(0).startsAt, slot(1).startsAt]);
+  });
+
+  it('refuses a taken slot with 409 notFree and leaves the booking where it was', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+    await book(owner.cookie, businessId, staffId, slot(1));
+
+    const res = await move(owner.cookie, businessId, id, { staffId, ...slot(1) }).expect(409);
+
+    expect(res.body).toMatchObject({ statusCode: 409, code: 'notFree' });
+    expect((await listed(owner.cookie, businessId)).find((each) => each.id === id)?.startsAt).toBe(slot(0).startsAt);
+  });
+
+  it('refuses a time that is not a slot with 409 notFree', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    const res = await move(owner.cookie, businessId, id, {
+      staffId,
+      startsAt: `${monday}T07:30:00.000Z`,
+      endsAt: `${monday}T08:30:00.000Z`,
+    }).expect(409);
+
+    expect(res.body).toMatchObject({ code: 'notFree' });
+  });
+
+  it("does not count the booking's own slot against it", async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await book(owner.cookie, businessId, staffId, slot(1));
+
+    await move(owner.cookie, businessId, id, { staffId, ...slot(1) }).expect(200);
+  });
+
+  it('moves a booking to another master', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const other = (
+      await http()
+        .post(`/businesses/${businessId}/staff`)
+        .set('Cookie', owner.cookie)
+        .send({ name: 'Boris' })
+        .expect(201)
+    ).body.id as string;
+    await http()
+      .put(`/businesses/${businessId}/staff/${other}/weekly-windows`)
+      .set('Cookie', owner.cookie)
+      .send({ windows: [{ weekday: 1, startMinute: 600, durationMinutes: 180, slotMinutes: 60, title: null }] })
+      .expect(200);
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    const res = await move(owner.cookie, businessId, id, { staffId: other, ...slot(0) }).expect(200);
+
+    expect(res.body).toMatchObject({ id, staffId: other });
+    await book(owner.cookie, businessId, staffId, slot(0));
+  });
+
+  it.each(['DONE', 'NO_SHOW', 'CANCELLED'] as const)(
+    'refuses to move a %s booking with 409 badTransition',
+    async (status) => {
+      const { owner, businessId, staffId } = await setUp();
+      const id = await book(owner.cookie, businessId, staffId, slot(0));
+      await app.get(PrismaService).appointment.update({ where: { id }, data: { status } });
+
+      const res = await move(owner.cookie, businessId, id, { staffId, ...slot(1) }).expect(409);
+
+      expect(res.body).toMatchObject({ code: 'badTransition' });
+    },
+  );
+
+  it('gives one 200 and one 409 to two bookings moved into one slot at once', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const first = await book(owner.cookie, businessId, staffId, slot(0));
+    const second = await book(owner.cookie, businessId, staffId, slot(1));
+
+    const results = await Promise.all([
+      move(owner.cookie, businessId, first, { staffId, ...slot(2) }),
+      move(owner.cookie, businessId, second, { staffId, ...slot(2) }),
+    ]);
+
+    expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([200, 409]);
+  });
+
+  it('answers 404 for a booking of another business, 403 for a master of someone else', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const stranger = await setUp();
+    const master = await memberWithSchedule(businessId, 'MASTER');
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    await move(stranger.owner.cookie, stranger.businessId, id, { staffId: stranger.staffId, ...slot(1) }).expect(404);
+    await move(master.cookie, businessId, id, { staffId, ...slot(1) }).expect(403);
+    await move(owner.cookie, businessId, id, { staffId: master.staffId, ...slot(1) }).expect(409);
+  });
+});
