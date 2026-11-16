@@ -62,10 +62,16 @@ ALTER TABLE "appointments"
   ADD CONSTRAINT "appointments_client_name" CHECK (length(btrim("client_name")) > 0),
   ADD CONSTRAINT "appointments_client_phone" CHECK ("client_phone" ~ '^\+[1-9][0-9]{6,14}$');
 
--- Hours bookings of one master never overlap; a cancelled one frees its time. Seats in a group
--- or a one-off session share the meeting's time, so they are left out (counted against capacity
--- by src/appointments).
+-- A master is never in two places at once: active bookings of one master don't overlap, except
+-- seats of one meeting, which share its time. The third column is what a booking belongs to: its
+-- group, its one-off session, or itself (an hours booking), and two rows conflict when they
+-- overlap and belong to different things. Cancelled bookings free their time. How many seats a
+-- meeting holds is counted against capacity by src/appointments.
 ALTER TABLE "appointments"
   ADD CONSTRAINT "appointments_no_overlap"
-  EXCLUDE USING gist ("staff_id" WITH =, tstzrange("starts_at", "ends_at") WITH &&)
-  WHERE ("status" <> 'CANCELLED' AND "group_id" IS NULL AND "one_off_session_id" IS NULL);
+  EXCLUDE USING gist (
+    "staff_id" WITH =,
+    tstzrange("starts_at", "ends_at") WITH &&,
+    (COALESCE("group_id", "one_off_session_id", "id")) WITH <>
+  )
+  WHERE ("status" <> 'CANCELLED');

@@ -367,6 +367,23 @@ describe('appointments', () => {
     await expect(seat()).resolves.toBeDefined();
   });
 
+  it('refuses an hours booking over a seat of the same master, and seats of two meetings that overlap', async () => {
+    const master = await staffOf();
+    const group = await prisma.group.create({
+      data: { ...master, title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 },
+    });
+    await booking(master, '2030-01-08T15:00:00Z', '2030-01-08T16:00:00Z', { groupId: group.id });
+
+    const over = await booking(master, '2030-01-08T15:30:00Z', '2030-01-08T16:30:00Z').catch((e: unknown) => e);
+    expect(violatedExclusion(over)).toBe('Appointment');
+    const hours = await booking(master, '2030-01-08T17:00:00Z', '2030-01-08T18:00:00Z');
+    const seatOver = await booking(master, '2030-01-08T17:30:00Z', '2030-01-08T18:30:00Z', {
+      groupId: group.id,
+    }).catch((e: unknown) => e);
+    expect(violatedExclusion(seatOver)).toBe('Appointment');
+    expect(hours.id).toBeDefined();
+  });
+
   it('refuses a booking in a group and a one-off session at once, and one that runs over a day', async () => {
     const master = await staffOf();
     const group = await prisma.group.create({

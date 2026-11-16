@@ -361,8 +361,8 @@ enum AppointmentStatus {
 
 /// A client's booking with a master: an hours slot, or one seat in a group meeting or a
 /// one-off session (then `groupId` / `oneOffSessionId` is set). The client is a name and a
-/// phone for now; E8 adds Client. Two active hours bookings of one master never overlap
-/// (EXCLUDE in the migration); seats are counted against `capacity` by src/appointments under
+/// phone for now; E8 adds Client. Active bookings of one master never overlap, except seats
+/// of one meeting (EXCLUDE in the migration); seats are counted against `capacity` by src/appointments under
 /// a lock on the staff row. Kept after the master leaves: the foreign keys refuse a delete (NO ACTION).
 model Appointment {
   id              String            @id @default(dbgenerated("uuidv7()")) @db.Uuid
