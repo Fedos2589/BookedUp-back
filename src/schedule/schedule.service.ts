@@ -6,7 +6,7 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
-import { liveBookingIds, refuseIfAny } from './live-bookings.js';
+import { holdsTime, liveBookingIds, refuseIfAny } from './live-bookings.js';
 import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
 import {
   type DayOverrideDto,
@@ -198,7 +198,7 @@ export class ScheduleService {
       db.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around, archivedAt: null } }),
       db.timeOff.findMany({ where: { ...anyMode, ...around } }),
       db.appointment.findMany({
-        where: { ...anyMode, ...around, status: { not: 'CANCELLED' } },
+        where: { ...anyMode, ...around, ...holdsTime },
         select: { staffId: true, startsAt: true, endsAt: true, groupId: true, oneOffSessionId: true },
       }),
     ]);

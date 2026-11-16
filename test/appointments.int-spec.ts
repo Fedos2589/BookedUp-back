@@ -311,6 +311,59 @@ describe('booking a seat', () => {
 
     await seat({ groupId: group, oneOffSessionId: group }).expect(400);
   });
+
+  it('keeps counting a seat whose client did not come', async () => {
+    const { group, seat, booked } = await coach(1);
+    const id = (await seat({ groupId: group }).expect(201)).body.id as string;
+    await app.get(PrismaService).appointment.update({ where: { id }, data: { status: 'NO_SHOW' } });
+
+    const res = await seat({ groupId: group }).expect(409);
+
+    expect(res.body).toMatchObject({ code: 'full' });
+    expect(await booked()).toMatchObject({ booked: 1, full: true });
+  });
+});
+
+describe("the master's time after a visit", () => {
+  // The status is seeded straight into the database: through the API a no-show can only come after
+  // the start, and a slot that has started is no longer offered.
+  const seed = (businessId: string, staffId: string, status: 'DONE' | 'NO_SHOW') =>
+    app.get(PrismaService).appointment.create({
+      data: { businessId, ...booking(staffId, slot(0).startsAt, slot(0).endsAt), status },
+    });
+  const book = (owner: { cookie: string }, staffId: string, businessId: string) =>
+    http()
+      .post(appointmentsUrl(businessId))
+      .set('Cookie', owner.cookie)
+      .send(booking(staffId, slot(0).startsAt, slot(0).endsAt));
+
+  it('is free again after a no-show of an hours booking', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    await seed(businessId, staffId, 'NO_SHOW');
+
+    expect(await freeStarts(owner, businessId)).toContain(slot(0).startsAt);
+    await book(owner, staffId, businessId).expect(201);
+  });
+
+  it('stays taken after a visit that happened', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    await seed(businessId, staffId, 'DONE');
+
+    expect(await freeStarts(owner, businessId)).not.toContain(slot(0).startsAt);
+    const res = await book(owner, staffId, businessId).expect(409);
+    expect(res.body).toMatchObject({ code: 'notFree' });
+  });
+
+  it('lets the database itself take a booking over a no-show', async () => {
+    const { businessId, staffId } = await setUp();
+    await seed(businessId, staffId, 'NO_SHOW');
+
+    await expect(
+      app.get(PrismaService).appointment.create({
+        data: { businessId, ...booking(staffId, slot(0).startsAt, slot(0).endsAt) },
+      }),
+    ).resolves.toMatchObject({ status: 'BOOKED' });
+  });
 });
 
 describe('listing bookings for a range', () => {
