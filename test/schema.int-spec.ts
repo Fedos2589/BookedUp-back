@@ -319,3 +319,95 @@ describe('the schedule in groups mode', () => {
     ).rejects.toMatchObject({ code: 'P2003' });
   });
 });
+
+describe('appointments', () => {
+  const staffOf = async () => {
+    const business = await createBusiness();
+    const staff = await prisma.staff.create({ data: { businessId: business.id, name: 'Master' } });
+    return { businessId: business.id, staffId: staff.id };
+  };
+
+  const booking = (
+    master: { businessId: string; staffId: string },
+    startsAt: string,
+    endsAt: string,
+    extra: { status?: 'CANCELLED'; groupId?: string; oneOffSessionId?: string } = {},
+  ) =>
+    prisma.appointment.create({
+      data: {
+        ...master,
+        startsAt: new Date(startsAt),
+        endsAt: new Date(endsAt),
+        clientName: 'Anna',
+        clientPhone: '+66812345678',
+        ...extra,
+      },
+    });
+
+  it('refuses two overlapping bookings of one master, but not once the first is cancelled', async () => {
+    const master = await staffOf();
+    const first = await booking(master, '2030-01-08T10:00:00Z', '2030-01-08T11:00:00Z');
+
+    const error = await booking(master, '2030-01-08T10:30:00Z', '2030-01-08T11:30:00Z').catch((e: unknown) => e);
+    expect(violatedExclusion(error)).toBe('Appointment');
+    await expect(booking(master, '2030-01-08T11:00:00Z', '2030-01-08T12:00:00Z')).resolves.toBeDefined();
+
+    await prisma.appointment.update({ where: { id: first.id }, data: { status: 'CANCELLED' } });
+    await expect(booking(master, '2030-01-08T10:30:00Z', '2030-01-08T10:45:00Z')).resolves.toBeDefined();
+  });
+
+  it('lets many seats share one group meeting', async () => {
+    const master = await staffOf();
+    const group = await prisma.group.create({
+      data: { ...master, title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 },
+    });
+    const seat = () => booking(master, '2030-01-08T15:00:00Z', '2030-01-08T16:00:00Z', { groupId: group.id });
+
+    await seat();
+    await expect(seat()).resolves.toBeDefined();
+  });
+
+  it('refuses a booking in a group and a one-off session at once, and one that runs over a day', async () => {
+    const master = await staffOf();
+    const group = await prisma.group.create({
+      data: { ...master, title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 },
+    });
+    const session = await prisma.oneOffSession.create({
+      data: {
+        ...master,
+        title: 'Masterclass',
+        startsAt: new Date('2030-01-09T12:00:00Z'),
+        endsAt: new Date('2030-01-09T13:00:00Z'),
+        capacity: 10,
+      },
+    });
+
+    await expect(
+      booking(master, '2030-01-09T12:00:00Z', '2030-01-09T13:00:00Z', {
+        groupId: group.id,
+        oneOffSessionId: session.id,
+      }),
+    ).rejects.toThrow(/appointments_one_parent/);
+    await expect(booking(master, '2030-01-10T10:00:00Z', '2030-01-11T10:00:01Z')).rejects.toThrow(/appointments_span/);
+    await expect(booking(master, '2030-01-10T10:00:00Z', '2030-01-10T10:00:00Z')).rejects.toThrow(/appointments_span/);
+  });
+
+  it('refuses a booking that points at a master or a group of another business', async () => {
+    const master = await staffOf();
+    const other = await staffOf();
+    const group = await prisma.group.create({
+      data: { ...other, title: 'Football', weekdays: [2], startMinute: 900, durationMinutes: 60, capacity: 4 },
+    });
+
+    await expect(
+      booking(
+        { businessId: master.businessId, staffId: other.staffId },
+        '2030-01-08T10:00:00Z',
+        '2030-01-08T11:00:00Z',
+      ),
+    ).rejects.toMatchObject({ code: 'P2003' });
+    await expect(
+      booking(master, '2030-01-08T10:00:00Z', '2030-01-08T11:00:00Z', { groupId: group.id }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+});

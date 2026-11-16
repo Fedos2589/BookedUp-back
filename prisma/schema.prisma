@@ -51,6 +51,7 @@ model Business {
   groupCancellations GroupCancellation[]
   oneOffSessions     OneOffSession[]
   timeOffs           TimeOff[]
+  appointments       Appointment[]
 
   @@map("businesses")
 }
@@ -175,10 +176,11 @@ model Staff {
   groups         Group[]
   oneOffSessions OneOffSession[]
   timeOffs       TimeOff[]
+  appointments   Appointment[]
   /// Removing a member who has a schedule unlinks it first (E3 step 2), in one transaction.
   membership     Membership?     @relation(fields: [userId, businessId], references: [userId, businessId], onDelete: NoAction)
 
-  /// What bookings (E6) will reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
+  /// What bookings reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
   @@unique([businessId, id])
   /// One schedule per account per business.
   @@unique([userId, businessId])
@@ -279,6 +281,7 @@ model Group {
   business      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   staff         Staff               @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
   cancellations GroupCancellation[]
+  appointments  Appointment[]
 
   @@unique([businessId, id])
   @@index([businessId, staffId])
@@ -318,6 +321,9 @@ model OneOffSession {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   staff    Staff    @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Cascade)
 
+  appointments Appointment[]
+
+  @@unique([businessId, id])
   @@index([businessId, staffId, startsAt])
   @@map("one_off_sessions")
 }
@@ -338,4 +344,45 @@ model TimeOff {
 
   @@index([businessId, staffId, startsAt])
   @@map("time_offs")
+}
+
+enum AppointmentStatus {
+  BOOKED
+  CONFIRMED
+  DONE
+  NO_SHOW
+  CANCELLED
+
+  @@map("appointment_status")
+}
+
+/// A client's booking with a master: an hours slot, or one seat in a group meeting or a
+/// one-off session (then `groupId` / `oneOffSessionId` is set). The client is a name and a
+/// phone for now; E8 adds Client. Two active hours bookings of one master never overlap
+/// (EXCLUDE in the migration); seats are counted against `capacity` by src/appointments under
+/// a lock on the staff row. Kept after the master leaves: the foreign keys restrict.
+model Appointment {
+  id              String            @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  staffId         String            @map("staff_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
+  status          AppointmentStatus @default(BOOKED)
+  clientName      String            @map("client_name")
+  /// E.164.
+  clientPhone     String            @map("client_phone")
+  note            String?
+  groupId         String?           @map("group_id") @db.Uuid
+  oneOffSessionId String?           @map("one_off_session_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff         Staff          @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: Restrict)
+  group         Group?         @relation(fields: [businessId, groupId], references: [businessId, id], onDelete: Restrict)
+  oneOffSession OneOffSession? @relation(fields: [businessId, oneOffSessionId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, startsAt])
+  @@index([businessId, staffId, startsAt])
+  @@map("appointments")
 }
