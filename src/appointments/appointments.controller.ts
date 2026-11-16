@@ -1,11 +1,12 @@
 import { CurrentUser } from '@nestjs/authentication';
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -19,6 +20,8 @@ import {
   type AppointmentDto,
   type AppointmentInput,
   appointmentInput,
+  appointmentsQuery,
+  type AppointmentsQuery,
   appointmentSchema,
   bookingConflictSchema,
 } from './appointments.schema.js';
@@ -54,5 +57,19 @@ export class AppointmentsController {
     @Body({ schema: appointmentInput }) body: AppointmentInput,
   ): Promise<AppointmentDto> {
     return this.appointments.create(actor, businessId, body, new Date());
+  }
+
+  @Get()
+  @ApiOkResponse({
+    description: 'Bookings that start on these days of the business clock, by start; a master gets only their own',
+    schema: openApi(z.array(appointmentSchema)),
+  })
+  @ApiBadRequestResponse({ description: 'A query field is invalid', schema: openApi(validationErrorSchema) })
+  list(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Query({ schema: appointmentsQuery }) query: AppointmentsQuery,
+  ): Promise<AppointmentDto[]> {
+    return this.appointments.list(actor, businessId, query);
   }
 }

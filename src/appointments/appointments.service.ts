@@ -3,11 +3,11 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth-types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
-import { dateOfWall, wallAt } from '../schedule/local-time.js';
+import { addDays, dateOfWall, HOUR, instantOf, wallAt, wallOfDate } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import type { AppointmentDto, AppointmentInput } from './appointments.schema.js';
+import type { AppointmentDto, AppointmentInput, AppointmentsQuery } from './appointments.schema.js';
 
 const appointmentSelect = {
   id: true,
@@ -88,5 +88,41 @@ export class AppointmentsService {
       if (violatedExclusion(error) === 'Appointment') throw notFree();
       throw error;
     }
+  }
+
+  // Bookings that start on the days from..to of the business's clock, in the order of their start.
+  // A master sees only their own: the `staffId` of another gives an empty list, not a 403.
+  async list(
+    actor: AuthUser,
+    businessId: string,
+    { from, to, staffId, includeCancelled }: AppointmentsQuery,
+  ): Promise<AppointmentDto[]> {
+    const [{ timeZone }, membership] = await Promise.all([
+      this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
+      this.prisma.membership.findUnique({
+        where: { userId_businessId: { userId: actor.id, businessId } },
+        select: { role: true },
+      }),
+    ]);
+    // Where a local day begins; a midnight skipped by a clock change begins at the first hour that exists.
+    const startOf = (date: string) => {
+      const wall = wallOfDate(date);
+      return new Date(instantOf(timeZone, wall) ?? instantOf(timeZone, wall + HOUR) ?? wall);
+    };
+    const rows = await this.prisma.appointment.findMany({
+      where: {
+        businessId,
+        staffId,
+        ...(membership?.role === 'MASTER' && { staff: { userId: actor.id } }),
+        ...(!includeCancelled && { status: { not: 'CANCELLED' } }),
+        startsAt: {
+          gte: startOf(from),
+          lt: startOf(addDays(to, 1)),
+        },
+      },
+      select: appointmentSelect,
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(withIsoTimes);
   }
 }

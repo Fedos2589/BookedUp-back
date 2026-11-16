@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { instant, whenFieldsValid } from '../schedule/schedule.schema.js';
+import { instant, slotsQuery, whenFieldsValid } from '../schedule/schedule.schema.js';
 
 const blankIsNone = (max: number) =>
   z
@@ -67,3 +67,9 @@ export const bookingConflictSchema = z.object({
     .enum(['notFree', 'full'])
     .describe('notFree: no such slot or taken; full: every seat of the meeting is taken'),
 });
+
+// The days of the business's clock, both included (at most 31), as for slots; a booking is on the day it starts.
+export const appointmentsQuery = slotsQuery.safeExtend({
+  includeCancelled: z.stringbool().default(false),
+});
+export type AppointmentsQuery = z.infer<typeof appointmentsQuery>;

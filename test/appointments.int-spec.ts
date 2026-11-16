@@ -312,3 +312,110 @@ describe('booking a seat', () => {
     await seat({ groupId: group, oneOffSessionId: group }).expect(400);
   });
 });
+
+describe('listing bookings for a range', () => {
+  const seed = (businessId: string, staffId: string, startsAt: string, extra: { status?: 'CANCELLED' } = {}) => {
+    const start = new Date(startsAt);
+    return app.get(PrismaService).appointment.create({
+      data: {
+        businessId,
+        staffId,
+        startsAt: start,
+        endsAt: new Date(start.getTime() + 3_600_000),
+        clientName: 'Olga',
+        clientPhone: '+79991234567',
+        ...extra,
+      },
+      select: { id: true },
+    });
+  };
+  const list = (cookie: string, businessId: string, query: Record<string, string>) =>
+    http().get(appointmentsUrl(businessId)).query(query).set('Cookie', cookie);
+
+  it('puts a booking on the day it starts by the business clock, in order', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    await app.get(PrismaService).business.update({ where: { id: businessId }, data: { timeZone: 'Asia/Bangkok' } });
+    // Bangkok is UTC+7: 06:30 and 23:30 on the 7th, 00:30 on the 8th.
+    const late = await seed(businessId, staffId, '2030-01-07T16:30:00.000Z');
+    const early = await seed(businessId, staffId, '2030-01-06T23:30:00.000Z');
+    await seed(businessId, staffId, '2030-01-07T17:30:00.000Z');
+
+    const res = await list(owner.cookie, businessId, { from: monday, to: monday }).expect(200);
+
+    expect((res.body as { id: string }[]).map((each) => each.id)).toEqual([early.id, late.id]);
+  });
+
+  it('hides cancelled bookings unless asked', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const live = await seed(businessId, staffId, slot(0).startsAt);
+    const cancelled = await seed(businessId, staffId, slot(1).startsAt, { status: 'CANCELLED' });
+
+    const hidden = await list(owner.cookie, businessId, { from: monday, to: monday }).expect(200);
+    const shown = await list(owner.cookie, businessId, { from: monday, to: monday, includeCancelled: 'true' }).expect(
+      200,
+    );
+
+    expect((hidden.body as { id: string }[]).map((each) => each.id)).toEqual([live.id]);
+    expect((shown.body as { id: string }[]).map((each) => each.id)).toEqual([live.id, cancelled.id]);
+  });
+
+  it('gives a master only their own bookings, whatever staffId says', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const master = await memberWithSchedule(businessId, 'MASTER');
+    await seed(businessId, staffId, slot(0).startsAt);
+    const own = await seed(businessId, master.staffId, slot(1).startsAt);
+
+    const plain = await list(master.cookie, businessId, { from: monday, to: monday }).expect(200);
+    const other = await list(master.cookie, businessId, { from: monday, to: monday, staffId }).expect(200);
+    const ownById = await list(master.cookie, businessId, { from: monday, to: monday, staffId: master.staffId }).expect(
+      200,
+    );
+    const filtered = await list(owner.cookie, businessId, { from: monday, to: monday, staffId }).expect(200);
+
+    expect((plain.body as { id: string }[]).map((each) => each.id)).toEqual([own.id]);
+    expect(other.body).toEqual([]);
+    expect((ownById.body as { id: string }[]).map((each) => each.id)).toEqual([own.id]);
+    expect(filtered.body).toHaveLength(1);
+  });
+
+  it('refuses a range of more than 31 days', async () => {
+    const { owner, businessId } = await setUp();
+
+    await list(owner.cookie, businessId, { from: '2030-01-01', to: '2030-02-01' }).expect(400);
+    await list(owner.cookie, businessId, { from: '2030-01-01', to: '2030-01-31' }).expect(200);
+  });
+
+  it('answers a week of 10 masters with 40 bookings each in good time', async () => {
+    const { owner, businessId } = await setUp();
+    const prisma = app.get(PrismaService);
+    const staff = await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        prisma.staff.create({ data: { businessId, name: `Master ${index}` }, select: { id: true } }),
+      ),
+    );
+    // 40 hour-long bookings each, from 00:00Z on, spread over the week.
+    await prisma.appointment.createMany({
+      data: staff.flatMap(({ id }) =>
+        Array.from({ length: 40 }, (_, index) => {
+          const startsAt = new Date(Date.parse('2030-01-07T00:00:00Z') + index * 4 * 3_600_000);
+          return {
+            businessId,
+            staffId: id,
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + 3_600_000),
+            clientName: 'Olga',
+            clientPhone: '+79991234567',
+          };
+        }),
+      ),
+    });
+
+    const began = performance.now();
+    const res = await list(owner.cookie, businessId, { from: monday, to: '2030-01-13' }).expect(200);
+    const took = performance.now() - began;
+    console.log(`list of ${(res.body as unknown[]).length} bookings took ${Math.round(took)} ms`);
+
+    expect(res.body).toHaveLength(400);
+    expect(took).toBeLessThan(1000);
+  });
+});
