@@ -10,5 +10,6 @@ import { ScheduleService } from './schedule.service.js';
   imports: [StaffModule],
   controllers: [StaffScheduleController, GroupsController, SlotsController],
   providers: [ScheduleService, GroupsService],
+  exports: [ScheduleService],
 })
 export class ScheduleModule {}
