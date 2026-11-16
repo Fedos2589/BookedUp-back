@@ -8,6 +8,7 @@ import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AccountModule } from './account/account.module.js';
+import { AppointmentsModule } from './appointments/appointments.module.js';
 import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BusinessModule } from './business/business.module.js';
@@ -79,6 +80,7 @@ import { StaffModule } from './staff/staff.module.js';
     BusinessModule,
     StaffModule,
     ScheduleModule,
+    AppointmentsModule,
     MembersModule,
     InvitationsModule,
   ],

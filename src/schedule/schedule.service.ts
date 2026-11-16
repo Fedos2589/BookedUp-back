@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { z } from 'zod';
 
 import type { AuthUser } from '../auth/auth-types.js';
+import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
@@ -148,7 +149,13 @@ export class ScheduleService {
   // Masters still on the team, each from the sources of their mode only. The instants read are a
   // generous margin around the days asked: a time zone is at most 14 hours from UTC, and a
   // one-off session lasts at most a day; dates start the day before, for windows past midnight.
-  async slots(businessId: string, { from, to, staffId }: SlotsQuery, now: Date): Promise<SlotDto[]> {
+  // `db` is the transaction when the answer must be read under a lock the caller holds.
+  async slots(
+    businessId: string,
+    { from, to, staffId }: SlotsQuery,
+    now: Date,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<SlotDto[]> {
     const onTeam = (scheduleMode: 'HOURS' | 'GROUPS') => ({
       businessId,
       staff: { archivedAt: null, scheduleMode },
@@ -160,17 +167,21 @@ export class ScheduleService {
       endsAt: { gt: new Date(wallOfDate(from) - 2 * DAY) },
     };
     const dates = { gte: dateColumn(addDays(from, -1)), lte: dateColumn(to) };
-    const [business, weekly, overrides, groups, cancellations, oneOffSessions, busy] = await Promise.all([
-      this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
-      this.prisma.weeklyWindow.findMany({ where: onTeam('HOURS') }),
-      this.prisma.dayOverride.findMany({ where: { ...onTeam('HOURS'), date: dates } }),
-      this.prisma.group.findMany({ where: onTeam('GROUPS') }),
-      this.prisma.groupCancellation.findMany({
+    const [business, weekly, overrides, groups, cancellations, oneOffSessions, busy, bookings] = await Promise.all([
+      db.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
+      db.weeklyWindow.findMany({ where: onTeam('HOURS') }),
+      db.dayOverride.findMany({ where: { ...onTeam('HOURS'), date: dates } }),
+      db.group.findMany({ where: onTeam('GROUPS') }),
+      db.groupCancellation.findMany({
         where: { businessId, date: dates, group: onTeam('GROUPS') },
         select: { groupId: true, date: true },
       }),
-      this.prisma.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around } }),
-      this.prisma.timeOff.findMany({ where: { ...anyMode, ...around } }),
+      db.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around } }),
+      db.timeOff.findMany({ where: { ...anyMode, ...around } }),
+      db.appointment.findMany({
+        where: { ...anyMode, ...around, status: { not: 'CANCELLED' } },
+        select: { staffId: true, startsAt: true, endsAt: true, groupId: true, oneOffSessionId: true },
+      }),
     ]);
     return freeSlots({
       timeZone: business.timeZone,
@@ -180,6 +191,7 @@ export class ScheduleService {
       cancellations: cancellations.map(({ groupId, date }) => ({ groupId, date: localDateOf(date) })),
       oneOffSessions,
       busy,
+      bookings,
       from,
       to,
       notBefore: now,

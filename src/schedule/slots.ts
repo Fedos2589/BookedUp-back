@@ -62,14 +62,21 @@ export interface OneOffSession {
   capacity: number;
 }
 
-// Time a master can't be booked: time off now, bookings from E6.
+// Time a master can't be booked: time off.
 export interface Busy {
   staffId: string;
   startsAt: Date;
   endsAt: Date;
 }
 
-// What a slot is besides its time: who and how many it is for. `booked` stays 0 until bookings (E6).
+// An active booking (the caller leaves cancelled ones out). With a group or a one-off session it
+// is a seat in that meeting; with neither it takes a master's own hours.
+export interface Booking extends Busy {
+  groupId: string | null;
+  oneOffSessionId: string | null;
+}
+
+// What a slot is besides its time: who and how many it is for. `booked` is filled in from bookings.
 interface Seats {
   staffId: string;
   title: string | null;
@@ -83,6 +90,7 @@ interface Seats {
 export interface Slot extends Seats {
   startsAt: Date;
   endsAt: Date;
+  full: boolean; // booked >= capacity: still shown, can't be booked
 }
 
 export interface SlotQuery {
@@ -94,6 +102,7 @@ export interface SlotQuery {
   cancellations: readonly GroupCancellation[];
   oneOffSessions: readonly OneOffSession[];
   busy: readonly Busy[];
+  bookings: readonly Booking[];
   // The days asked for, on the business's clock, both included. A slot belongs to the day it starts.
   from: LocalDate;
   to: LocalDate;
@@ -200,10 +209,29 @@ function withoutOverlaps(sorted: Candidate[]): Candidate[] {
   });
 }
 
-// What a client may book: the slots of each master's mode on the days asked, minus busy time,
-// from notBefore on, earliest first.
+// A meeting is its group (or one-off session) at its start; its seats are the bookings with both.
+const meetingKey = (meeting: string, start: number) => `${meeting} ${start}`;
+const meetingOf = ({ groupId, oneOffSessionId }: { groupId: string | null; oneOffSessionId: string | null }) =>
+  groupId ?? oneOffSessionId;
+
+// How many seats are booked in each meeting.
+function seatsBooked(bookings: readonly Booking[]): Map<string, number> {
+  const booked = new Map<string, number>();
+  for (const booking of bookings) {
+    const meeting = meetingOf(booking);
+    if (meeting === null) continue;
+    const key = meetingKey(meeting, booking.startsAt.getTime());
+    booked.set(key, (booked.get(key) ?? 0) + 1);
+  }
+  return booked;
+}
+
+// What a client may book: the slots of each master's mode on the days asked, minus busy time and
+// hours already booked, from notBefore on, earliest first. A meeting with every seat booked stays,
+// marked full.
 export function freeSlots(query: SlotQuery): Slot[] {
-  const busy = overlapsAny(query.busy);
+  const busy = overlapsAny([...query.busy, ...query.bookings.filter((booking) => meetingOf(booking) === null)]);
+  const booked = seatsBooked(query.bookings);
   const notBefore = query.notBefore.getTime();
   const all = [...hoursSlots(query), ...groupSlots(query), ...sessionSlots(query)].sort(
     (a, b) => a.start - b.start || a.staffId.localeCompare(b.staffId),
@@ -212,5 +240,15 @@ export function freeSlots(query: SlotQuery): Slot[] {
     .filter(({ date }) => query.from <= date && date <= query.to)
     .filter((slot) => slot.start >= notBefore)
     .filter((slot) => !busy(slot))
-    .map(({ start, end, date: _date, ...seats }) => ({ ...seats, startsAt: new Date(start), endsAt: new Date(end) }));
+    .map(({ start, end, date: _date, ...seats }) => {
+      const meeting = meetingOf(seats);
+      const taken = meeting === null ? 0 : (booked.get(meetingKey(meeting, start)) ?? 0);
+      return {
+        ...seats,
+        booked: taken,
+        full: taken >= seats.capacity,
+        startsAt: new Date(start),
+        endsAt: new Date(end),
+      };
+    });
 }

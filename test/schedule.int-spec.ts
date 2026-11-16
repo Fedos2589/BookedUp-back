@@ -16,7 +16,7 @@ const staffUrl = (businessId: string, staffId: string) => `/businesses/${busines
 const weeklyUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/weekly-windows`;
 const timeOffUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/time-off`;
 // What a slot of hours mode carries besides its time.
-const oneSeat = { description: null, capacity: 1, booked: 0, groupId: null, oneOffSessionId: null };
+const oneSeat = { description: null, capacity: 1, booked: 0, full: false, groupId: null, oneOffSessionId: null };
 const modeUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/schedule-mode`;
 const overridesUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/day-overrides`;
 const groupsUrl = (businessId: string, staffId: string) => `${staffUrl(businessId, staffId)}/groups`;

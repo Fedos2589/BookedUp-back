@@ -114,7 +114,8 @@ export const slotSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
   capacity: z.int().min(1).describe('How many people it is for: 1 in hours mode'),
-  booked: z.int().min(0).describe('How many have booked it; 0 until bookings exist'),
+  booked: z.int().min(0).describe('How many have booked it'),
+  full: z.boolean().describe('Every place is booked: shown, but cannot be booked'),
   groupId: z.uuid().nullable().describe('The group it is a meeting of'),
   oneOffSessionId: z.uuid().nullable().describe('The one-off session it is'),
 });
