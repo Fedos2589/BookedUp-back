@@ -78,7 +78,8 @@ export function clockOf(timeZone: string): (wall: number) => number | undefined 
 }
 
 // The instant a local day begins. A midnight a clock change skips (Brazil before 2019, Apia in 2011)
-// begins the day at the first hour that exists.
+// begins the day at the first hour that exists. Whole hours only: a zone that skipped a midnight by a
+// fraction of an hour (Africa/Monrovia, 1972) gets the next whole hour.
 export function startOfDay(timeZone: string, date: LocalDate): number {
   const midnight = wallOfDate(date);
   for (let hour = 0; hour <= 48; hour++) {

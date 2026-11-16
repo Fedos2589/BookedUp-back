@@ -1,10 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-types.js';
-import { roleCan } from '../business/roles.js';
+import { BusinessPolicy } from '../business/business.policy.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
-import { addDays, dateOfWall, startOfDay, wallAt } from '../schedule/local-time.js';
+import { addDays, dateOfWall, startOfDay, todayIn, wallAt } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
@@ -54,6 +54,7 @@ export class AppointmentsService {
     private readonly prisma: PrismaService,
     private readonly staff: StaffService,
     private readonly schedule: ScheduleService,
+    private readonly policy: BusinessPolicy,
   ) {}
 
   // Books exactly one free slot of the master, ahead of its start.
@@ -61,9 +62,9 @@ export class AppointmentsService {
     return this.take(actor, businessId, input, now, 'ahead');
   }
 
-  // Someone who came to a meeting without a booking: a seat in a meeting that has started (today or
-  // on a day gone by), straight as DONE, and past `capacity` if need be — capacity limits booking
-  // ahead, not people already in the room.
+  // Someone who came to a meeting without a booking: a seat in a meeting that has started today,
+  // straight as DONE, and past `capacity` if need be — capacity limits booking ahead, not people
+  // already in the room. Only today: a day gone by is rebuilt from today's schedule, not what was.
   walkIn(actor: AuthUser, businessId: string, input: AppointmentInput, now: Date): Promise<AppointmentDto> {
     return this.take(actor, businessId, input, now, 'walkIn');
   }
@@ -81,15 +82,13 @@ export class AppointmentsService {
     const groupId = seatGroup ?? null;
     const oneOffSessionId = seatSession ?? null;
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    if (mode === 'walkIn' && startsAt > now) {
-      throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
-    }
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { timeZone: true },
     });
     // A slot belongs to the day it starts, on the business's clock.
     const date = dateOfWall(wallAt(timeZone, startsAt.getTime()));
+    if (mode === 'walkIn' && date !== todayIn(timeZone, now)) throw notFree();
     // Booking ahead is offered what is still to come; a walk-in, the whole day it came on.
     const notBefore = mode === 'walkIn' ? new Date(startOfDay(timeZone, date)) : now;
     try {
@@ -105,6 +104,10 @@ export class AppointmentsService {
             each.endsAt === endsAt.toISOString(),
         );
         if (!slot) throw notFree();
+        // Only a real meeting can be told "book a seat instead"; a time that is none is just not free.
+        if (mode === 'walkIn' && startsAt > now) {
+          throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
+        }
         if (mode === 'ahead' && slot.full) throw full();
         return tx.appointment.create({
           data: {
@@ -134,18 +137,15 @@ export class AppointmentsService {
     businessId: string,
     { from, to, staffId, includeCancelled }: AppointmentsQuery,
   ): Promise<AppointmentDto[]> {
-    const [{ timeZone }, membership] = await Promise.all([
+    const [{ timeZone }, seeAll] = await Promise.all([
       this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
-      this.prisma.membership.findUnique({
-        where: { userId_businessId: { userId: actor.id, businessId } },
-        select: { role: true },
-      }),
+      this.policy.seeAllBookings(actor, businessId),
     ]);
     const rows = await this.prisma.appointment.findMany({
       where: {
         businessId,
         staffId,
-        ...(!(membership && roleCan(membership.role, 'seeAllBookings')) && { staff: { userId: actor.id } }),
+        ...(!seeAll && { staff: { userId: actor.id } }),
         ...(!includeCancelled && { status: { not: 'CANCELLED' } }),
         startsAt: {
           gte: new Date(startOfDay(timeZone, from)),

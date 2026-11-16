@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import type { MemberRole } from '../src/generated/prisma/enums.js';
+import { addDays, isoWeekday, startOfDay, todayIn } from '../src/schedule/local-time.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { memberOf as memberOfBusiness, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -324,12 +325,22 @@ describe('booking a seat', () => {
   });
 });
 
-describe('adding someone who came without a booking', () => {
-  // The group meets on Tuesdays 15:00–16:00 Moscow (12:00–13:00Z). 2020-01-07 has passed, 2030-01-08 hasn't.
-  const pastTuesday = '2020-01-07';
-  const meetingOn = (date: string) => ({ startsAt: `${date}T12:00:00.000Z`, endsAt: `${date}T13:00:00.000Z` });
+const HOUR_MS = 3_600_000;
 
-  const coach = async (capacity: number) => {
+describe('adding someone who came without a booking', () => {
+  // The group meets on today's weekday 00:00–01:00 Moscow, so it has started whenever the test runs.
+  // 2030-01-08 (a Tuesday) hasn't come yet.
+  const today = todayIn('Europe/Moscow', new Date());
+  const weekday = isoWeekday(today);
+  const meetingOn = (date: string, startMinute = 0) => {
+    const startsAt = new Date(startOfDay('Europe/Moscow', date) + startMinute * 60_000);
+    return {
+      startsAt: startsAt.toISOString(),
+      endsAt: new Date(startsAt.getTime() + HOUR_MS).toISOString(),
+    };
+  };
+
+  const coach = async (capacity: number, startMinute = 0) => {
     const owner = await signUpOwner(app);
     const businessId = owner.business.id;
     const as = (req: request.Test) => req.set('Cookie', owner.cookie);
@@ -344,15 +355,15 @@ describe('adding someone who came without a booking', () => {
           .send({
             title: 'Football',
             description: null,
-            weekdays: [2],
-            startMinute: 900,
+            weekdays: [weekday, 2],
+            startMinute,
             durationMinutes: 60,
             capacity,
           }),
       ).expect(201)
     ).body.id as string;
     const walkIn = (date: string, extra: object = { groupId: group }, cookie = owner.cookie) => {
-      const { startsAt, endsAt } = meetingOn(date);
+      const { startsAt, endsAt } = meetingOn(date, startMinute);
       return http()
         .post(`${appointmentsUrl(businessId)}/walk-ins`)
         .set('Cookie', cookie)
@@ -368,57 +379,73 @@ describe('adding someone who came without a booking', () => {
     return { as, base, businessId, staffId, group, walkIn, booked };
   };
 
-  it('adds them to a meeting that has passed, as done', async () => {
+  it('adds them to a meeting that has started today, as done', async () => {
     const { group, walkIn } = await coach(3);
 
-    const res = await walkIn(pastTuesday).expect(201);
+    const res = await walkIn(today).expect(201);
 
-    expect(res.body).toMatchObject({ groupId: group, status: 'DONE', ...meetingOn(pastTuesday) });
+    expect(res.body).toMatchObject({ groupId: group, status: 'DONE', ...meetingOn(today) });
   });
 
   it('adds them over the places of a full meeting', async () => {
     const { businessId, staffId, walkIn } = await coach(1);
 
-    await walkIn(pastTuesday).expect(201);
-    await walkIn(pastTuesday).expect(201);
+    await walkIn(today).expect(201);
+    await walkIn(today).expect(201);
 
     expect(await app.get(PrismaService).appointment.count({ where: { businessId, staffId, status: 'DONE' } })).toBe(2);
   });
 
-  it('refuses a meeting that has not started with 409 notStarted, and adds nothing', async () => {
-    const { walkIn, booked } = await coach(3);
+  it('refuses a meeting that starts later today with 409 notStarted, and adds nothing', async () => {
+    // 23:00 Moscow: it has not started unless the test runs in the last hour of the day.
+    const { walkIn, booked } = await coach(3, 23 * 60);
+
+    const res = await walkIn(today).expect(409);
+
+    expect(res.body).toMatchObject({ statusCode: 409, code: 'notStarted' });
+    expect(await booked(today)).toBe(0);
+  });
+
+  it('answers 409 notFree for a meeting of a day gone by, and adds nothing', async () => {
+    const { walkIn } = await coach(3);
+    // A week ago was the same weekday, so the group did meet: only the day is wrong.
+    const res = await walkIn(addDays(today, -7)).expect(409);
+
+    expect(res.body).toMatchObject({ code: 'notFree' });
+  });
+
+  it('answers 409 notFree for a day to come: only today takes walk-ins', async () => {
+    const { walkIn } = await coach(3);
 
     const res = await walkIn('2030-01-08').expect(409);
 
-    expect(res.body).toMatchObject({ statusCode: 409, code: 'notStarted' });
-    expect(await booked('2030-01-08')).toBe(0);
+    expect(res.body).toMatchObject({ code: 'notFree' });
   });
 
-  it('answers 409 notFree for a cancelled date, a day without the meeting or an unknown group', async () => {
+  it('answers 409 notFree for a cancelled date or an unknown group', async () => {
     const { businessId, group, walkIn } = await coach(3);
-    // The API refuses to cancel a date that has passed; this one was cancelled back then.
+    // The API refuses to cancel a date that has started; this one was cancelled in the database.
     await app
       .get(PrismaService)
-      .groupCancellation.create({ data: { businessId, groupId: group, date: new Date('2020-01-14T00:00:00Z') } });
+      .groupCancellation.create({ data: { businessId, groupId: group, date: new Date(`${today}T00:00:00Z`) } });
 
-    const cancelled = await walkIn('2020-01-14').expect(409);
-    const wrongDay = await walkIn('2020-01-08').expect(409);
-    const unknown = await walkIn(pastTuesday, { groupId: '00000000-0000-4000-8000-000000000000' }).expect(409);
+    const cancelled = await walkIn(today).expect(409);
+    const unknown = await walkIn(today, { groupId: '00000000-0000-4000-8000-000000000000' }).expect(409);
 
-    for (const res of [cancelled, wrongDay, unknown]) expect(res.body).toMatchObject({ code: 'notFree' });
+    for (const res of [cancelled, unknown]) expect(res.body).toMatchObject({ code: 'notFree' });
   });
 
   it('needs a group or a one-off session', async () => {
     const { walkIn } = await coach(3);
 
-    await walkIn(pastTuesday, {}).expect(400);
+    await walkIn(today, {}).expect(400);
   });
 
   it("refuses a master adding to someone else's meeting with 403", async () => {
     const { businessId, walkIn } = await coach(3);
     const master = await memberWithSchedule(businessId, 'MASTER');
 
-    await walkIn(pastTuesday, undefined, master.cookie).expect(403);
+    await walkIn(today, undefined, master.cookie).expect(403);
   });
 });
 
