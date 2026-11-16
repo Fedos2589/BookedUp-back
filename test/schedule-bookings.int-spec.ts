@@ -112,6 +112,37 @@ describe('a group', () => {
   });
 });
 
+describe('changing a group', () => {
+  it('is refused when a live seat would be left without its meeting or place, and passes once cancelled', async () => {
+    const t = await setUp();
+    const group = await addGroup(t);
+    const first = await t.book({ groupId: group });
+    const second = await t.book({ groupId: group });
+    const change = (extra: object) =>
+      t.as(
+        http()
+          .put(`${t.base}/groups/${group}`)
+          .send({ ...football, ...extra }),
+      );
+
+    const moved = await change({ startMinute: 1020 }).expect(409);
+    const otherDay = await change({ weekdays: [4] }).expect(409);
+    const smaller = await change({ capacity: 1 }).expect(409);
+
+    for (const refused of [moved, otherDay, smaller])
+      expect(refused.body).toMatchObject({ code: 'hasBookings', appointmentIds: expect.arrayContaining([first.id]) });
+    expect(smaller.body.appointmentIds).toHaveLength(2);
+    await t.as(http().get(`${t.base}/groups`)).expect(({ body }) => expect(body[0]).toMatchObject(football));
+
+    await change({ title: 'Football for kids', capacity: 9 }).expect(200); // nothing a seat depends on
+    await t.prisma.appointment.updateMany({
+      where: { id: { in: [first.id, second.id] } },
+      data: { status: 'CANCELLED' },
+    });
+    await change({ startMinute: 1020 }).expect(200);
+  });
+});
+
 describe('a one-off session', () => {
   it('is refused over a live booking, then archived and its time is free again', async () => {
     const t = await setUp();

@@ -26,10 +26,10 @@ import {
   type OneOffSessionInput,
   oneOffSessionInput,
   oneOffSessionSchema,
-  hasBookingsSchema,
   scheduleConflictSchema,
 } from './groups.schema.js';
 import { GroupsService } from './groups.service.js';
+import { hasBookingsSchema } from './live-bookings.js';
 import { localDate } from './schedule.schema.js';
 
 const uuid = { schema: z.uuid() };

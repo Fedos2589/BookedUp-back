@@ -132,7 +132,13 @@ export class ScheduleService {
     return timeOff.map(withIsoTimes);
   }
 
-  async addTimeOff(actor: AuthUser, businessId: string, staffId: string, input: TimeOffInput): Promise<TimeOffDto> {
+  async addTimeOff(
+    actor: AuthUser,
+    businessId: string,
+    staffId: string,
+    input: TimeOffInput,
+    now: Date,
+  ): Promise<TimeOffDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     // Under the master's lock: a booking can't be made between the check and the insert.
     const timeOff = await this.prisma.$transaction(async (tx) => {
@@ -141,7 +147,8 @@ export class ScheduleService {
         await liveBookingIds(tx, businessId, {
           staffId,
           startsAt: { lt: input.endsAt },
-          endsAt: { gt: input.startsAt },
+          // Past bookings aren't in its way, marked or not.
+          endsAt: { gt: new Date(Math.max(input.startsAt.getTime(), now.getTime())) },
         }),
       );
       return tx.timeOff.create({

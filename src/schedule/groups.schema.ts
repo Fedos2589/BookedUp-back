@@ -82,12 +82,3 @@ export const scheduleConflictSchema = z.object({
   conflictsWith: conflict,
 });
 export type ScheduleConflict = z.infer<typeof scheduleConflictSchema>;
-
-// 409: bookings are on what is being changed. Cancel or move them first.
-export const hasBookingsSchema = z.object({
-  statusCode: z.literal(409),
-  error: z.literal('Conflict'),
-  message: z.string(),
-  code: z.literal('hasBookings'),
-  appointmentIds: z.array(z.uuid()).describe('The bookings in the way'),
-});

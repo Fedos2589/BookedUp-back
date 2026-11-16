@@ -17,7 +17,7 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
-import { hasBookingsSchema } from './groups.schema.js';
+import { hasBookingsSchema } from './live-bookings.js';
 import {
   type DayOverrideDto,
   type DayOverrideInput,
@@ -149,7 +149,7 @@ export class StaffScheduleController {
     @Param('staffId', uuid) staffId: string,
     @Body({ schema: timeOffInput }) body: TimeOffInput,
   ): Promise<TimeOffDto> {
-    return this.schedule.addTimeOff(actor, businessId, staffId, body);
+    return this.schedule.addTimeOff(actor, businessId, staffId, body, new Date());
   }
 
   @Delete('time-off/:id')

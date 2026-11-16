@@ -77,7 +77,7 @@ export class AppointmentsService {
             each.endsAt === endsAt.toISOString(),
         );
         if (!slot) throw notFree();
-        if (slot.full) throw groupId === null && oneOffSessionId === null ? notFree() : full();
+        if (slot.full) throw full();
         return tx.appointment.create({
           data: { businessId, staffId, startsAt, endsAt, groupId, oneOffSessionId, ...client },
           select: appointmentSelect,

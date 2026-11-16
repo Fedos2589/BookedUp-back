@@ -9,6 +9,7 @@ import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes 
 import { type Conflict, groupConflict, type GroupsSchedule, sessionConflict } from './group-conflicts.js';
 import type { GroupDto, GroupInput, OneOffSessionDto, OneOffSessionInput, ScheduleConflict } from './groups.schema.js';
 import { liveBookingIds, refuseIfAny } from './live-bookings.js';
+import { strandedBookings } from './stranded-bookings.js';
 import { addDays, DAY, dateOfWall, isoWeekday, type LocalDate, todayIn, wallAt } from './local-time.js';
 
 const groupSelect = {
@@ -105,6 +106,16 @@ export class GroupsService {
         WHERE business_id = ${businessId}::uuid AND group_id = ${groupId}::uuid
           AND NOT (EXTRACT(ISODOW FROM date)::smallint = ANY (${group.weekdays}::smallint[]))`;
       await check((schedule, timeZone) => groupConflict(group, schedule, timeZone, now), 'startMinute');
+      // Seats still to come must keep a meeting and a place: the group is not changed under them.
+      const { timeZone } = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { timeZone: true },
+      });
+      const seats = await tx.appointment.findMany({
+        where: { businessId, groupId, endsAt: { gt: now }, status: { in: ['BOOKED', 'CONFIRMED'] } },
+        select: { id: true, startsAt: true, endsAt: true },
+      });
+      refuseIfAny(strandedBookings(group, seats, timeZone));
     });
     return this.groupOf(businessId, staffId, groupId, now);
   }
@@ -221,7 +232,13 @@ export class GroupsService {
       // Code and EXCLUDE disagree (a row written around this service): still a 409, not a 500.
       if (violatedExclusion(error) !== 'OneOffSession') throw error;
       const other = await this.prisma.oneOffSession.findFirst({
-        where: { businessId, staffId, startsAt: { lt: input.endsAt }, endsAt: { gt: input.startsAt } },
+        where: {
+          businessId,
+          staffId,
+          archivedAt: null,
+          startsAt: { lt: input.endsAt },
+          endsAt: { gt: input.startsAt },
+        },
         select: sessionSelect,
       });
       if (!other) throw error;
@@ -314,7 +331,7 @@ export class GroupsService {
 
   // With their cancellations from today on, in the order they were added.
   private async findGroups(
-    where: { id?: string; businessId: string; staffId: string; archivedAt?: null },
+    where: { id?: string; businessId: string; staffId: string },
     now: Date,
   ): Promise<GroupDto[]> {
     const today = await todayOfBusiness(this.prisma, where.businessId, now);

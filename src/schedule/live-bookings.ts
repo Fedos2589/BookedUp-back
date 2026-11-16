@@ -1,5 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 
+import { z } from 'zod';
+
 import type { Prisma } from '../generated/prisma/client.js';
 
 // A booking that still expects the master: not cancelled, not marked done or missed.
@@ -30,3 +32,12 @@ export const refuseIfAny = (appointmentIds: readonly string[]) => {
     appointmentIds,
   });
 };
+
+// 409: bookings are on what is being changed. Cancel or move them first.
+export const hasBookingsSchema = z.object({
+  statusCode: z.literal(409),
+  error: z.literal('Conflict'),
+  message: z.string(),
+  code: z.literal('hasBookings'),
+  appointmentIds: z.array(z.uuid()).describe('The bookings in the way'),
+});
