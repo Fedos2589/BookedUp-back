@@ -6,6 +6,7 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
+import { liveBookingIds, refuseIfAny } from './live-bookings.js';
 import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
 import {
   type DayOverrideDto,
@@ -133,9 +134,20 @@ export class ScheduleService {
 
   async addTimeOff(actor: AuthUser, businessId: string, staffId: string, input: TimeOffInput): Promise<TimeOffDto> {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
-    const timeOff = await this.prisma.timeOff.create({
-      data: { businessId, staffId, ...input },
-      select: { id: true, staffId: true, startsAt: true, endsAt: true, note: true },
+    // Under the master's lock: a booking can't be made between the check and the insert.
+    const timeOff = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
+      refuseIfAny(
+        await liveBookingIds(tx, businessId, {
+          staffId,
+          startsAt: { lt: input.endsAt },
+          endsAt: { gt: input.startsAt },
+        }),
+      );
+      return tx.timeOff.create({
+        data: { businessId, staffId, ...input },
+        select: { id: true, staffId: true, startsAt: true, endsAt: true, note: true },
+      });
     });
     return withIsoTimes(timeOff);
   }
@@ -171,12 +183,12 @@ export class ScheduleService {
       db.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
       db.weeklyWindow.findMany({ where: onTeam('HOURS') }),
       db.dayOverride.findMany({ where: { ...onTeam('HOURS'), date: dates } }),
-      db.group.findMany({ where: onTeam('GROUPS') }),
+      db.group.findMany({ where: { ...onTeam('GROUPS'), archivedAt: null } }),
       db.groupCancellation.findMany({
         where: { businessId, date: dates, group: onTeam('GROUPS') },
         select: { groupId: true, date: true },
       }),
-      db.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around } }),
+      db.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around, archivedAt: null } }),
       db.timeOff.findMany({ where: { ...anyMode, ...around } }),
       db.appointment.findMany({
         where: { ...anyMode, ...around, status: { not: 'CANCELLED' } },
