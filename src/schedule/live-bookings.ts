@@ -7,6 +7,13 @@ import type { Prisma } from '../generated/prisma/client.js';
 // A booking that still expects the master: not cancelled, not marked done or missed.
 const live: Prisma.AppointmentWhereInput = { status: { in: ['BOOKED', 'CONFIRMED'] } };
 
+// A booking that holds the master's time or its seat: not cancelled, and not an hours booking whose
+// client didn't come. The same rule is the WHERE of the `appointments_no_overlap` constraint.
+export const holdsTime: Prisma.AppointmentWhereInput = {
+  status: { not: 'CANCELLED' },
+  NOT: { status: 'NO_SHOW', groupId: null, oneOffSessionId: null },
+};
+
 // Which live bookings the schedule change would leave without a slot; none: the change goes on.
 // Read under the master's lock, so a booking can't slip in between the check and the change.
 export const liveBookingIds = async (

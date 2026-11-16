@@ -1,11 +1,12 @@
 import { CurrentUser } from '@nestjs/authentication';
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -19,8 +20,15 @@ import {
   type AppointmentDto,
   type AppointmentInput,
   appointmentInput,
+  appointmentsQuery,
+  statusConflictSchema,
+  statusInput,
+  type StatusInput,
+  type AppointmentsQuery,
   appointmentSchema,
   bookingConflictSchema,
+  walkInConflictSchema,
+  walkInInput,
 } from './appointments.schema.js';
 import { AppointmentsService } from './appointments.service.js';
 
@@ -54,5 +62,56 @@ export class AppointmentsController {
     @Body({ schema: appointmentInput }) body: AppointmentInput,
   ): Promise<AppointmentDto> {
     return this.appointments.create(actor, businessId, body, new Date());
+  }
+
+  @Post('walk-ins')
+  @ApiCreatedResponse({
+    description: 'Added to the meeting as DONE, over its places if need be',
+    schema: openApi(appointmentSchema),
+  })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiConflictResponse({
+    description:
+      'Not a meeting of the master at this time (code notFree), or the meeting has not started yet (code notStarted: book a seat instead)',
+    schema: openApi(walkInConflictSchema),
+  })
+  walkIn(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Body({ schema: walkInInput }) body: AppointmentInput,
+  ): Promise<AppointmentDto> {
+    return this.appointments.walkIn(actor, businessId, body, new Date());
+  }
+
+  @Get()
+  @ApiOkResponse({
+    description: 'Bookings that start on these days of the business clock, by start; a master gets only their own',
+    schema: openApi(z.array(appointmentSchema)),
+  })
+  @ApiBadRequestResponse({ description: 'A query field is invalid', schema: openApi(validationErrorSchema) })
+  list(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Query({ schema: appointmentsQuery }) query: AppointmentsQuery,
+  ): Promise<AppointmentDto[]> {
+    return this.appointments.list(actor, businessId, query);
+  }
+
+  @Patch(':appointmentId/status')
+  @ApiNotFoundResponse({ description: 'No such booking in this business' })
+  @ApiOkResponse({ description: 'The booking with its new status', schema: openApi(appointmentSchema) })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiConflictResponse({
+    description:
+      'Not an allowed move from the current status (code badTransition), or DONE / NO_SHOW before the booking starts (code notStarted)',
+    schema: openApi(statusConflictSchema),
+  })
+  changeStatus(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('appointmentId', uuid) appointmentId: string,
+    @Body({ schema: statusInput }) body: StatusInput,
+  ): Promise<AppointmentDto> {
+    return this.appointments.changeStatus(actor, businessId, appointmentId, body, new Date());
   }
 }

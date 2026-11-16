@@ -1,13 +1,20 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-types.js';
+import { BusinessPolicy } from '../business/business.policy.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
-import { dateOfWall, wallAt } from '../schedule/local-time.js';
+import { addDays, dateOfWall, startOfDay, todayIn, wallAt } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
-import type { AppointmentDto, AppointmentInput } from './appointments.schema.js';
+import {
+  type AppointmentDto,
+  type AppointmentInput,
+  type AppointmentsQuery,
+  nextStatuses,
+  type StatusInput,
+} from './appointments.schema.js';
 
 const appointmentSelect = {
   id: true,
@@ -38,22 +45,39 @@ const full = () =>
     code: 'full',
   });
 
+const statusConflict = (code: 'badTransition' | 'notStarted', message: string) =>
+  new ConflictException({ statusCode: 409, error: 'Conflict', message, code });
+
 @Injectable()
 export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly staff: StaffService,
     private readonly schedule: ScheduleService,
+    private readonly policy: BusinessPolicy,
   ) {}
 
-  // Books exactly one free slot of the master. Two requests for one slot take turns on the lock of
-  // the staff row, and the second finds the slot taken; the exclusion constraint in the database is
-  // the guarantee behind that, and only its refusal is turned into the same clear answer.
-  async create(
+  // Books exactly one free slot of the master, ahead of its start.
+  create(actor: AuthUser, businessId: string, input: AppointmentInput, now: Date): Promise<AppointmentDto> {
+    return this.take(actor, businessId, input, now, 'ahead');
+  }
+
+  // Someone who came to a meeting without a booking: a seat in a meeting that has started today,
+  // straight as DONE, and past `capacity` if need be — capacity limits booking ahead, not people
+  // already in the room. Only today: a day gone by is rebuilt from today's schedule, not what was.
+  walkIn(actor: AuthUser, businessId: string, input: AppointmentInput, now: Date): Promise<AppointmentDto> {
+    return this.take(actor, businessId, input, now, 'walkIn');
+  }
+
+  // Two requests for one slot take turns on the lock of the staff row, and the second finds the slot
+  // taken; the exclusion constraint in the database is the guarantee behind that, and only its
+  // refusal is turned into the same clear answer.
+  private async take(
     actor: AuthUser,
     businessId: string,
     { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, ...client }: AppointmentInput,
     now: Date,
+    mode: 'ahead' | 'walkIn',
   ): Promise<AppointmentDto> {
     const groupId = seatGroup ?? null;
     const oneOffSessionId = seatSession ?? null;
@@ -64,10 +88,13 @@ export class AppointmentsService {
     });
     // A slot belongs to the day it starts, on the business's clock.
     const date = dateOfWall(wallAt(timeZone, startsAt.getTime()));
+    if (mode === 'walkIn' && date !== todayIn(timeZone, now)) throw notFree();
+    // Booking ahead is offered what is still to come; a walk-in, the whole day it came on.
+    const notBefore = mode === 'walkIn' ? new Date(startOfDay(timeZone, date)) : now;
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
-        const slots = await this.schedule.slots(businessId, { from: date, to: date, staffId }, now, tx);
+        const slots = await this.schedule.slots(businessId, { from: date, to: date, staffId }, notBefore, tx);
         // The slot is the one meant: same start and end, and the same group or session (none: hours).
         const slot = slots.find(
           (each) =>
@@ -77,9 +104,22 @@ export class AppointmentsService {
             each.endsAt === endsAt.toISOString(),
         );
         if (!slot) throw notFree();
-        if (slot.full) throw full();
+        // Only a real meeting can be told "book a seat instead"; a time that is none is just not free.
+        if (mode === 'walkIn' && startsAt > now) {
+          throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
+        }
+        if (mode === 'ahead' && slot.full) throw full();
         return tx.appointment.create({
-          data: { businessId, staffId, startsAt, endsAt, groupId, oneOffSessionId, ...client },
+          data: {
+            businessId,
+            staffId,
+            startsAt,
+            endsAt,
+            groupId,
+            oneOffSessionId,
+            ...client,
+            ...(mode === 'walkIn' && { status: 'DONE' }),
+          },
           select: appointmentSelect,
         });
       });
@@ -88,5 +128,63 @@ export class AppointmentsService {
       if (violatedExclusion(error) === 'Appointment') throw notFree();
       throw error;
     }
+  }
+
+  // Bookings that start on the days from..to of the business's clock, in the order of their start.
+  // A master sees only their own: the `staffId` of another gives an empty list, not a 403.
+  async list(
+    actor: AuthUser,
+    businessId: string,
+    { from, to, staffId, includeCancelled }: AppointmentsQuery,
+  ): Promise<AppointmentDto[]> {
+    const [{ timeZone }, seeAll] = await Promise.all([
+      this.prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timeZone: true } }),
+      this.policy.seeAllBookings(actor, businessId),
+    ]);
+    const rows = await this.prisma.appointment.findMany({
+      where: {
+        businessId,
+        staffId,
+        ...(!seeAll && { staff: { userId: actor.id } }),
+        ...(!includeCancelled && { status: { not: 'CANCELLED' } }),
+        startsAt: {
+          gte: new Date(startOfDay(timeZone, from)),
+          lt: new Date(startOfDay(timeZone, addDays(to, 1))),
+        },
+      },
+      select: appointmentSelect,
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(withIsoTimes);
+  }
+
+  // Moves a booking along Decision 2's statuses. The update names the status it read, so two requests
+  // racing over one booking can't both pass: the second finds it changed and gets the same 409.
+  async changeStatus(
+    actor: AuthUser,
+    businessId: string,
+    id: string,
+    { status }: StatusInput,
+    now: Date,
+  ): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({
+      where: { id, businessId },
+      select: { staffId: true, status: true, startsAt: true },
+    });
+    if (!current) throw new NotFoundException();
+    await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
+    if (!nextStatuses[current.status].includes(status)) {
+      throw statusConflict('badTransition', `A booking that is ${current.status} can't become ${status}`);
+    }
+    if ((status === 'DONE' || status === 'NO_SHOW') && current.startsAt > now) {
+      throw statusConflict('notStarted', 'The booking has not started yet');
+    }
+    const [updated] = await this.prisma.appointment.updateManyAndReturn({
+      where: { id, businessId, staffId: current.staffId, status: current.status },
+      data: { status },
+      select: appointmentSelect,
+    });
+    if (!updated) throw statusConflict('badTransition', 'The status has just changed');
+    return withIsoTimes(updated);
   }
 }

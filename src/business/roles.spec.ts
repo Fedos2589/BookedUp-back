@@ -7,6 +7,12 @@ describe('what each role may do in a business', () => {
     expect(roleCan('MASTER', 'manageTeam')).toBe(false);
   });
 
+  it("shows everyone's bookings to the owner and admins, a master only their own", () => {
+    expect(roleCan('OWNER', 'seeAllBookings')).toBe(true);
+    expect(roleCan('ADMIN', 'seeAllBookings')).toBe(true);
+    expect(roleCan('MASTER', 'seeAllBookings')).toBe(false);
+  });
+
   // Invite, change the role of, remove.
   it('lets the owner manage admins and masters, and admins only masters', () => {
     expect(roleManages('OWNER', 'ADMIN')).toBe(true);
