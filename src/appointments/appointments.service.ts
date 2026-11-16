@@ -1,10 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client.js';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { BusinessPolicy } from '../business/business.policy.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
-import { addDays, dateOfWall, startOfDay, todayIn, wallAt } from '../schedule/local-time.js';
+import { addDays, dateOfWall, type LocalDate, startOfDay, todayIn, wallAt } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
@@ -12,6 +13,7 @@ import {
   type AppointmentDto,
   type AppointmentInput,
   type AppointmentsQuery,
+  type MoveInput,
   nextStatuses,
   type StatusInput,
 } from './appointments.schema.js';
@@ -94,14 +96,12 @@ export class AppointmentsService {
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
-        const slots = await this.schedule.slots(businessId, { from: date, to: date, staffId }, notBefore, tx);
-        // The slot is the one meant: same start and end, and the same group or session (none: hours).
-        const slot = slots.find(
-          (each) =>
-            each.groupId === groupId &&
-            each.oneOffSessionId === oneOffSessionId &&
-            each.startsAt === startsAt.toISOString() &&
-            each.endsAt === endsAt.toISOString(),
+        const slot = await this.findSlot(
+          tx,
+          businessId,
+          { staffId, startsAt, endsAt, groupId, oneOffSessionId },
+          date,
+          notBefore,
         );
         if (!slot) throw notFree();
         // Only a real meeting can be told "book a seat instead"; a time that is none is just not free.
@@ -124,6 +124,88 @@ export class AppointmentsService {
         });
       });
       return withIsoTimes(created);
+    } catch (error) {
+      if (violatedExclusion(error) === 'Appointment') throw notFree();
+      throw error;
+    }
+  }
+
+  // The slot meant: same master, start and end, and the same group or session (none: hours). A booking
+  // being moved (`exceptId`) doesn't hold its own time or seat.
+  private async findSlot(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    want: { staffId: string; startsAt: Date; endsAt: Date; groupId: string | null; oneOffSessionId: string | null },
+    date: LocalDate,
+    notBefore: Date,
+    exceptId?: string,
+  ) {
+    const slots = await this.schedule.slots(
+      businessId,
+      { from: date, to: date, staffId: want.staffId },
+      notBefore,
+      tx,
+      exceptId,
+    );
+    const slot = slots.find(
+      (each) =>
+        each.groupId === want.groupId &&
+        each.oneOffSessionId === want.oneOffSessionId &&
+        each.startsAt === want.startsAt.toISOString() &&
+        each.endsAt === want.endsAt.toISOString(),
+    );
+    if (!slot) throw notFree();
+    return slot;
+  }
+
+  // Moves a BOOKED or CONFIRMED booking to another slot, the same master's or another's, by the same
+  // checks as booking, in one transaction. Both masters' rows are locked in id order, so two moves
+  // across the same two masters can't deadlock and two moves into one slot take turns.
+  async move(
+    actor: AuthUser,
+    businessId: string,
+    id: string,
+    { staffId: target, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession }: MoveInput,
+    now: Date,
+  ): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
+    if (!current) throw new NotFoundException();
+    const staffId = target ?? current.staffId;
+    await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
+    if (staffId !== current.staffId) await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    const { timeZone } = await this.prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { timeZone: true },
+    });
+    const date = dateOfWall(wallAt(timeZone, startsAt.getTime()));
+    const lock = [...new Set([current.staffId, staffId])].sort();
+    try {
+      const moved = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM staff WHERE id IN (${Prisma.join(lock.map((each) => Prisma.sql`${each}::uuid`))}) AND business_id = ${businessId}::uuid ORDER BY id FOR UPDATE`;
+        // Read again under the lock: a status change that got in first is seen.
+        const booking = await tx.appointment.findFirst({ where: { id, businessId }, select: { status: true } });
+        if (!booking) throw new NotFoundException();
+        if (booking.status !== 'BOOKED' && booking.status !== 'CONFIRMED') {
+          throw statusConflict('badTransition', `A booking that is ${booking.status} can't be moved`);
+        }
+        const groupId = seatGroup ?? null;
+        const oneOffSessionId = seatSession ?? null;
+        const slot = await this.findSlot(
+          tx,
+          businessId,
+          { staffId, startsAt, endsAt, groupId, oneOffSessionId },
+          date,
+          now,
+          id,
+        );
+        if (slot.full) throw full();
+        return tx.appointment.update({
+          where: { id },
+          data: { staffId, startsAt, endsAt, groupId, oneOffSessionId },
+          select: appointmentSelect,
+        });
+      });
+      return withIsoTimes(moved);
     } catch (error) {
       if (violatedExclusion(error) === 'Appointment') throw notFree();
       throw error;

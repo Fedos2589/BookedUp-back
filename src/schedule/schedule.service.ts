@@ -170,11 +170,13 @@ export class ScheduleService {
   // one-off session lasts at most a day; dates start the day before, for windows past midnight.
   // Only slots that start at `notBefore` or later: now, for what can be booked; a walk-in looks back.
   // `db` is the transaction when the answer must be read under a lock the caller holds.
+  // `exceptAppointmentId` is a booking being moved: its own time and seat don't count against it.
   async slots(
     businessId: string,
     { from, to, staffId }: SlotsQuery,
     notBefore: Date,
     db: Prisma.TransactionClient = this.prisma,
+    exceptAppointmentId?: string,
   ): Promise<SlotDto[]> {
     const onTeam = (scheduleMode: 'HOURS' | 'GROUPS') => ({
       businessId,
@@ -199,7 +201,12 @@ export class ScheduleService {
       db.oneOffSession.findMany({ where: { ...onTeam('GROUPS'), ...around, archivedAt: null } }),
       db.timeOff.findMany({ where: { ...anyMode, ...around } }),
       db.appointment.findMany({
-        where: { ...anyMode, ...around, ...holdsTime },
+        where: {
+          ...anyMode,
+          ...around,
+          ...holdsTime,
+          ...(exceptAppointmentId && { id: { not: exceptAppointmentId } }),
+        },
         select: { staffId: true, startsAt: true, endsAt: true, groupId: true, oneOffSessionId: true },
       }),
     ]);
