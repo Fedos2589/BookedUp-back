@@ -12,11 +12,12 @@ const blankIsNone = (max: number) =>
 
 // The client is a name and a phone on the booking itself (E8 adds clients and merges by phone).
 const clientName = z.string().trim().min(1).max(100);
-// E.164: «+», a country code that doesn't start with 0, up to 15 digits in all.
+// E.164: «+», a country code that doesn't start with 0, 7 to 15 digits in all. The lower bound is the
+// same as the `appointments_client_phone` CHECK in the database: a looser one here would be a 500 there.
 const clientPhone = z
   .string()
   .max(16)
-  .regex(/^\+[1-9]\d{1,14}$/, 'Not a phone number in the international format');
+  .regex(/^\+[1-9]\d{6,14}$/, 'Not a phone number in the international format');
 
 export const appointmentInput = z
   .object({ staffId: z.uuid(), startsAt: instant, endsAt: instant, clientName, clientPhone, note: blankIsNone(2000) })

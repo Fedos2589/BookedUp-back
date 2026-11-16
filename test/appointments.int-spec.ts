@@ -189,6 +189,13 @@ describe('booking an hours slot', () => {
       .send(booking(staffId, endsAt, startsAt))
       .expect(400);
 
+    const shortPhone = await http()
+      .post(appointmentsUrl(businessId))
+      .set('Cookie', owner.cookie)
+      .send({ ...booking(staffId, startsAt, endsAt), clientPhone: '+12' })
+      .expect(400);
+
+    expect(shortPhone.body.message).toEqual([expect.stringMatching(/^clientPhone:/)]);
     expect(fields.body.message).toEqual([
       expect.stringMatching(/^clientName:/),
       expect.stringMatching(/^clientPhone:/),
