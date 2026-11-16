@@ -44,7 +44,8 @@ export class AppointmentsController {
   @ApiCreatedResponse({ description: 'Booked', schema: openApi(appointmentSchema) })
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiConflictResponse({
-    description: 'The time is not a free slot of the master (not a slot at all, or taken)',
+    description:
+      'The time is not a free slot of the master (code notFree: not a slot at all, or taken) or the meeting has no seat left (code full)',
     schema: openApi(bookingConflictSchema),
   })
   create(

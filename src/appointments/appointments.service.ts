@@ -30,6 +30,14 @@ const notFree = () =>
     code: 'notFree',
   });
 
+const full = () =>
+  new ConflictException({
+    statusCode: 409,
+    error: 'Conflict',
+    message: 'Every seat is taken',
+    code: 'full',
+  });
+
 @Injectable()
 export class AppointmentsService {
   constructor(
@@ -44,9 +52,11 @@ export class AppointmentsService {
   async create(
     actor: AuthUser,
     businessId: string,
-    { staffId, startsAt, endsAt, ...client }: AppointmentInput,
+    { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, ...client }: AppointmentInput,
     now: Date,
   ): Promise<AppointmentDto> {
+    const groupId = seatGroup ?? null;
+    const oneOffSessionId = seatSession ?? null;
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
@@ -58,17 +68,18 @@ export class AppointmentsService {
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
         const slots = await this.schedule.slots(businessId, { from: date, to: date, staffId }, now, tx);
-        const free = slots.some(
-          (slot) =>
-            !slot.full &&
-            slot.groupId === null &&
-            slot.oneOffSessionId === null &&
-            slot.startsAt === startsAt.toISOString() &&
-            slot.endsAt === endsAt.toISOString(),
+        // The slot is the one meant: same start and end, and the same group or session (none: hours).
+        const slot = slots.find(
+          (each) =>
+            each.groupId === groupId &&
+            each.oneOffSessionId === oneOffSessionId &&
+            each.startsAt === startsAt.toISOString() &&
+            each.endsAt === endsAt.toISOString(),
         );
-        if (!free) throw notFree();
+        if (!slot) throw notFree();
+        if (slot.full) throw groupId === null && oneOffSessionId === null ? notFree() : full();
         return tx.appointment.create({
-          data: { businessId, staffId, startsAt, endsAt, ...client },
+          data: { businessId, staffId, startsAt, endsAt, groupId, oneOffSessionId, ...client },
           select: appointmentSelect,
         });
       });
