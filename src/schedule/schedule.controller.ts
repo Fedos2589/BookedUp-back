@@ -177,17 +177,19 @@ export class SlotsController {
 
   @Get()
   @ApiOkResponse({
-    description: "Free slots starting on the days asked (business's clock), from now on, earliest first",
+    description:
+      "Free slots starting on the days asked (business's clock), earliest first. From now on, unless includePast=true: then from the start of the first day, so meetings that have started stay with their bookings (free hours of the past come back too: take only the meetings, groupId / oneOffSessionId set).",
     schema: openApi(z.array(slotSchema)),
   })
   @ApiBadRequestResponse({
-    description: 'from or to is not a date, to is before from, or more than 31 days are asked',
+    description:
+      'from or to is not a date, to is before from, more than 31 days are asked, or includePast is not a flag',
     schema: openApi(validationErrorSchema),
   })
   slots(
     @Param('businessId', uuid) businessId: string,
     @Query({ schema: slotsQuery }) query: SlotsQuery,
   ): Promise<SlotDto[]> {
-    return this.schedule.slots(businessId, query, new Date());
+    return this.schedule.slotsForGrid(businessId, query, new Date());
   }
 }

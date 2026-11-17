@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan (another repo — its own branch from `main` and its own commit; don't push).
 
-**Status:** B1–B10 done, merged in `main` (PRs #19–#23). **B11 added 2026-11-17** (front review: past meetings stay on the grid) — not started.
+**Status:** B1–B11 done; B11 is on branch `e6/past-slots`, not merged yet.
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-12-e6-calendar.md` next to this file.
 
@@ -208,7 +208,7 @@ cancelled, not archived) → else 409 `notFree`; its start must be `<= now` → 
 `notStarted`; a cancelled date or a time that isn't the meeting → 409 `notFree`; a master of
 someone else → 403. Commit `feat(appointments): walk-ins`.
 
-### - [ ] B11: slots can include meetings that have started or are over
+### - [x] B11: slots can include meetings that have started or are over
 
 **Why:** the calendar grid shows past meetings faded, with their bookings (common plan, «Past meetings stay on the grid»).
 `GET /slots` cuts at `notBefore: now` (`schedule.controller.ts`, `slots.ts`), so a meeting that has

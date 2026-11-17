@@ -125,7 +125,16 @@ const MAX_DAYS = 31;
 
 // Days on the business's clock, both included.
 export const slotsQuery = z
-  .object({ from: z.iso.date(), to: z.iso.date(), staffId: z.uuid().optional() })
+  .object({
+    from: z.iso.date(),
+    to: z.iso.date(),
+    staffId: z.uuid().optional(),
+    includePast: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((flag) => flag === 'true')
+      .describe('Also meetings that have started or are over (the calendar grid); default: from now on'),
+  })
   .refine(({ from, to }) => from <= to, { path: ['to'], message: 'Before from', ...whenFieldsValid })
   .refine(({ from, to }) => to < addDays(from, MAX_DAYS), {
     path: ['to'],

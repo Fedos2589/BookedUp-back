@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { StaffService } from '../staff/staff.service.js';
 import { dateColumn, localDateOf, refusePastDate, todayOfBusiness, withIsoTimes } from './db-values.js';
 import { holdsTime, liveBookingIds, refuseIfAny } from './live-bookings.js';
-import { addDays, DAY, type LocalDate, wallOfDate } from './local-time.js';
+import { addDays, DAY, type LocalDate, startOfDay, wallOfDate } from './local-time.js';
 import {
   type DayOverrideDto,
   type DayOverrideInput,
@@ -165,6 +165,16 @@ export class ScheduleService {
     if (count === 0) throw new NotFoundException();
   }
 
+  // What `GET /slots` answers: from `now` on, or with `includePast` from the start of the first day.
+  async slotsForGrid(businessId: string, query: SlotsQuery, now: Date): Promise<SlotDto[]> {
+    if (!query.includePast) return this.slots(businessId, query, now);
+    const { timeZone } = await this.prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { timeZone: true },
+    });
+    return this.slots(businessId, query, new Date(startOfDay(timeZone, query.from)));
+  }
+
   // Masters still on the team, each from the sources of their mode only. The instants read are a
   // generous margin around the days asked: a time zone is at most 14 hours from UTC, and a
   // one-off session lasts at most a day; dates start the day before, for windows past midnight.
@@ -173,7 +183,7 @@ export class ScheduleService {
   // `exceptAppointmentId` is a booking being moved: its own time and seat don't count against it.
   async slots(
     businessId: string,
-    { from, to, staffId }: SlotsQuery,
+    { from, to, staffId }: Omit<SlotsQuery, 'includePast'>,
     notBefore: Date,
     db: Prisma.TransactionClient = this.prisma,
     exceptAppointmentId?: string,
