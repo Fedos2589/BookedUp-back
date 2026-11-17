@@ -4,6 +4,8 @@
 > no subagents. Read only the files the task names plus the repo's AGENTS.md (and the skills it
 > points to). If the task turns out bigger than described, stop and say so — it gets split, not
 > pushed through. Tick the task's box when its check passes, commit, don't push.
+>
+> **When the step is merged:** its last task updates the step's row in the common plan (another repo — its own branch from `main` and its own commit; don't push).
 
 **Status: done** — B1–B10 merged in `main` (PRs #19–#23). Kept as history.
 
