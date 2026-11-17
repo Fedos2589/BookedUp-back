@@ -178,7 +178,7 @@ export class SlotsController {
   @Get()
   @ApiOkResponse({
     description:
-      "Free slots starting on the days asked (business's clock), earliest first. From now on, unless includePast=true: then from the start of the first day, so meetings that have started stay with their bookings.",
+      "Free slots starting on the days asked (business's clock), earliest first. From now on, unless includePast=true: then from the start of the first day, so meetings that have started stay with their bookings (free hours of the past come back too: take only the meetings, groupId / oneOffSessionId set).",
     schema: openApi(z.array(slotSchema)),
   })
   @ApiBadRequestResponse({

@@ -165,9 +165,6 @@ export class ScheduleService {
     if (count === 0) throw new NotFoundException();
   }
 
-  // Masters still on the team, each from the sources of their mode only. The instants read are a
-  // generous margin around the days asked: a time zone is at most 14 hours from UTC, and a
-  // one-off session lasts at most a day; dates start the day before, for windows past midnight.
   // What `GET /slots` answers: from `now` on, or with `includePast` from the start of the first day.
   async slotsForGrid(businessId: string, query: SlotsQuery, now: Date): Promise<SlotDto[]> {
     if (!query.includePast) return this.slots(businessId, query, now);
@@ -178,6 +175,9 @@ export class ScheduleService {
     return this.slots(businessId, query, new Date(startOfDay(timeZone, query.from)));
   }
 
+  // Masters still on the team, each from the sources of their mode only. The instants read are a
+  // generous margin around the days asked: a time zone is at most 14 hours from UTC, and a
+  // one-off session lasts at most a day; dates start the day before, for windows past midnight.
   // Only slots that start at `notBefore` or later: now, for what can be booked; a walk-in looks back.
   // `db` is the transaction when the answer must be read under a lock the caller holds.
   // `exceptAppointmentId` is a booking being moved: its own time and seat don't count against it.

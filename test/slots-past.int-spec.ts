@@ -91,7 +91,7 @@ describe('GET /slots with includePast', () => {
     expect(answer.find((s) => s.oneOffSessionId === yesterday)).toMatchObject({ booked: 1, capacity: 4 });
   });
 
-  it('leaves out a cancelled group date and a meeting that is archived', async () => {
+  it('leaves out a cancelled group date and an archived group or one-off session', async () => {
     const t = await setUp();
     const start = ago(26);
     const date = moscowDate(start);
@@ -115,6 +115,14 @@ describe('GET /slots with includePast', () => {
       data: { businessId: t.businessId, groupId: group.id, date: new Date(`${date}T00:00:00.000Z`) },
     });
     expect(kept(await t.slots({ includePast: 'true' }))).toBe(false);
+
+    const archivedSession = await t.session(ago(2), 3, 1);
+    await t.prisma.oneOffSession.update({ where: { id: archivedSession }, data: { archivedAt: new Date() } });
+    await t.prisma.group.update({ where: { id: group.id }, data: { archivedAt: new Date() } });
+    await t.prisma.groupCancellation.deleteMany({ where: { groupId: group.id } });
+    const answer = await t.slots({ includePast: 'true' });
+    expect(kept(answer)).toBe(false);
+    expect(answer.some((s) => s.oneOffSessionId === archivedSession)).toBe(false);
   });
 
   it('refuses a flag that is neither true nor false', async () => {
