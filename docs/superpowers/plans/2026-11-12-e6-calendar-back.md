@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan (another repo — its own branch from `main` and its own commit; don't push).
 
-**Status: done** — B1–B10 merged in `main` (PRs #19–#23). Kept as history.
+**Status:** B1–B10 done, merged in `main` (PRs #19–#23). **B11 added 2026-11-17** (front review: past meetings stay on the grid) — not started.
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-12-e6-calendar.md` next to this file.
 
@@ -28,7 +28,10 @@
 4. A master calling `GET /appointments?staffId=<another>` gets nothing of the other master's.
 5. `NO_SHOW` frees an hours booking's time in both places that hold it — the `EXCLUDE` constraint
    and `GET /slots` — and in neither for a seat (B9).
-6. A walk-in never goes through `full`, and a meeting that hasn't started can't take one (B10).
+6. Without `includePast` `GET /slots` answers exactly as before (booking screens must not start
+   offering started meetings); with it a started or finished meeting comes back with the right
+   `booked` / `capacity` / `full` (B11).
+7. A walk-in never goes through `full`, and a meeting that hasn't started can't take one (B10).
 
 ---
 
@@ -204,3 +207,29 @@ cancelled, not archived) → else 409 `notFree`; its start must be `<= now` → 
 201 and `booked > capacity`; yesterday's meeting → 409 `notFree`; a meeting starting later today → 409
 `notStarted`; a cancelled date or a time that isn't the meeting → 409 `notFree`; a master of
 someone else → 403. Commit `feat(appointments): walk-ins`.
+
+### - [ ] B11: slots can include meetings that have started or are over
+
+**Why:** the calendar grid shows past meetings faded, with their bookings (common plan, «Past meetings stay on the grid»).
+`GET /slots` cuts at `notBefore: now` (`schedule.controller.ts`, `slots.ts`), so a meeting that has
+started would vanish from the grid with its bookings; the front can't rebuild its capacity or title.
+
+**Branch:** `e6/past-slots` from `main`. **Files:** `src/schedule/schedule.schema.ts` (`slotsQuery`),
+`src/schedule/schedule.controller.ts` (`SlotsController`), `test/` int test of slots (find it:
+`grep -ln "slots" test/*`).
+
+`GET /businesses/:id/slots` gets an optional `includePast` (boolean, default `false`; the schema
+parses the query string `true` / `false`, anything else is a 400 like the other query errors). With
+`true` the controller passes the start of the range's first local day (`startOfDay`, as B10 does for
+walk-ins) instead of `new Date()` as `notBefore`; `ScheduleService.slots` already takes it, so no
+change there. Nothing else changes: the 31-day cap, `staffId`, the booked-hours filter. The front
+uses only the meetings (`groupId` / `oneOffSessionId` set) from this answer.
+
+- Swagger: describe the flag and say the default answer is from now on.
+- Don't change `create` / `move`: they still ask `slots()` from now and refuse a started meeting.
+
+**Check:** int tests on `GET /slots`: a group meeting that started an hour ago with 2 seats booked is
+absent without the flag, present with `includePast=true` and `booked: 2`, `capacity` right; a full one
+has `full: true`; yesterday's meeting is present with the flag for a range that includes yesterday; the
+same request without the flag is byte-identical to before; `includePast=maybe` → 400; a cancelled
+group date stays absent. Commit `feat(slots): meetings that have started on request`.
