@@ -46,7 +46,7 @@ to this file. Open it only if a task leaves a question this file doesn't answer.
 
 > **Split (2026-11-18):** C1a — the table, its CHECKs and the schema tests, **done**; C1b, **done** — `appointments.client_id`
 > (backfill, `NOT NULL`, FK), the temporary find-or-create-by-phone bridge in `AppointmentsService.create`
-> (C5 replaces it), `createClient` helper and the 9 test call sites. C2 done; next: C3.
+> (C5 replaces it), `createClient` helper and the 9 test call sites. C2, C3 done; next: C4.
 
 **Files:** `prisma/schema.prisma`, new migration `prisma/migrations/<ts>_clients/migration.sql`
 (`npx prisma migrate dev --create-only --name clients`, then edit the SQL), `test/schema.int-spec.ts`.
@@ -124,7 +124,7 @@ one 201 and one 409; a dependent as guardian → 409 `notHolder`; a guardian fro
 `phone` + `guardianId` together → 400; `limit=1` gives one item and the right `total`.
 Commit `feat(clients): create a client, search and look up by phone`.
 
-### - [ ] C3: client card and editing
+### - [x] C3: client card and editing
 
 **Files:** `src/clients/clients.{controller,service,schema}.ts`, `test/clients.int-spec.ts`.
 

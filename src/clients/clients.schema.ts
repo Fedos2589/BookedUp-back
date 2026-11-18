@@ -41,6 +41,28 @@ export const clientSchema = z.object({
 });
 export type ClientDto = z.infer<typeof clientSchema>;
 
+// The card: the client, their dependents and how many visits they made.
+export const clientCardSchema = clientSchema.extend({
+  dependents: z.array(z.object({ id: z.uuid(), name: z.string() })).describe('By name'),
+  visitCount: z.number().int().describe('DONE bookings of the client, all masters'),
+});
+export type ClientCardDto = z.infer<typeof clientCardSchema>;
+
+// What may change; what is not given stays. A holder's phone can change, a dependent's can't (409 notHolder).
+// The note: null or blank clears it.
+export const clientPatch = z.strictObject({
+  name: clientName.optional(),
+  phone: clientPhone.optional(),
+  note: z
+    .string()
+    .trim()
+    .max(2000)
+    .nullable()
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value || null)),
+});
+export type ClientPatch = z.infer<typeof clientPatch>;
+
 export const clientsQuery = z.object({
   q: z.string().trim().max(100).optional().describe('Part of a name, or of a phone (digits only)'),
   phone: clientPhone.optional().describe('The holder of this phone and their dependents; q and paging are ignored'),

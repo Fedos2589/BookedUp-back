@@ -3,7 +3,14 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
-import type { ClientDto, ClientInput, ClientsPageDto, ClientsQuery } from './clients.schema.js';
+import type {
+  ClientCardDto,
+  ClientDto,
+  ClientInput,
+  ClientPatch,
+  ClientsPageDto,
+  ClientsQuery,
+} from './clients.schema.js';
 
 const clientSelect = {
   id: true,
@@ -43,15 +50,47 @@ export class ClientsService {
       });
       return toDto(created);
     } catch (error) {
-      if (phone && violatedUniqueConstraint(error) === 'clients_business_id_phone_key') {
-        const holder = await this.prisma.client.findFirstOrThrow({
-          where: { businessId, phone },
-          select: { id: true },
-        });
-        throw conflict('phoneTaken', 'This phone already has an account', holder.id);
-      }
-      throw error;
+      throw await this.translate(error, businessId, phone);
     }
+  }
+
+  async card(businessId: string, id: string): Promise<ClientCardDto> {
+    const row = await this.prisma.client.findFirst({
+      where: { id, businessId },
+      select: {
+        ...clientSelect,
+        dependents: { select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] },
+      },
+    });
+    if (!row) throw new NotFoundException();
+    const visitCount = await this.prisma.appointment.count({ where: { businessId, clientId: id, status: 'DONE' } });
+    const { dependents, ...client } = row;
+    return { ...toDto(client), dependents, visitCount };
+  }
+
+  // Past bookings keep what was written on them (clientName, clientPhone): only the card changes.
+  async update(businessId: string, id: string, { name, phone, note }: ClientPatch): Promise<ClientDto> {
+    const client = await this.prisma.client.findFirst({ where: { id, businessId }, select: { guardianId: true } });
+    if (!client) throw new NotFoundException();
+    if (phone && client.guardianId) throw conflict('notHolder', 'A dependent has no phone of their own');
+    try {
+      const updated = await this.prisma.client.update({
+        // businessId again: the id alone must never reach another business's row.
+        where: { businessId_id: { businessId, id } },
+        data: { name, phone, note },
+        select: clientSelect,
+      });
+      return toDto(updated);
+    } catch (error) {
+      throw await this.translate(error, businessId, phone);
+    }
+  }
+
+  // A taken phone is 409 with the holder who has it; anything else is not ours to explain.
+  private async translate(error: unknown, businessId: string, phone: string | undefined) {
+    if (!phone || violatedUniqueConstraint(error) !== 'clients_business_id_phone_key') return error;
+    const holder = await this.prisma.client.findFirstOrThrow({ where: { businessId, phone }, select: { id: true } });
+    return conflict('phoneTaken', 'This phone already has an account', holder.id);
   }
 
   async list(businessId: string, { q, phone, limit, offset }: ClientsQuery): Promise<ClientsPageDto> {

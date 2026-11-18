@@ -184,3 +184,144 @@ describe('finding clients', () => {
     expect(res.body.items[0]).toMatchObject({ id: olga.id, noShowCount: 2 });
   });
 });
+
+describe('the card of a client', () => {
+  const seedVisits = async (businessId: string, client: { id: string; phone: string }) => {
+    const prisma = app.get(PrismaService);
+    const staff = await prisma.staff.create({ data: { businessId, name: 'Anna' }, select: { id: true } });
+    const visit = (day: number, status: 'NO_SHOW' | 'DONE' | 'CANCELLED') =>
+      prisma.appointment.create({
+        data: {
+          businessId,
+          staffId: staff.id,
+          clientId: client.id,
+          startsAt: new Date(Date.UTC(2030, 0, day, 10)),
+          endsAt: new Date(Date.UTC(2030, 0, day, 11)),
+          status,
+          clientName: 'Olga',
+          clientPhone: client.phone,
+        },
+      });
+    await visit(1, 'NO_SHOW');
+    await visit(2, 'DONE');
+    await visit(3, 'DONE');
+    await visit(4, 'CANCELLED');
+  };
+
+  it('lists the dependents by name and counts the visits and the no-shows', async () => {
+    const { owner, businessId, create, holder } = await setUp();
+    const olga = await holder('Olga');
+    await create({ name: 'Vanya', guardianId: olga.id }).expect(201);
+    await create({ name: 'Anya', guardianId: olga.id }).expect(201);
+    await seedVisits(businessId, olga);
+
+    const res = await http()
+      .get(`${clientsUrl(businessId)}/${olga.id}`)
+      .set('Cookie', owner.cookie)
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      id: olga.id,
+      name: 'Olga',
+      noShowCount: 1,
+      visitCount: 2,
+      dependents: [{ name: 'Anya' }, { name: 'Vanya' }],
+    });
+  });
+
+  it("answers 404 for another business's client, on the card and on editing", async () => {
+    const { owner, businessId } = await setUp();
+    const stranger = await setUp();
+    const theirs = await stranger.holder('Their client');
+    const url = `${clientsUrl(businessId)}/${theirs.id}`;
+
+    await http().get(url).set('Cookie', owner.cookie).expect(404);
+    await http().patch(url).set('Cookie', owner.cookie).send({ name: 'Mine now' }).expect(404);
+    await http()
+      .get(`${clientsUrl(businessId)}/${randomUUID()}`)
+      .set('Cookie', owner.cookie)
+      .expect(404);
+  });
+});
+
+describe('editing a client', () => {
+  const setUpWithBooking = async () => {
+    const set = await setUp();
+    const olga = await set.holder('Olga');
+    const prisma = app.get(PrismaService);
+    const staff = await prisma.staff.create({
+      data: { businessId: set.businessId, name: 'Anna' },
+      select: { id: true },
+    });
+    const booking = await prisma.appointment.create({
+      data: {
+        businessId: set.businessId,
+        staffId: staff.id,
+        clientId: olga.id,
+        startsAt: new Date('2030-01-01T10:00:00Z'),
+        endsAt: new Date('2030-01-01T11:00:00Z'),
+        clientName: 'Olga',
+        clientPhone: olga.phone,
+      },
+    });
+    const patch = (id: string, body: object) =>
+      http()
+        .patch(`${clientsUrl(set.businessId)}/${id}`)
+        .set('Cookie', set.owner.cookie)
+        .send(body);
+    return { ...set, olga, booking, patch, prisma };
+  };
+
+  it('changes the name, the phone and the note, and leaves past bookings as they were', async () => {
+    const { olga, booking, patch, prisma } = await setUpWithBooking();
+    const number = phone();
+
+    const res = await patch(olga.id, { name: ' Olga P. ', phone: number, note: ' call after 5 ' }).expect(200);
+
+    expect(res.body).toMatchObject({ name: 'Olga P.', phone: number, note: 'call after 5' });
+    expect(await prisma.appointment.findUniqueOrThrow({ where: { id: booking.id } })).toMatchObject({
+      clientName: 'Olga',
+      clientPhone: olga.phone,
+    });
+  });
+
+  it('clears the note with null or a blank, and leaves what is not given', async () => {
+    const { olga, patch } = await setUpWithBooking();
+    await patch(olga.id, { note: 'first' }).expect(200);
+
+    expect((await patch(olga.id, { name: 'Olga 2' }).expect(200)).body).toMatchObject({ note: 'first' });
+    expect((await patch(olga.id, { note: null }).expect(200)).body).toMatchObject({ note: null, name: 'Olga 2' });
+    await patch(olga.id, { note: 'again' }).expect(200);
+    expect((await patch(olga.id, { note: '  ' }).expect(200)).body).toMatchObject({ note: null });
+  });
+
+  it('answers 409 phoneTaken for the phone of another holder, and accepts its own', async () => {
+    const { olga, holder, patch } = await setUpWithBooking();
+    const boris = await holder('Boris');
+
+    const res = await patch(olga.id, { phone: boris.phone }).expect(409);
+
+    expect(res.body).toMatchObject({ code: 'phoneTaken', clientId: boris.id });
+    await patch(olga.id, { phone: olga.phone }).expect(200);
+  });
+
+  it('answers 409 notHolder for a phone on a dependent', async () => {
+    const { olga, create, patch } = await setUpWithBooking();
+    const kid = (await create({ name: 'Masha', guardianId: olga.id }).expect(201)).body as { id: string };
+
+    const res = await patch(kid.id, { phone: phone() }).expect(409);
+
+    expect(res.body).toMatchObject({ code: 'notHolder' });
+    await patch(kid.id, { name: 'Maria' }).expect(200);
+  });
+
+  it('refuses fields it does not know and values that are too long', async () => {
+    const { olga, patch } = await setUpWithBooking();
+
+    await patch(olga.id, { guardianId: randomUUID() }).expect(400);
+    await patch(olga.id, { phone: null }).expect(400);
+    await patch(olga.id, { name: '' }).expect(400);
+    await patch(olga.id, { name: 'X'.repeat(101) }).expect(400);
+    await patch(olga.id, { note: 'n'.repeat(2001) }).expect(400);
+  });
+});

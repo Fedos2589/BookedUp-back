@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -15,7 +15,11 @@ import { z } from 'zod';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
+  type ClientCardDto,
+  clientCardSchema,
   type ClientDto,
+  type ClientPatch,
+  clientPatch,
   type ClientInput,
   type ClientsPageDto,
   type ClientsQuery,
@@ -67,5 +71,32 @@ export class ClientsController {
     @Query({ schema: clientsQuery }) query: ClientsQuery,
   ): Promise<ClientsPageDto> {
     return this.clients.list(businessId, query);
+  }
+
+  @Get(':clientId')
+  @ApiOkResponse({ description: 'The client with their dependents and counters', schema: openApi(clientCardSchema) })
+  @ApiNotFoundResponse({ description: 'No such client in this business' })
+  card(
+    @Param('businessId', uuid) businessId: string,
+    @Param('clientId', uuid) clientId: string,
+  ): Promise<ClientCardDto> {
+    return this.clients.card(businessId, clientId);
+  }
+
+  @Patch(':clientId')
+  @ApiOkResponse({ description: 'The client as changed', schema: openApi(clientSchema) })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No such client in this business' })
+  @ApiConflictResponse({
+    description:
+      'The phone has a holder already (code phoneTaken, with their clientId), or the client is a dependent and has no phone of their own (code notHolder)',
+    schema: openApi(clientConflictSchema),
+  })
+  update(
+    @Param('businessId', uuid) businessId: string,
+    @Param('clientId', uuid) clientId: string,
+    @Body({ schema: clientPatch }) body: ClientPatch,
+  ): Promise<ClientDto> {
+    return this.clients.update(businessId, clientId, body);
   }
 }
