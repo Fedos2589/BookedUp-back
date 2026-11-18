@@ -17,7 +17,7 @@ The E6 common plan's B11 / K4 rows were stale («not started»); fixed on this b
 
 ## R1: port `a4c9728` onto `main`
 
-- [ ] **Branch** `fix/e6-review-23` (this one).
+- [x] **Branch** `fix/e6-review-23` (this one).
 - **Problem, four things missing from `main`:**
   1. **Move can undo a concurrent change.** `AppointmentsService.move` rereads the booking under the
      staff lock by `{ id, businessId }` only, then `update({ where: { id } })`. A status change takes
@@ -65,9 +65,9 @@ booking.status }, … })` with the same 409 when it returns nothing.
 
 ## Status
 
-| Task | Status      |
-| ---- | ----------- |
-| R1   | not started |
+| Task | Status |
+| ---- | ------ |
+| R1   | done   |
 
 After R1: Opus reviews the branch diff in a separate session, then the user pushes and opens the PR.
 The local branches `e6/slots-bookings` and `docs/e6-front-done` can then be deleted.

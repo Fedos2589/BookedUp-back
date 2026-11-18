@@ -102,7 +102,6 @@ export class AppointmentsService {
           date,
           notBefore,
         );
-        if (!slot) throw notFree();
         // Only a real meeting can be told "book a seat instead"; a time that is none is just not free.
         if (mode === 'walkIn' && startsAt > now) {
           throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
@@ -188,9 +187,13 @@ export class AppointmentsService {
     try {
       const moved = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id IN (${Prisma.join(lock.map((each) => Prisma.sql`${each}::uuid`))}) AND business_id = ${businessId}::uuid ORDER BY id FOR UPDATE`;
-        // Read again under the lock: a status change that got in first is seen.
-        const booking = await tx.appointment.findFirst({ where: { id, businessId }, select: { status: true } });
-        if (!booking) throw new NotFoundException();
+        // Read again under the lock, still with the master it was authorized on: a status change or a
+        // move by someone else that got in first is seen.
+        const booking = await tx.appointment.findFirst({
+          where: { id, businessId, staffId: current.staffId },
+          select: { status: true },
+        });
+        if (!booking) throw statusConflict('badTransition', 'The booking has just changed');
         if (booking.status !== 'BOOKED' && booking.status !== 'CONFIRMED') {
           throw statusConflict('badTransition', `A booking that is ${booking.status} can't be moved`);
         }
@@ -205,11 +208,14 @@ export class AppointmentsService {
           id,
         );
         if (slot.full) throw full();
-        return tx.appointment.update({
-          where: { id },
+        // The update names what was read: the status change takes no staff lock, so it may have got in.
+        const [moved] = await tx.appointment.updateManyAndReturn({
+          where: { id, businessId, staffId: current.staffId, status: booking.status },
           data: { staffId, startsAt, endsAt, groupId, oneOffSessionId },
           select: appointmentSelect,
         });
+        if (!moved) throw statusConflict('badTransition', 'The booking has just changed');
+        return moved;
       });
       return withIsoTimes(moved);
     } catch (error) {
@@ -272,7 +278,7 @@ export class AppointmentsService {
       data: { status },
       select: appointmentSelect,
     });
-    if (!updated) throw statusConflict('badTransition', 'The status has just changed');
+    if (!updated) throw statusConflict('badTransition', 'The booking has just changed');
     return withIsoTimes(updated);
   }
 }

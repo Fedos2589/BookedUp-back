@@ -401,12 +401,29 @@ describe('freeSlots', () => {
     it('does not count a seat of another occurrence of the group or of another group', () => {
       const bookings = [
         seat(anna, '2026-11-19T12:00:00Z', small.id),
-        seat(anna, tuesday, '00000000-0000-7000-8000-0000000000f2'),
+        seat(anna, '2026-11-17T14:00:00Z', '00000000-0000-7000-8000-0000000000f2'),
       ];
 
       const [first] = freeSlots({ ...base, ...week, groups: [small], bookings });
 
       expect(first).toMatchObject({ startsAt: at(tuesday), booked: 0, full: false });
+    });
+
+    it("lets a seat of another meeting hold the master's time, as the database does", () => {
+      // The master's mode changed after the seat was booked: its hour is not free for an hours slot.
+      const bookings = [seat(anna, '2026-11-16T07:00:00Z', small.id)];
+
+      const slots = freeSlots({ ...base, weekly: [weekly({ durationMinutes: 180 })], bookings });
+
+      expect(starts(slots)).toEqual(['2026-11-16T08:00:00.000Z', '2026-11-16T09:00:00.000Z']);
+    });
+
+    it('keeps the slots of the meeting the seat belongs to', () => {
+      const bookings = [seat(anna, tuesday, small.id)];
+
+      const slots = freeSlots({ ...base, ...week, groups: [small], bookings });
+
+      expect(starts(slots)).toContain(at(tuesday).toISOString());
     });
 
     it('counts the seats booked in a one-off session', () => {

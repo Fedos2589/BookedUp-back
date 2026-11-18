@@ -187,14 +187,19 @@ function* sessionSlots({ timeZone, oneOffSessions }: SlotQuery): Generator<Candi
 }
 
 // Whether a slot overlaps any interval of its own master; touching is not overlapping.
-function overlapsAny(intervals: readonly Busy[]): (slot: Candidate) => boolean {
-  const byStaff = new Map<string, { start: number; end: number }[]>();
-  for (const { staffId, startsAt, endsAt } of intervals) {
+function overlapsAny(intervals: readonly (Busy & { meeting?: string | null })[]): (slot: Candidate) => boolean {
+  const byStaff = new Map<string, { start: number; end: number; meeting: string | null }[]>();
+  for (const { staffId, startsAt, endsAt, meeting } of intervals) {
     const own = byStaff.get(staffId) ?? [];
-    own.push({ start: startsAt.getTime(), end: endsAt.getTime() });
+    own.push({ start: startsAt.getTime(), end: endsAt.getTime(), meeting: meeting ?? null });
     byStaff.set(staffId, own);
   }
-  return (slot) => (byStaff.get(slot.staffId) ?? []).some(({ start, end }) => slot.start < end && start < slot.end);
+  // Seats of one meeting share its time; anything else overlapping holds the master's time.
+  return (slot) =>
+    (byStaff.get(slot.staffId) ?? []).some(
+      ({ start, end, meeting }) =>
+        slot.start < end && start < slot.end && (meeting === null || meeting !== meetingOf(slot)),
+    );
 }
 
 // A master's slots never overlap: when the clocks jump forward, a slot that started before the
@@ -230,7 +235,12 @@ function seatsBooked(bookings: readonly Booking[]): Map<string, number> {
 // hours already booked, from notBefore on, earliest first. A meeting with every seat booked stays,
 // marked full.
 export function freeSlots(query: SlotQuery): Slot[] {
-  const busy = overlapsAny([...query.busy, ...query.bookings.filter((booking) => meetingOf(booking) === null)]);
+  // Every booking that holds time (the caller leaves the others out) is busy time for the slots that
+  // aren't its own meeting's: the same rule as the `appointments_no_overlap` constraint.
+  const busy = overlapsAny([
+    ...query.busy,
+    ...query.bookings.map((booking) => ({ ...booking, meeting: meetingOf(booking) })),
+  ]);
   const booked = seatsBooked(query.bookings);
   const notBefore = query.notBefore.getTime();
   const all = [...hoursSlots(query), ...groupSlots(query), ...sessionSlots(query)].sort(

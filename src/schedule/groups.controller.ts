@@ -74,8 +74,9 @@ export class GroupsController {
   @ApiOkResponse({ description: 'Changed', schema: openApi(groupSchema) })
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiConflictResponse({
-    description: 'Would meet at the time of another group or a one-off session',
-    schema: openApi(scheduleConflictSchema),
+    description:
+      'Would meet at the time of another group or a one-off session, or live bookings are left without a meeting or a seat (code hasBookings)',
+    schema: openApi(z.union([scheduleConflictSchema, hasBookingsSchema])),
   })
   change(
     @CurrentUser() actor: AuthUser,

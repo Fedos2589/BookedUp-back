@@ -400,6 +400,27 @@ describe('booking a seat', () => {
     expect(full.body).toMatchObject({ statusCode: 409, code: 'full' });
   });
 
+  it('refuses a move into a meeting with every seat taken with 409 full, and the seat stays', async () => {
+    const { as, base, businessId, group, seat } = await coach(1);
+    const session = (
+      await as(
+        http()
+          .post(`${base}/one-off-sessions`)
+          .send({ title: 'Masterclass', ...sessionTime, capacity: 2 }),
+      ).expect(201)
+    ).body.id as string;
+    await seat({ groupId: group }).expect(201);
+    const mine = (await seat({ oneOffSessionId: session }, sessionTime).expect(201)).body as { id: string };
+
+    const res = await as(
+      http()
+        .patch(`${appointmentsUrl(businessId)}/${mine.id}`)
+        .send({ staffId: undefined, ...meeting, groupId: group }),
+    ).expect(409);
+
+    expect(res.body).toMatchObject({ statusCode: 409, code: 'full' });
+  });
+
   it('gives one 201 and one 409 full to two requests for the last place', async () => {
     const { businessId, staffId, group, seat } = await coach(1);
 
