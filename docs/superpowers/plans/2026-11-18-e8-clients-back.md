@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** to do.
+**Status:** C1–C6 done.
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e8-clients.md` next
 to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -176,7 +176,7 @@ turns out not free neither is left (one transaction); `newClient` with a taken p
 `phoneTaken` with the id; both `clientId` and `newClient` → 400; a walk-in by `clientId` works.
 `npm run test:e2e` green. Commit `feat(appointments): a booking is for a client`.
 
-### - [ ] C6: close the step
+### - [x] C6: close the step
 
 After the PR is merged: in `2026-11-18-e8-clients.md` set row C to «done — PR #N», this plan's
 **Status** to «C1–C6 done», on a branch `docs/e8-back-done` from `main`. Commit, don't push.
