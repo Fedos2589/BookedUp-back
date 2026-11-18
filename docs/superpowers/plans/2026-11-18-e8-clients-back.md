@@ -46,7 +46,7 @@ to this file. Open it only if a task leaves a question this file doesn't answer.
 
 > **Split (2026-11-18):** C1a — the table, its CHECKs and the schema tests, **done**; C1b, **done** — `appointments.client_id`
 > (backfill, `NOT NULL`, FK), the temporary find-or-create-by-phone bridge in `AppointmentsService.create`
-> (C5 replaces it), `createClient` helper and the 9 test call sites. Next: C2.
+> (C5 replaces it), `createClient` helper and the 9 test call sites. C2 done; next: C3.
 
 **Files:** `prisma/schema.prisma`, new migration `prisma/migrations/<ts>_clients/migration.sql`
 (`npx prisma migrate dev --create-only --name clients`, then edit the SQL), `test/schema.int-spec.ts`.
@@ -87,7 +87,7 @@ Commit `feat(clients): table, bookings point at a client`.
 > If fixing the existing tests that create appointments takes more than the helper and a line per
 > call site, stop: C1 splits into «table» and «bookings point at it».
 
-### - [ ] C2: create and find clients
+### - [x] C2: create and find clients
 
 **Files:** create `src/clients/{clients.module,clients.controller,clients.service,clients.schema}.ts`,
 register in `src/app.module.ts`; `src/appointments/appointments.schema.ts` (import `clientName` /
