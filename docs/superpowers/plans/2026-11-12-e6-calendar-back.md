@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan (another repo — its own branch from `main` and its own commit; don't push).
 
-**Status:** B1–B11 done; B11 is on branch `e6/past-slots`, not merged yet.
+**Status:** B1–B11 done; B11 merged in PR #27.
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-12-e6-calendar.md` next to this file.
 
