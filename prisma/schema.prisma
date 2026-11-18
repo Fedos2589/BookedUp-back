@@ -52,6 +52,7 @@ model Business {
   oneOffSessions     OneOffSession[]
   timeOffs           TimeOff[]
   appointments       Appointment[]
+  clients            Client[]
 
   @@map("businesses")
 }
@@ -394,4 +395,30 @@ model Appointment {
   @@index([businessId, oneOffSessionId])
   @@index([businessId, staffId, startsAt])
   @@map("appointments")
+}
+
+/// One person of a business. Either an account holder with their own `phone`, or a dependent
+/// (a child, a relative without a phone) with a `guardianId` pointing at a holder: exactly one of
+/// the two, and a guardian is always a holder (CHECK constraints in the migration).
+model Client {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  name       String
+  /// E.164. NULL for a dependent; Postgres treats NULLs as distinct, so they don't collide.
+  phone      String?
+  guardianId String?  @map("guardian_id") @db.Uuid
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  guardian   Client?  @relation("Guardian", fields: [businessId, guardianId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
+  dependents Client[] @relation("Guardian")
+
+  /// What bookings reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
+  @@unique([businessId, id])
+  /// One account per phone per business.
+  @@unique([businessId, phone])
+  @@index([businessId, guardianId])
+  @@map("clients")
 }
