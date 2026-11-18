@@ -553,8 +553,8 @@ describe('clients', () => {
   it('refuses a phone that is not E.164', async () => {
     const { id: businessId } = await createBusiness();
 
-    await expect(holder(businessId, '0812345678')).rejects.toThrow(/clients_phone/);
-    await expect(holder(businessId, '')).rejects.toThrow(/clients_phone/);
+    await expect(holder(businessId, '0812345678')).rejects.toThrow(/"clients_phone"/);
+    await expect(holder(businessId, '')).rejects.toThrow(/"clients_phone"/);
   });
 
   it('gives a phone to one holder per business, and lets two businesses share it', async () => {
@@ -566,6 +566,41 @@ describe('clients', () => {
     const second = await holder(a.id, shared).catch((e: unknown) => e);
     expect(violatedUniqueConstraint(second)).toBe('clients_business_id_phone_key');
     await expect(holder(b.id, shared)).resolves.toBeDefined();
+  });
+
+  it('refuses a blank name', async () => {
+    const { id: businessId } = await createBusiness();
+
+    await expect(prisma.client.create({ data: { businessId, name: '   ', phone: phone() } })).rejects.toThrow(
+      /clients_name/,
+    );
+  });
+
+  it('refuses a dependent as a guardian', async () => {
+    const { id: businessId } = await createBusiness();
+    const mother = await holder(businessId);
+    const kid = await prisma.client.create({ data: { businessId, name: 'Kid', guardianId: mother.id } });
+
+    await expect(prisma.client.create({ data: { businessId, name: 'Baby', guardianId: kid.id } })).rejects.toThrow(
+      /not an account holder|has dependents/,
+    );
+  });
+
+  it('refuses to turn a holder with dependents into a dependent, and a dependent into a guardian by update', async () => {
+    const { id: businessId } = await createBusiness();
+    const mother = await holder(businessId);
+    const other = await holder(businessId);
+    const kid = await prisma.client.create({ data: { businessId, name: 'Kid', guardianId: mother.id } });
+
+    await expect(
+      prisma.client.update({ where: { id: mother.id }, data: { phone: null, guardianId: other.id } }),
+    ).rejects.toThrow(/not an account holder|has dependents/);
+    await expect(
+      prisma.client.update({ where: { id: kid.id }, data: { guardianId: mother.id } }),
+    ).resolves.toBeDefined();
+    await expect(
+      prisma.client.update({ where: { id: other.id }, data: { phone: null, guardianId: kid.id } }),
+    ).rejects.toThrow(/not an account holder|has dependents/);
   });
 
   it('lets one guardian have several dependents', async () => {

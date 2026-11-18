@@ -110,6 +110,36 @@ describe('booking an hours slot', () => {
     expect(await app.get(PrismaService).appointment.count({ where: { businessId, clientId: clients[0]!.id } })).toBe(2);
   });
 
+  it('gives masters one client when their first bookings with a new phone come at once', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const addMaster = async (name: string) => {
+      const id = (
+        await http().post(`/businesses/${businessId}/staff`).set('Cookie', owner.cookie).send({ name }).expect(201)
+      ).body.id as string;
+      await http()
+        .put(`/businesses/${businessId}/staff/${id}/weekly-windows`)
+        .set('Cookie', owner.cookie)
+        .send({ windows: [{ weekday: 1, startMinute: 600, durationMinutes: 180, slotMinutes: 60, title: null }] })
+        .expect(200);
+      return id;
+    };
+    const masters = [staffId, ...(await Promise.all(Array.from({ length: 7 }, (_, i) => addMaster(`Master ${i}`))))];
+
+    const statuses = (
+      await Promise.all(
+        masters.map((id) =>
+          http()
+            .post(appointmentsUrl(businessId))
+            .set('Cookie', owner.cookie)
+            .send(booking(id, slot(0).startsAt, slot(0).endsAt)),
+        ),
+      )
+    ).map((res) => res.status);
+
+    expect(statuses).toEqual(masters.map(() => 201));
+    expect(await app.get(PrismaService).client.count({ where: { businessId } })).toBe(1);
+  });
+
   it('answers 409 notFree for a time that is not a slot', async () => {
     const { owner, businessId, staffId } = await setUp();
 

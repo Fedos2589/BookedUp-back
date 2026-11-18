@@ -403,7 +403,8 @@ model Appointment {
 
 /// One person of a business. Either an account holder with their own `phone`, or a dependent
 /// (a child, a relative without a phone) with a `guardianId` pointing at a holder: exactly one of
-/// the two, and a guardian is always a holder (CHECK constraints in the migration).
+/// the two (CHECK `clients_phone_or_guardian`). That a guardian is always a holder, and a holder
+/// with dependents keeps their phone, is the trigger `clients_guardian_is_holder` in the migration.
 model Client {
   id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   businessId String   @map("business_id") @db.Uuid

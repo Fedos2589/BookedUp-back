@@ -110,13 +110,13 @@ export class AppointmentsService {
         }
         if (mode === 'ahead' && slot.full) throw full();
         // Until a booking names a client (C5), the person is the holder of the phone: found, or made
-        // from what was typed. An existing card's name is not overwritten.
-        const { id: clientId } = await tx.client.upsert({
-          where: { businessId_phone: { businessId, phone: client.clientPhone } },
-          create: { businessId, name: client.clientName, phone: client.clientPhone },
-          update: {},
-          select: { id: true },
-        });
+        // from what was typed. One statement, so two first bookings with a new phone can't both insert;
+        // the update is a no-op that makes RETURNING give the existing row, and the card's name stays.
+        const [{ id: clientId }] = await tx.$queryRaw<{ id: string }[]>`
+          INSERT INTO clients (business_id, name, phone)
+          VALUES (${businessId}::uuid, ${client.clientName}, ${client.clientPhone})
+          ON CONFLICT (business_id, phone) DO UPDATE SET name = clients.name
+          RETURNING id`;
         return tx.appointment.create({
           data: {
             businessId,

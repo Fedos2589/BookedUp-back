@@ -53,6 +53,8 @@ export const memberOf = async (app: INestApplication<App>, businessId: string, r
 
 // The client of `businessId` with `phone` (made on the first call, found after): what a booking
 // written straight to the database points at. The same call twice is the same client.
+// The default phone puts every booking of a business on one client: a test that counts per client
+// (no-shows, history) passes its own phones.
 export const createClient = async (prisma: PrismaClient, businessId: string, phone = '+79991234567') =>
   (
     await prisma.client.upsert({
