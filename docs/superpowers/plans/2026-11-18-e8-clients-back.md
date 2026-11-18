@@ -46,7 +46,7 @@ to this file. Open it only if a task leaves a question this file doesn't answer.
 
 > **Split (2026-11-18):** C1a — the table, its CHECKs and the schema tests, **done**; C1b, **done** — `appointments.client_id`
 > (backfill, `NOT NULL`, FK), the temporary find-or-create-by-phone bridge in `AppointmentsService.create`
-> (C5 replaces it), `createClient` helper and the 9 test call sites. C2–C4 done; next: C5.
+> (C5 replaces it), `createClient` helper and the 9 test call sites. C2–C5 done; next: C6 (after the merge).
 
 **Files:** `prisma/schema.prisma`, new migration `prisma/migrations/<ts>_clients/migration.sql`
 (`npx prisma migrate dev --create-only --name clients`, then edit the SQL), `test/schema.int-spec.ts`.
@@ -153,7 +153,7 @@ booking's `clientName` as it was; `phone` on a dependent → 409 `notHolder`; an
 sees only theirs and `total: 1`; another business's client → 404. Commit
 `feat(clients): a client's booking history`.
 
-### - [ ] C5: booking takes a client
+### - [x] C5: booking takes a client
 
 **Files:** `src/appointments/appointments.{schema,service}.ts`, `src/clients/clients.service.ts`
 (export a `resolveForBooking(tx, businessId, input)`), `src/appointments/appointments.module.ts`

@@ -2,6 +2,7 @@
 export const appointmentSelect = {
   id: true,
   staffId: true,
+  clientId: true,
   startsAt: true,
   endsAt: true,
   status: true,

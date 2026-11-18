@@ -45,7 +45,7 @@ const uuid = { schema: z.uuid() };
 @ApiForbiddenResponse({
   description: 'Not a member of this business (or no such business), or the role may not book this master',
 })
-@ApiNotFoundResponse({ description: 'No such master in this business' })
+@ApiNotFoundResponse({ description: 'No such master, client or guardian in this business' })
 @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
 @Controller('businesses/:businessId/appointments')
 export class AppointmentsController {
@@ -56,7 +56,7 @@ export class AppointmentsController {
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiConflictResponse({
     description:
-      'The time is not a free slot of the master (code notFree: not a slot at all, or taken) or the meeting has no seat left (code full)',
+      "The time is not a free slot of the master (code notFree: not a slot at all, or taken) or the meeting has no seat left (code full); or the newClient cannot be made (code phoneTaken, with the holder's clientId, or notHolder)",
     schema: openApi(bookingConflictSchema),
   })
   create(
@@ -75,7 +75,7 @@ export class AppointmentsController {
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiConflictResponse({
     description:
-      'Not a meeting of the master at this time (code notFree), or the meeting has not started yet (code notStarted: book a seat instead)',
+      "Not a meeting of the master at this time (code notFree), or the meeting has not started yet (code notStarted: book a seat instead); or the newClient cannot be made (code phoneTaken, with the holder's clientId, or notHolder)",
     schema: openApi(walkInConflictSchema),
   })
   walkIn(

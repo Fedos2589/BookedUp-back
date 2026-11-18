@@ -28,6 +28,9 @@ const clientSelect = {
   _count: { select: { appointments: { where: { status: 'NO_SHOW' } } } },
 } satisfies Prisma.ClientSelect;
 
+// The database or a transaction of it.
+type Db = Pick<Prisma.TransactionClient, 'client'>;
+
 type ClientRow = Prisma.ClientGetPayload<{ select: typeof clientSelect }>;
 
 const toDto = ({ _count, guardian, ...client }: ClientRow): ClientDto => ({
@@ -47,19 +50,43 @@ export class ClientsService {
     private readonly policy: BusinessPolicy,
   ) {}
 
-  async create(businessId: string, input: ClientInput): Promise<ClientDto> {
+  create(businessId: string, input: ClientInput): Promise<ClientDto> {
+    return this.createIn(this.prisma, businessId, input).then(({ client }) => client);
+  }
+
+  // A person for a booking, in the booking's transaction: an existing one of this business (404
+  // otherwise) or a new one. What the booking writes about them is what they are called now and the
+  // phone to call: their own, or their guardian's.
+  async resolveForBooking(
+    tx: Db,
+    businessId: string,
+    { clientId, newClient }: { clientId?: string; newClient?: ClientInput },
+  ): Promise<{ clientId: string; clientName: string; clientPhone: string }> {
+    if (newClient) {
+      const { client, phone } = await this.createIn(tx, businessId, newClient);
+      return { clientId: client.id, clientName: client.name, clientPhone: phone };
+    }
+    const person = await tx.client.findFirst({
+      where: { id: clientId, businessId },
+      select: { id: true, name: true, phone: true, guardian: { select: { phone: true } } },
+    });
+    if (!person) throw new NotFoundException();
+    return { clientId: person.id, clientName: person.name, clientPhone: (person.phone ?? person.guardian?.phone)! };
+  }
+
+  private async createIn(db: Db, businessId: string, input: ClientInput) {
     const { name, note } = input;
     const guardianId = 'guardianId' in input ? input.guardianId : undefined;
-    if (guardianId) await this.requireHolder(businessId, guardianId);
-    const phone = 'phone' in input ? input.phone : undefined;
+    const ownPhone = 'phone' in input ? input.phone : undefined;
+    const guardianPhone = guardianId ? await this.requireHolder(db, businessId, guardianId) : undefined;
     try {
-      const created = await this.prisma.client.create({
-        data: { businessId, name, note, phone, guardianId },
+      const created = await db.client.create({
+        data: { businessId, name, note, phone: ownPhone, guardianId },
         select: clientSelect,
       });
-      return toDto(created);
+      return { client: toDto(created), phone: (ownPhone ?? guardianPhone)! };
     } catch (error) {
-      throw await this.translate(error, businessId, phone);
+      throw await this.translate(error, businessId, ownPhone);
     }
   }
 
@@ -122,7 +149,7 @@ export class ClientsService {
   }
 
   // A taken phone is 409 with the holder who has it; anything else is not ours to explain.
-  private async translate(error: unknown, businessId: string, phone: string | undefined) {
+  async translate(error: unknown, businessId: string, phone: string | undefined) {
     if (!phone || violatedUniqueConstraint(error) !== 'clients_business_id_phone_key') return error;
     const holder = await this.prisma.client.findFirstOrThrow({ where: { businessId, phone }, select: { id: true } });
     return conflict('phoneTaken', 'This phone already has an account', holder.id);
@@ -146,10 +173,11 @@ export class ClientsService {
   }
 
   // The guardian is a holder of this business: another business's or a missing one is 404, a dependent 409.
-  private async requireHolder(businessId: string, id: string) {
-    const guardian = await this.prisma.client.findFirst({ where: { id, businessId }, select: { phone: true } });
+  private async requireHolder(db: Db, businessId: string, id: string) {
+    const guardian = await db.client.findFirst({ where: { id, businessId }, select: { phone: true } });
     if (!guardian) throw new NotFoundException();
     if (!guardian.phone) throw conflict('notHolder', 'A guardian must have a phone of their own');
+    return guardian.phone;
   }
 }
 

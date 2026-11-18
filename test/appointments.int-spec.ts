@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
@@ -23,13 +24,20 @@ const slot = (index: number) => ({
   endsAt: `${monday}T${String(8 + index).padStart(2, '0')}:00:00.000Z`,
 });
 
+const slotOf = (staffId: string, startsAt: string, endsAt: string) => ({ staffId, startsAt, endsAt });
+
+// Random, not a clock: test files run in parallel against one database.
+const phone = () => `+7${randomUUID().replace(/\D/g, '').padEnd(10, '0').slice(0, 10)}`;
+
+// A booking body for a new person with a phone of their own: each call is someone else, so a test
+// that books twice doesn't meet «phone taken».
 const booking = (staffId: string, startsAt: string, endsAt: string) => ({
-  staffId,
-  startsAt,
-  endsAt,
-  clientName: 'Olga',
-  clientPhone: '+79991234567',
+  ...slotOf(staffId, startsAt, endsAt),
+  newClient: { name: 'Olga', phone: phone() },
 });
+
+// What a booking written straight to the database says about who booked.
+const snapshot = { clientName: 'Olga', clientPhone: '+79991234567' };
 
 // An owner whose master Anna works on Mondays, 10:00–13:00 in hourly slots.
 const setUp = async () => {
@@ -76,7 +84,11 @@ describe('booking an hours slot', () => {
     const res = await http()
       .post(appointmentsUrl(businessId))
       .set('Cookie', owner.cookie)
-      .send({ ...booking(staffId, startsAt, endsAt), note: '  first visit ' })
+      .send({
+        ...slotOf(staffId, startsAt, endsAt),
+        newClient: { name: 'Olga', phone: '+79991234567' },
+        note: '  first visit ',
+      })
       .expect(201);
 
     expect(res.body).toMatchObject({
@@ -93,51 +105,114 @@ describe('booking an hours slot', () => {
     expect(await freeStarts(owner, businessId)).toEqual([slot(1).startsAt, slot(2).startsAt]);
   });
 
-  it('keeps one client per phone and the name of the first booking on the card', async () => {
-    const { owner, businessId, staffId } = await setUp();
-    const book = (at: number, clientName: string) =>
-      http()
-        .post(appointmentsUrl(businessId))
-        .set('Cookie', owner.cookie)
-        .send({ ...booking(staffId, slot(at).startsAt, slot(at).endsAt), clientName })
-        .expect(201);
+  describe('for a client', () => {
+    const makeClient = async (owner: { cookie: string }, businessId: string, body: object) =>
+      (await http().post(`/businesses/${businessId}/clients`).set('Cookie', owner.cookie).send(body).expect(201))
+        .body as { id: string; phone: string | null };
+    const post = (owner: { cookie: string }, businessId: string, body: object) =>
+      http().post(appointmentsUrl(businessId)).set('Cookie', owner.cookie).send(body);
 
-    await book(0, 'Olga');
-    await book(1, 'Olga P.');
+    it("writes who booked from the client's card, and the phone of the guardian for a dependent", async () => {
+      const { owner, businessId, staffId } = await setUp();
+      const mother = await makeClient(owner, businessId, { name: 'Olga', phone: '+79991234567' });
+      const kid = await makeClient(owner, businessId, { name: 'Masha', guardianId: mother.id });
 
-    const clients = await app.get(PrismaService).client.findMany({ where: { businessId } });
-    expect(clients.map((c) => c.name)).toEqual(['Olga']);
-    expect(await app.get(PrismaService).appointment.count({ where: { businessId, clientId: clients[0]!.id } })).toBe(2);
-  });
+      const res = await post(owner, businessId, {
+        ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+        clientId: kid.id,
+      }).expect(201);
 
-  it('gives masters one client when their first bookings with a new phone come at once', async () => {
-    const { owner, businessId, staffId } = await setUp();
-    const addMaster = async (name: string) => {
+      expect(res.body).toMatchObject({ clientId: kid.id, clientName: 'Masha', clientPhone: '+79991234567' });
+    });
+
+    it('keeps what was written when the client is renamed later', async () => {
+      const { owner, businessId, staffId } = await setUp();
+      const olga = await makeClient(owner, businessId, { name: 'Olga', phone: phone() });
       const id = (
-        await http().post(`/businesses/${businessId}/staff`).set('Cookie', owner.cookie).send({ name }).expect(201)
+        await post(owner, businessId, {
+          ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+          clientId: olga.id,
+        }).expect(201)
       ).body.id as string;
+
       await http()
-        .put(`/businesses/${businessId}/staff/${id}/weekly-windows`)
+        .patch(`/businesses/${businessId}/clients/${olga.id}`)
         .set('Cookie', owner.cookie)
-        .send({ windows: [{ weekday: 1, startMinute: 600, durationMinutes: 180, slotMinutes: 60, title: null }] })
+        .send({ name: 'Olga P.', phone: phone() })
         .expect(200);
-      return id;
-    };
-    const masters = [staffId, ...(await Promise.all(Array.from({ length: 7 }, (_, i) => addMaster(`Master ${i}`))))];
 
-    const statuses = (
-      await Promise.all(
-        masters.map((id) =>
-          http()
-            .post(appointmentsUrl(businessId))
-            .set('Cookie', owner.cookie)
-            .send(booking(id, slot(0).startsAt, slot(0).endsAt)),
-        ),
-      )
-    ).map((res) => res.status);
+      const booked = (
+        await http()
+          .get(appointmentsUrl(businessId))
+          .query({ from: monday, to: monday })
+          .set('Cookie', owner.cookie)
+          .expect(200)
+      ).body as { id: string; clientName: string }[];
+      expect(booked.find((each) => each.id === id)).toMatchObject({ clientName: 'Olga' });
+    });
 
-    expect(statuses).toEqual(masters.map(() => 201));
-    expect(await app.get(PrismaService).client.count({ where: { businessId } })).toBe(1);
+    it('makes the new client together with the booking', async () => {
+      const { owner, businessId, staffId } = await setUp();
+      const number = phone();
+
+      const res = await post(owner, businessId, {
+        ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+        newClient: { name: 'Olga', phone: number },
+      }).expect(201);
+
+      const clients = await app.get(PrismaService).client.findMany({ where: { businessId } });
+      expect(clients).toMatchObject([{ id: res.body.clientId, name: 'Olga', phone: number }]);
+      expect(res.body).toMatchObject({ clientName: 'Olga', clientPhone: number });
+    });
+
+    it('leaves no client behind when the slot is not free', async () => {
+      const { owner, businessId, staffId } = await setUp();
+
+      const res = await post(owner, businessId, booking(staffId, `${monday}T07:30:00.000Z`, `${monday}T08:30:00.000Z`));
+
+      expect(res.status).toBe(409);
+      expect(await app.get(PrismaService).client.count({ where: { businessId } })).toBe(0);
+    });
+
+    it('answers 409 phoneTaken with the holder of a taken phone, and books nothing', async () => {
+      const { owner, businessId, staffId } = await setUp();
+      const olga = await makeClient(owner, businessId, { name: 'Olga', phone: '+79991234567' });
+
+      const res = await post(owner, businessId, {
+        ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+        newClient: { name: 'Another Olga', phone: '+79991234567' },
+      }).expect(409);
+
+      expect(res.body).toMatchObject({ code: 'phoneTaken', clientId: olga.id });
+      expect(await app.get(PrismaService).appointment.count({ where: { businessId } })).toBe(0);
+    });
+
+    it('answers 409 notHolder for a new dependent of a dependent', async () => {
+      const { owner, businessId, staffId } = await setUp();
+      const mother = await makeClient(owner, businessId, { name: 'Olga', phone: phone() });
+      const kid = await makeClient(owner, businessId, { name: 'Masha', guardianId: mother.id });
+
+      const res = await post(owner, businessId, {
+        ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+        newClient: { name: 'Baby', guardianId: kid.id },
+      }).expect(409);
+
+      expect(res.body).toMatchObject({ code: 'notHolder' });
+    });
+
+    it('answers 404 for a client of another business and 400 for both or neither of clientId and newClient', async () => {
+      const { owner, businessId, staffId } = await setUp();
+      const stranger = await signUpOwner(app);
+      const theirs = await makeClient(stranger, stranger.business.id, { name: 'Their client', phone: phone() });
+      const when = slotOf(staffId, slot(0).startsAt, slot(0).endsAt);
+
+      await post(owner, businessId, { ...when, clientId: theirs.id }).expect(404);
+      await post(owner, businessId, { ...when, clientId: theirs.id, newClient: { name: 'X', phone: phone() } }).expect(
+        400,
+      );
+      await post(owner, businessId, when).expect(400);
+      expect(await app.get(PrismaService).appointment.count({ where: { businessId } })).toBe(0);
+    });
   });
 
   it('answers 409 notFree for a time that is not a slot', async () => {
@@ -229,7 +304,7 @@ describe('booking an hours slot', () => {
     const fields = await http()
       .post(appointmentsUrl(businessId))
       .set('Cookie', owner.cookie)
-      .send({ ...booking(staffId, startsAt, endsAt), clientName: ' ', clientPhone: '89991234567' })
+      .send({ ...slotOf(staffId, startsAt, endsAt), newClient: { name: ' ', phone: '89991234567' } })
       .expect(400);
     const order = await http()
       .post(appointmentsUrl(businessId))
@@ -240,13 +315,13 @@ describe('booking an hours slot', () => {
     const shortPhone = await http()
       .post(appointmentsUrl(businessId))
       .set('Cookie', owner.cookie)
-      .send({ ...booking(staffId, startsAt, endsAt), clientPhone: '+12' })
+      .send({ ...slotOf(staffId, startsAt, endsAt), newClient: { name: 'Olga', phone: '+12' } })
       .expect(400);
 
-    expect(shortPhone.body.message).toEqual([expect.stringMatching(/^clientPhone:/)]);
+    expect(shortPhone.body.message).toEqual([expect.stringMatching(/^newClient\.phone:/)]);
     expect(fields.body.message).toEqual([
-      expect.stringMatching(/^clientName:/),
-      expect.stringMatching(/^clientPhone:/),
+      expect.stringMatching(/^newClient\.name:/),
+      expect.stringMatching(/^newClient\.phone:/),
     ]);
     expect(order.body.message).toEqual(['endsAt: Not after startsAt']);
     expect(await app.get(PrismaService).appointment.count({ where: { staffId } })).toBe(0);
@@ -423,7 +498,7 @@ describe('adding someone who came without a booking', () => {
           booked: number;
         }[]
       ).find((each) => each.groupId === group)?.booked;
-    return { as, base, businessId, staffId, group, walkIn, booked };
+    return { as, base, businessId, staffId, group, walkIn, booked, owner };
   };
 
   it('adds them to a meeting that has started today, as done', async () => {
@@ -432,6 +507,21 @@ describe('adding someone who came without a booking', () => {
     const res = await walkIn(today).expect(201);
 
     expect(res.body).toMatchObject({ groupId: group, status: 'DONE', ...meetingOn(today) });
+  });
+
+  it('adds an existing client of the business by clientId', async () => {
+    const { group, walkIn, owner, businessId } = await coach(3);
+    const olga = (
+      await http()
+        .post(`/businesses/${businessId}/clients`)
+        .set('Cookie', owner.cookie)
+        .send({ name: 'Olga', phone: phone() })
+        .expect(201)
+    ).body as { id: string };
+
+    const res = await walkIn(today, { groupId: group, clientId: olga.id, newClient: undefined }).expect(201);
+
+    expect(res.body).toMatchObject({ clientId: olga.id, clientName: 'Olga', status: 'DONE' });
   });
 
   it('adds them over the places of a full meeting', async () => {
@@ -504,7 +594,8 @@ describe("the master's time after a visit", () => {
       data: {
         businessId,
         clientId: await createClient(app.get(PrismaService), businessId),
-        ...booking(staffId, slot(0).startsAt, slot(0).endsAt),
+        ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+        ...snapshot,
         status,
       },
     });
@@ -540,7 +631,8 @@ describe("the master's time after a visit", () => {
         data: {
           businessId,
           clientId: await createClient(app.get(PrismaService), businessId),
-          ...booking(staffId, slot(0).startsAt, slot(0).endsAt),
+          ...slotOf(staffId, slot(0).startsAt, slot(0).endsAt),
+          ...snapshot,
         },
       }),
     ).resolves.toMatchObject({ status: 'BOOKED' });

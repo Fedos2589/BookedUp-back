@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { blankIsNone, clientName, clientPhone } from '../clients/clients.schema.js';
+import { blankIsNone, clientInput } from '../clients/clients.schema.js';
 import { instant, slotsQuery, whenFieldsValid } from '../schedule/schedule.schema.js';
 
 export const appointmentInput = z
@@ -8,8 +8,8 @@ export const appointmentInput = z
     staffId: z.uuid(),
     startsAt: instant,
     endsAt: instant,
-    clientName,
-    clientPhone,
+    clientId: z.uuid().optional().describe('A person of this business'),
+    newClient: clientInput.optional().describe('A new person: made in the same step as the booking'),
     note: blankIsNone(2000),
     groupId: z.uuid().optional().describe('Book a seat in the meeting of this group at this time'),
     oneOffSessionId: z.uuid().optional().describe('Book a seat in this one-off session'),
@@ -22,6 +22,11 @@ export const appointmentInput = z
   .refine((booking) => !(booking.groupId && booking.oneOffSessionId), {
     path: ['oneOffSessionId'],
     message: 'A seat is in a group or in a one-off session, not both',
+    ...whenFieldsValid,
+  })
+  .refine((booking) => !booking.clientId !== !booking.newClient, {
+    path: ['clientId'],
+    message: 'Give clientId or newClient, not both and not neither',
     ...whenFieldsValid,
   });
 export type AppointmentInput = z.infer<typeof appointmentInput>;
@@ -74,6 +79,7 @@ export const nextStatuses: Record<AppointmentStatus, readonly AppointmentStatus[
 export const appointmentSchema = z.object({
   id: z.uuid(),
   staffId: z.uuid(),
+  clientId: z.uuid(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   status: appointmentStatus,
@@ -91,8 +97,11 @@ export const bookingConflictSchema = z.object({
   error: z.literal('Conflict'),
   message: z.string(),
   code: z
-    .enum(['notFree', 'full'])
-    .describe('notFree: no such slot or taken; full: every seat of the meeting is taken'),
+    .enum(['notFree', 'full', 'phoneTaken', 'notHolder'])
+    .describe(
+      'notFree: no such slot or taken; full: every seat of the meeting is taken; phoneTaken / notHolder: the newClient, as when creating a client',
+    ),
+  clientId: z.uuid().optional().describe('With phoneTaken: the holder of the phone'),
 });
 
 // 409 for a move: the new place can't take it, or the booking can't move any more.
@@ -111,8 +120,11 @@ export const walkInConflictSchema = z.object({
   error: z.literal('Conflict'),
   message: z.string(),
   code: z
-    .enum(['notFree', 'notStarted'])
-    .describe('notFree: no such meeting at this time; notStarted: the meeting is ahead — book a seat instead'),
+    .enum(['notFree', 'notStarted', 'phoneTaken', 'notHolder'])
+    .describe(
+      'notFree: no such meeting at this time; notStarted: the meeting is ahead — book a seat instead; phoneTaken / notHolder: the newClient, as when creating a client',
+    ),
+  clientId: z.uuid().optional().describe('With phoneTaken: the holder of the phone'),
 });
 
 // The days of the business's clock, both included (at most 31), as for slots; a booking is on the day it starts.
