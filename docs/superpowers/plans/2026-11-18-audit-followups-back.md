@@ -31,12 +31,12 @@ here so they aren't forgotten; E1 picks them up.
   `SELECT 1` through `PrismaService` and `PING` to Redis (the connection `BullModule.forRootAsync`
   already configures from `REDIS_URL` — reuse the URL from config, no new package); 200
   `{ status: 'ok' }` when both answer within ~1 s, 503 `{ status: 'unavailable', failed: ['db' |
-  'redis'] }` otherwise. Swagger responses for both codes. No error details in the body.
+'redis'] }` otherwise. Swagger responses for both codes. No error details in the body.
 - **Files:** `src/health/health.controller.ts`, `src/health/` module/service if one is needed,
   `src/app.module.ts` (only if the module is new), a new `test/health.int-spec.ts`.
 - **Check:** int test — 200 with the test containers up; 503 with `failed: ['redis']` when the Redis
   client is pointed at a closed port (or the ping is made to fail through the service). `npm run
-  typecheck`, `npm run lint`, `npm test`, int tests pass. Front: `npm run api:generate` shows the new
+typecheck`, `npm run lint`, `npm test`, int tests pass. Front: `npm run api:generate` shows the new
   route only (nothing else changes).
 
 ## B-A2 (with E1, only if the deploy runs more than one instance): shared rate-limit storage
