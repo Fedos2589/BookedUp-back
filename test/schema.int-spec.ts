@@ -4,6 +4,7 @@ import { inject } from 'vitest';
 
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { violatedExclusion, violatedUniqueConstraint } from '../src/prisma/unique-violation.js';
+import { createClient } from './helpers.js';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: inject('databaseUrl') }),
@@ -327,15 +328,16 @@ describe('appointments', () => {
     return { businessId: business.id, staffId: staff.id };
   };
 
-  const booking = (
+  const booking = async (
     master: { businessId: string; staffId: string },
     startsAt: string,
     endsAt: string,
-    extra: { status?: 'CANCELLED'; groupId?: string; oneOffSessionId?: string } = {},
+    extra: { status?: 'CANCELLED'; groupId?: string; oneOffSessionId?: string; clientId?: string } = {},
   ) =>
     prisma.appointment.create({
       data: {
         ...master,
+        clientId: extra.clientId ?? (await createClient(prisma, master.businessId)),
         startsAt: new Date(startsAt),
         endsAt: new Date(endsAt),
         clientName: 'Anna',
@@ -496,12 +498,24 @@ describe('appointments', () => {
     ).rejects.toMatchObject({ code: 'P2003' });
   });
 
+  it("refuses a booking for another business's client", async () => {
+    const master = await staffOf();
+    const other = await createBusiness();
+
+    await expect(
+      booking(master, '2030-01-08T10:00:00Z', '2030-01-08T11:00:00Z', {
+        clientId: await createClient(prisma, other.id),
+      }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
   it('refuses a phone that is not E.164 and a blank name', async () => {
     const master = await staffOf();
-    const withClient = (clientName: string, clientPhone: string) =>
+    const withClient = async (clientName: string, clientPhone: string) =>
       prisma.appointment.create({
         data: {
           ...master,
+          clientId: await createClient(prisma, master.businessId),
           startsAt: new Date('2030-01-08T10:00:00Z'),
           endsAt: new Date('2030-01-08T11:00:00Z'),
           clientName,

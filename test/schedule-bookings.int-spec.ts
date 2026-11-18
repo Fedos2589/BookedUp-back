@@ -3,7 +3,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { signUpOwner } from './helpers.js';
+import { createClient, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -33,9 +33,17 @@ const setUp = async () => {
   const base = `/businesses/${businessId}/staff/${staffId}`;
   await as(http().put(`${base}/schedule-mode`).send({ mode: 'GROUPS' })).expect(200);
   const prisma = app.get(PrismaService);
-  const book = (extra: { groupId?: string; oneOffSessionId?: string; startsAt?: Date; endsAt?: Date }) =>
+  const book = async (extra: { groupId?: string; oneOffSessionId?: string; startsAt?: Date; endsAt?: Date }) =>
     prisma.appointment.create({
-      data: { businessId, staffId, ...meeting, clientName: 'Olga', clientPhone: '+79991234567', ...extra },
+      data: {
+        businessId,
+        clientId: await createClient(prisma, businessId),
+        staffId,
+        ...meeting,
+        clientName: 'Olga',
+        clientPhone: '+79991234567',
+        ...extra,
+      },
       select: { id: true },
     });
   const slots = async (query = { from: tuesday, to: tuesday }) =>

@@ -42,11 +42,11 @@ to this file. Open it only if a task leaves a question this file doesn't answer.
 
 ---
 
-### - [ ] C1: `clients` table, bookings point at it
+### - [x] C1: `clients` table, bookings point at it
 
-> **Split (2026-11-18):** C1a — the table, its CHECKs and the schema tests, **done**; C1b — `appointments.client_id`
+> **Split (2026-11-18):** C1a — the table, its CHECKs and the schema tests, **done**; C1b, **done** — `appointments.client_id`
 > (backfill, `NOT NULL`, FK), the temporary find-or-create-by-phone bridge in `AppointmentsService.create`
-> (C5 replaces it), `createClient` helper and the 9 test call sites. C1b is the next task.
+> (C5 replaces it), `createClient` helper and the 9 test call sites. Next: C2.
 
 **Files:** `prisma/schema.prisma`, new migration `prisma/migrations/<ts>_clients/migration.sql`
 (`npx prisma migrate dev --create-only --name clients`, then edit the SQL), `test/schema.int-spec.ts`.

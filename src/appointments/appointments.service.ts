@@ -109,9 +109,18 @@ export class AppointmentsService {
           throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
         }
         if (mode === 'ahead' && slot.full) throw full();
+        // Until a booking names a client (C5), the person is the holder of the phone: found, or made
+        // from what was typed. An existing card's name is not overwritten.
+        const { id: clientId } = await tx.client.upsert({
+          where: { businessId_phone: { businessId, phone: client.clientPhone } },
+          create: { businessId, name: client.clientName, phone: client.clientPhone },
+          update: {},
+          select: { id: true },
+        });
         return tx.appointment.create({
           data: {
             businessId,
+            clientId,
             staffId,
             startsAt,
             endsAt,

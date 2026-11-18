@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
+import type { PrismaClient } from '../src/generated/prisma/client.js';
 import type { MemberRole } from '../src/generated/prisma/enums.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
@@ -49,3 +50,15 @@ export const memberOf = async (app: INestApplication<App>, businessId: string, r
   await app.get(PrismaService).membership.create({ data: { businessId, userId, role } });
   return { cookie: someone.cookie, userId };
 };
+
+// The client of `businessId` with `phone` (made on the first call, found after): what a booking
+// written straight to the database points at. The same call twice is the same client.
+export const createClient = async (prisma: PrismaClient, businessId: string, phone = '+79991234567') =>
+  (
+    await prisma.client.upsert({
+      where: { businessId_phone: { businessId, phone } },
+      create: { businessId, name: 'Olga', phone },
+      update: {},
+      select: { id: true },
+    })
+  ).id;

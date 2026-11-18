@@ -5,7 +5,7 @@ import type { App } from 'supertest/types.js';
 import type { MemberRole } from '../src/generated/prisma/enums.js';
 import { addDays, isoWeekday, startOfDay, todayIn } from '../src/schedule/local-time.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { memberOf as memberOfBusiness, signUpOwner } from './helpers.js';
+import { createClient, memberOf as memberOfBusiness, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -91,6 +91,23 @@ describe('booking an hours slot', () => {
       oneOffSessionId: null,
     });
     expect(await freeStarts(owner, businessId)).toEqual([slot(1).startsAt, slot(2).startsAt]);
+  });
+
+  it('keeps one client per phone and the name of the first booking on the card', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const book = (at: number, clientName: string) =>
+      http()
+        .post(appointmentsUrl(businessId))
+        .set('Cookie', owner.cookie)
+        .send({ ...booking(staffId, slot(at).startsAt, slot(at).endsAt), clientName })
+        .expect(201);
+
+    await book(0, 'Olga');
+    await book(1, 'Olga P.');
+
+    const clients = await app.get(PrismaService).client.findMany({ where: { businessId } });
+    expect(clients.map((c) => c.name)).toEqual(['Olga']);
+    expect(await app.get(PrismaService).appointment.count({ where: { businessId, clientId: clients[0]!.id } })).toBe(2);
   });
 
   it('answers 409 notFree for a time that is not a slot', async () => {
@@ -452,9 +469,14 @@ describe('adding someone who came without a booking', () => {
 describe("the master's time after a visit", () => {
   // The status is seeded straight into the database: through the API a no-show can only come after
   // the start, and a slot that has started is no longer offered.
-  const seed = (businessId: string, staffId: string, status: 'DONE' | 'NO_SHOW') =>
+  const seed = async (businessId: string, staffId: string, status: 'DONE' | 'NO_SHOW') =>
     app.get(PrismaService).appointment.create({
-      data: { businessId, ...booking(staffId, slot(0).startsAt, slot(0).endsAt), status },
+      data: {
+        businessId,
+        clientId: await createClient(app.get(PrismaService), businessId),
+        ...booking(staffId, slot(0).startsAt, slot(0).endsAt),
+        status,
+      },
     });
   const book = (owner: { cookie: string }, staffId: string, businessId: string) =>
     http()
@@ -485,18 +507,23 @@ describe("the master's time after a visit", () => {
 
     await expect(
       app.get(PrismaService).appointment.create({
-        data: { businessId, ...booking(staffId, slot(0).startsAt, slot(0).endsAt) },
+        data: {
+          businessId,
+          clientId: await createClient(app.get(PrismaService), businessId),
+          ...booking(staffId, slot(0).startsAt, slot(0).endsAt),
+        },
       }),
     ).resolves.toMatchObject({ status: 'BOOKED' });
   });
 });
 
 describe('listing bookings for a range', () => {
-  const seed = (businessId: string, staffId: string, startsAt: string, extra: { status?: 'CANCELLED' } = {}) => {
+  const seed = async (businessId: string, staffId: string, startsAt: string, extra: { status?: 'CANCELLED' } = {}) => {
     const start = new Date(startsAt);
     return app.get(PrismaService).appointment.create({
       data: {
         businessId,
+        clientId: await createClient(app.get(PrismaService), businessId),
         staffId,
         startsAt: start,
         endsAt: new Date(start.getTime() + 3_600_000),
@@ -571,6 +598,7 @@ describe('listing bookings for a range', () => {
         prisma.staff.create({ data: { businessId, name: `Master ${index}` }, select: { id: true } }),
       ),
     );
+    const clientId = await createClient(prisma, businessId);
     // 40 hour-long bookings each, from 00:00Z on, spread over the week.
     await prisma.appointment.createMany({
       data: staff.flatMap(({ id }) =>
@@ -578,6 +606,7 @@ describe('listing bookings for a range', () => {
           const startsAt = new Date(Date.parse('2030-01-07T00:00:00Z') + index * 4 * 3_600_000);
           return {
             businessId,
+            clientId,
             staffId: id,
             startsAt,
             endsAt: new Date(startsAt.getTime() + 3_600_000),
@@ -607,6 +636,7 @@ describe('changing the status of a booking', () => {
       await app.get(PrismaService).appointment.create({
         data: {
           businessId,
+          clientId: await createClient(app.get(PrismaService), businessId),
           staffId,
           startsAt: start,
           endsAt: new Date(start.getTime() + 3_600_000),
