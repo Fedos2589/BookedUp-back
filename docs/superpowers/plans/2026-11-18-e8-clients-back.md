@@ -42,7 +42,11 @@ to this file. Open it only if a task leaves a question this file doesn't answer.
 
 ---
 
-### - [ ] C1: `clients` table, bookings point at it
+### - [x] C1: `clients` table, bookings point at it
+
+> **Split (2026-11-18):** C1a — the table, its CHECKs and the schema tests, **done**; C1b, **done** — `appointments.client_id`
+> (backfill, `NOT NULL`, FK), the temporary find-or-create-by-phone bridge in `AppointmentsService.create`
+> (C5 replaces it), `createClient` helper and the 9 test call sites. C2–C5 done; next: C6 (after the merge).
 
 **Files:** `prisma/schema.prisma`, new migration `prisma/migrations/<ts>_clients/migration.sql`
 (`npx prisma migrate dev --create-only --name clients`, then edit the SQL), `test/schema.int-spec.ts`.
@@ -83,7 +87,7 @@ Commit `feat(clients): table, bookings point at a client`.
 > If fixing the existing tests that create appointments takes more than the helper and a line per
 > call site, stop: C1 splits into «table» and «bookings point at it».
 
-### - [ ] C2: create and find clients
+### - [x] C2: create and find clients
 
 **Files:** create `src/clients/{clients.module,clients.controller,clients.service,clients.schema}.ts`,
 register in `src/app.module.ts`; `src/appointments/appointments.schema.ts` (import `clientName` /
@@ -120,7 +124,7 @@ one 201 and one 409; a dependent as guardian → 409 `notHolder`; a guardian fro
 `phone` + `guardianId` together → 400; `limit=1` gives one item and the right `total`.
 Commit `feat(clients): create a client, search and look up by phone`.
 
-### - [ ] C3: client card and editing
+### - [x] C3: client card and editing
 
 **Files:** `src/clients/clients.{controller,service,schema}.ts`, `test/clients.int-spec.ts`.
 
@@ -135,7 +139,7 @@ correctly (create bookings by Prisma with those statuses); renaming a client lea
 booking's `clientName` as it was; `phone` on a dependent → 409 `notHolder`; another business's id →
 404 on both routes. Commit `feat(clients): card and editing`.
 
-### - [ ] C4: a client's bookings
+### - [x] C4: a client's bookings
 
 **Files:** `src/clients/clients.{controller,service,schema}.ts`, `test/clients.int-spec.ts`.
 
@@ -149,7 +153,7 @@ booking's `clientName` as it was; `phone` on a dependent → 409 `notHolder`; an
 sees only theirs and `total: 1`; another business's client → 404. Commit
 `feat(clients): a client's booking history`.
 
-### - [ ] C5: booking takes a client
+### - [x] C5: booking takes a client
 
 **Files:** `src/appointments/appointments.{schema,service}.ts`, `src/clients/clients.service.ts`
 (export a `resolveForBooking(tx, businessId, input)`), `src/appointments/appointments.module.ts`

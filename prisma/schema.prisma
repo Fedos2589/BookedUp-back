@@ -52,6 +52,7 @@ model Business {
   oneOffSessions     OneOffSession[]
   timeOffs           TimeOff[]
   appointments       Appointment[]
+  clients            Client[]
 
   @@map("businesses")
 }
@@ -372,11 +373,13 @@ model Appointment {
   id              String            @id @default(dbgenerated("uuidv7()")) @db.Uuid
   businessId      String            @map("business_id") @db.Uuid
   staffId         String            @map("staff_id") @db.Uuid
+  clientId        String            @map("client_id") @db.Uuid
   startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
   endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
   status          AppointmentStatus @default(BOOKED)
+  /// Who booked, as it was then: written once, a later edit of the client doesn't touch it.
   clientName      String            @map("client_name")
-  /// E.164.
+  /// E.164. The person's phone, or their guardian's.
   clientPhone     String            @map("client_phone")
   note            String?
   groupId         String?           @map("group_id") @db.Uuid
@@ -386,6 +389,7 @@ model Appointment {
 
   business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   staff         Staff          @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
+  client        Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
   group         Group?         @relation(fields: [businessId, staffId, groupId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
   oneOffSession OneOffSession? @relation(fields: [businessId, staffId, oneOffSessionId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -393,5 +397,34 @@ model Appointment {
   @@index([businessId, groupId, startsAt])
   @@index([businessId, oneOffSessionId])
   @@index([businessId, staffId, startsAt])
+  @@index([businessId, clientId, startsAt])
   @@map("appointments")
+}
+
+/// One person of a business. Either an account holder with their own `phone`, or a dependent
+/// (a child, a relative without a phone) with a `guardianId` pointing at a holder: exactly one of
+/// the two (CHECK `clients_phone_or_guardian`). That a guardian is always a holder, and a holder
+/// with dependents keeps their phone, is the trigger `clients_guardian_is_holder` in the migration.
+model Client {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  name       String
+  /// E.164. NULL for a dependent; Postgres treats NULLs as distinct, so they don't collide.
+  phone      String?
+  guardianId String?  @map("guardian_id") @db.Uuid
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  guardian     Client?       @relation("Guardian", fields: [businessId, guardianId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
+  dependents   Client[]      @relation("Guardian")
+  appointments Appointment[]
+
+  /// What bookings reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
+  @@unique([businessId, id])
+  /// One account per phone per business.
+  @@unique([businessId, phone])
+  @@index([businessId, guardianId])
+  @@map("clients")
 }

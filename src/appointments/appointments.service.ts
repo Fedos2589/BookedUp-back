@@ -3,12 +3,14 @@ import { Prisma } from '../generated/prisma/client.js';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { BusinessPolicy } from '../business/business.policy.js';
+import { ClientsService } from '../clients/clients.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
 import { addDays, dateOfWall, type LocalDate, startOfDay, todayIn, wallAt } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
+import { appointmentSelect } from './appointments.select.js';
 import {
   type AppointmentDto,
   type AppointmentInput,
@@ -17,19 +19,6 @@ import {
   nextStatuses,
   type StatusInput,
 } from './appointments.schema.js';
-
-const appointmentSelect = {
-  id: true,
-  staffId: true,
-  startsAt: true,
-  endsAt: true,
-  status: true,
-  clientName: true,
-  clientPhone: true,
-  note: true,
-  groupId: true,
-  oneOffSessionId: true,
-} as const;
 
 const notFree = () =>
   new ConflictException({
@@ -57,6 +46,7 @@ export class AppointmentsService {
     private readonly staff: StaffService,
     private readonly schedule: ScheduleService,
     private readonly policy: BusinessPolicy,
+    private readonly clients: ClientsService,
   ) {}
 
   // Books exactly one free slot of the master, ahead of its start.
@@ -77,7 +67,16 @@ export class AppointmentsService {
   private async take(
     actor: AuthUser,
     businessId: string,
-    { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, ...client }: AppointmentInput,
+    {
+      staffId,
+      startsAt,
+      endsAt,
+      groupId: seatGroup,
+      oneOffSessionId: seatSession,
+      clientId,
+      newClient,
+      note,
+    }: AppointmentInput,
     now: Date,
     mode: 'ahead' | 'walkIn',
   ): Promise<AppointmentDto> {
@@ -109,15 +108,22 @@ export class AppointmentsService {
           throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
         }
         if (mode === 'ahead' && slot.full) throw full();
+        // The person, found or made in this transaction: neither is left if the slot turns out taken.
+        const person = await this.clients.resolveForBooking(
+          tx,
+          businessId,
+          newClient ? { newClient } : { clientId: clientId! },
+        );
         return tx.appointment.create({
           data: {
             businessId,
+            ...person,
             staffId,
             startsAt,
             endsAt,
             groupId,
             oneOffSessionId,
-            ...client,
+            note,
             ...(mode === 'walkIn' && { status: 'DONE' }),
           },
           select: appointmentSelect,

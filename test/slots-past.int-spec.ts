@@ -3,7 +3,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { signUpOwner } from './helpers.js';
+import { createClient, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -40,6 +40,7 @@ const setUp = async () => {
       await prisma.appointment.create({
         data: {
           businessId,
+          clientId: await createClient(prisma, businessId),
           staffId,
           startsAt,
           endsAt: new Date(startsAt.getTime() + HOUR),

@@ -4,6 +4,7 @@ import { inject } from 'vitest';
 
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { violatedExclusion, violatedUniqueConstraint } from '../src/prisma/unique-violation.js';
+import { createClient } from './helpers.js';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: inject('databaseUrl') }),
@@ -327,15 +328,16 @@ describe('appointments', () => {
     return { businessId: business.id, staffId: staff.id };
   };
 
-  const booking = (
+  const booking = async (
     master: { businessId: string; staffId: string },
     startsAt: string,
     endsAt: string,
-    extra: { status?: 'CANCELLED'; groupId?: string; oneOffSessionId?: string } = {},
+    extra: { status?: 'CANCELLED'; groupId?: string; oneOffSessionId?: string; clientId?: string } = {},
   ) =>
     prisma.appointment.create({
       data: {
         ...master,
+        clientId: extra.clientId ?? (await createClient(prisma, master.businessId)),
         startsAt: new Date(startsAt),
         endsAt: new Date(endsAt),
         clientName: 'Anna',
@@ -496,12 +498,24 @@ describe('appointments', () => {
     ).rejects.toMatchObject({ code: 'P2003' });
   });
 
+  it("refuses a booking for another business's client", async () => {
+    const master = await staffOf();
+    const other = await createBusiness();
+
+    await expect(
+      booking(master, '2030-01-08T10:00:00Z', '2030-01-08T11:00:00Z', {
+        clientId: await createClient(prisma, other.id),
+      }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
   it('refuses a phone that is not E.164 and a blank name', async () => {
     const master = await staffOf();
-    const withClient = (clientName: string, clientPhone: string) =>
+    const withClient = async (clientName: string, clientPhone: string) =>
       prisma.appointment.create({
         data: {
           ...master,
+          clientId: await createClient(prisma, master.businessId),
           startsAt: new Date('2030-01-08T10:00:00Z'),
           endsAt: new Date('2030-01-08T11:00:00Z'),
           clientName,
@@ -513,5 +527,100 @@ describe('appointments', () => {
     await expect(withClient('Anna', '0812345678')).rejects.toThrow(/appointments_client_phone/);
     await expect(withClient('  ', '+66812345678')).rejects.toThrow(/appointments_client_name/);
     await expect(withClient('Anna', '+66812345678')).resolves.toBeDefined();
+  });
+});
+
+describe('clients', () => {
+  const phone = () => `+7${unique().replace(/\D/g, '').padEnd(10, '0').slice(0, 10)}`;
+  const holder = (businessId: string, p = phone()) =>
+    prisma.client.create({ data: { businessId, name: 'Mother', phone: p } });
+
+  it('is a holder with a phone or a dependent with a guardian, never both and never neither', async () => {
+    const { id: businessId } = await createBusiness();
+    const mother = await holder(businessId);
+
+    await expect(
+      prisma.client.create({ data: { businessId, name: 'Kid', phone: phone(), guardianId: mother.id } }),
+    ).rejects.toThrow(/clients_phone_or_guardian/);
+    await expect(prisma.client.create({ data: { businessId, name: 'Nobody' } })).rejects.toThrow(
+      /clients_phone_or_guardian/,
+    );
+    await expect(
+      prisma.client.create({ data: { businessId, name: 'Kid', guardianId: mother.id } }),
+    ).resolves.toBeDefined();
+  });
+
+  it('refuses a phone that is not E.164', async () => {
+    const { id: businessId } = await createBusiness();
+
+    await expect(holder(businessId, '0812345678')).rejects.toThrow(/"clients_phone"/);
+    await expect(holder(businessId, '')).rejects.toThrow(/"clients_phone"/);
+  });
+
+  it('gives a phone to one holder per business, and lets two businesses share it', async () => {
+    const a = await createBusiness();
+    const b = await createBusiness();
+    const shared = phone();
+    await holder(a.id, shared);
+
+    const second = await holder(a.id, shared).catch((e: unknown) => e);
+    expect(violatedUniqueConstraint(second)).toBe('clients_business_id_phone_key');
+    await expect(holder(b.id, shared)).resolves.toBeDefined();
+  });
+
+  it('refuses a blank name', async () => {
+    const { id: businessId } = await createBusiness();
+
+    await expect(prisma.client.create({ data: { businessId, name: '   ', phone: phone() } })).rejects.toThrow(
+      /clients_name/,
+    );
+  });
+
+  it('refuses a dependent as a guardian', async () => {
+    const { id: businessId } = await createBusiness();
+    const mother = await holder(businessId);
+    const kid = await prisma.client.create({ data: { businessId, name: 'Kid', guardianId: mother.id } });
+
+    await expect(prisma.client.create({ data: { businessId, name: 'Baby', guardianId: kid.id } })).rejects.toThrow(
+      /not an account holder|has dependents/,
+    );
+  });
+
+  it('refuses to turn a holder with dependents into a dependent, and a dependent into a guardian by update', async () => {
+    const { id: businessId } = await createBusiness();
+    const mother = await holder(businessId);
+    const other = await holder(businessId);
+    const kid = await prisma.client.create({ data: { businessId, name: 'Kid', guardianId: mother.id } });
+
+    await expect(
+      prisma.client.update({ where: { id: mother.id }, data: { phone: null, guardianId: other.id } }),
+    ).rejects.toThrow(/not an account holder|has dependents/);
+    await expect(
+      prisma.client.update({ where: { id: kid.id }, data: { guardianId: mother.id } }),
+    ).resolves.toBeDefined();
+    await expect(
+      prisma.client.update({ where: { id: other.id }, data: { phone: null, guardianId: kid.id } }),
+    ).rejects.toThrow(/not an account holder|has dependents/);
+  });
+
+  it('lets one guardian have several dependents', async () => {
+    const { id: businessId } = await createBusiness();
+    const mother = await holder(businessId);
+    const kid = (name: string) => prisma.client.create({ data: { businessId, name, guardianId: mother.id } });
+
+    await kid('Kid 1');
+    await kid('Kid 2');
+
+    expect(await prisma.client.count({ where: { guardianId: mother.id } })).toBe(2);
+  });
+
+  it('refuses a guardian from another business', async () => {
+    const a = await createBusiness();
+    const b = await createBusiness();
+    const mother = await holder(a.id);
+
+    await expect(
+      prisma.client.create({ data: { businessId: b.id, name: 'Kid', guardianId: mother.id } }),
+    ).rejects.toMatchObject({ code: 'P2003' });
   });
 });
