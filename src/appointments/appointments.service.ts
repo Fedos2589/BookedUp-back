@@ -188,7 +188,8 @@ export class AppointmentsService {
       const moved = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id IN (${Prisma.join(lock.map((each) => Prisma.sql`${each}::uuid`))}) AND business_id = ${businessId}::uuid ORDER BY id FOR UPDATE`;
         // Read again under the lock, still with the master it was authorized on: a status change or a
-        // move by someone else that got in first is seen.
+        // move to another master that got in first is seen. A move to another time with the same master
+        // waited for this lock and is simply moved on from.
         const booking = await tx.appointment.findFirst({
           where: { id, businessId, staffId: current.staffId },
           select: { status: true },
@@ -208,9 +209,10 @@ export class AppointmentsService {
           id,
         );
         if (slot.full) throw full();
-        // The update names what was read: the status change takes no staff lock, so it may have got in.
+        // A status change takes no staff lock, so it may have got in since the read: the update still
+        // asks for a booking that can be moved. Confirming it meanwhile doesn't stop the move.
         const [moved] = await tx.appointment.updateManyAndReturn({
-          where: { id, businessId, staffId: current.staffId, status: booking.status },
+          where: { id, businessId, staffId: current.staffId, status: { in: ['BOOKED', 'CONFIRMED'] } },
           data: { staffId, startsAt, endsAt, groupId, oneOffSessionId },
           select: appointmentSelect,
         });

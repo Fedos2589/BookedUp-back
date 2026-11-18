@@ -71,3 +71,12 @@ booking.status }, … })` with the same 409 when it returns nothing.
 
 After R1: Opus reviews the branch diff in a separate session, then the user pushes and opens the PR.
 The local branches `e6/slots-bookings` and `docs/e6-front-done` can then be deleted.
+
+## After the review (Opus, 2026-11-18)
+
+Fixed on this branch: the move's write asks for `status: { in: ['BOOKED', 'CONFIRMED'] }`, so a
+confirm landing mid-move doesn't refuse it; fix 1 got int tests after all — the test holds a row lock
+in its own transaction until `pg_blocking_pids` shows the move waiting, then writes (a cancel, a move
+to another master, a confirm); both 409 tests get 200 on `main`. The full-meeting move test now checks
+the seat stays. Swagger for `PATCH :appointmentId` names the «just changed» 409; the reread comment no
+longer promises to see a move to another time with the same master.

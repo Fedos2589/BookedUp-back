@@ -124,7 +124,7 @@ export class AppointmentsController {
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
   @ApiConflictResponse({
     description:
-      'The new place is not a free slot (code notFree) or has no seat left (code full), or the booking is not BOOKED or CONFIRMED (code badTransition)',
+      'The new place is not a free slot (code notFree) or has no seat left (code full), or the booking is not BOOKED or CONFIRMED or has just been changed by someone else (code badTransition)',
     schema: openApi(moveConflictSchema),
   })
   move(

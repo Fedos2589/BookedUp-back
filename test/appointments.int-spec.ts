@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
+import type { Prisma } from '../src/generated/prisma/client.js';
 import type { MemberRole } from '../src/generated/prisma/enums.js';
 import { addDays, isoWeekday, startOfDay, todayIn } from '../src/schedule/local-time.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -419,6 +420,13 @@ describe('booking a seat', () => {
     ).expect(409);
 
     expect(res.body).toMatchObject({ statusCode: 409, code: 'full' });
+    const listed = (await as(http().get(appointmentsUrl(businessId)).query({ from: tuesday, to: tuesday })).expect(200))
+      .body as { id: string; oneOffSessionId: string | null; groupId: string | null; startsAt: string }[];
+    expect(listed.find((each) => each.id === mine.id)).toMatchObject({
+      oneOffSessionId: session,
+      groupId: null,
+      startsAt: sessionTime.startsAt,
+    });
   });
 
   it('gives one 201 and one 409 full to two requests for the last place', async () => {
@@ -914,6 +922,45 @@ describe('moving a booking', () => {
         .set('Cookie', cookie)
         .expect(200)
     ).body as { id: string; startsAt: string; staffId: string }[];
+  const addMaster = async (cookie: string, businessId: string, name: string) => {
+    const id = (await http().post(`/businesses/${businessId}/staff`).set('Cookie', cookie).send({ name }).expect(201))
+      .body.id as string;
+    await http()
+      .put(`/businesses/${businessId}/staff/${id}/weekly-windows`)
+      .set('Cookie', cookie)
+      .send({ windows: [{ weekday: 1, startMinute: 600, durationMinutes: 180, slotMinutes: 60, title: null }] })
+      .expect(200);
+    return id;
+  };
+
+  // A write that lands in the middle of a move, on time every run: a transaction of the test's own
+  // takes a row lock, starts the move, waits until Postgres shows the move waiting on that lock, then
+  // writes and commits. Whatever the move read before the wait, it is now out of date.
+  const meanwhile = async (
+    takeLock: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    start: () => request.Test,
+    write: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  ) => {
+    const prisma = app.get(PrismaService);
+    let pending!: Promise<request.Response>;
+    await prisma.$transaction(
+      async (tx) => {
+        await takeLock(tx);
+        const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        pending = Promise.resolve(start());
+        for (let waited = 0; ; waited += 20) {
+          const [{ waiting }] = await prisma.$queryRaw<{ waiting: number }[]>`
+            SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
+          if (waiting > 0) break;
+          if (waited > 5000) throw new Error('The move never waited on the lock');
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        await write(tx);
+      },
+      { timeout: 10_000 },
+    );
+    return pending;
+  };
 
   it('moves a booking to a free slot and frees the old one', async () => {
     const { owner, businessId, staffId } = await setUp();
@@ -958,18 +1005,7 @@ describe('moving a booking', () => {
 
   it('moves a booking to another master', async () => {
     const { owner, businessId, staffId } = await setUp();
-    const other = (
-      await http()
-        .post(`/businesses/${businessId}/staff`)
-        .set('Cookie', owner.cookie)
-        .send({ name: 'Boris' })
-        .expect(201)
-    ).body.id as string;
-    await http()
-      .put(`/businesses/${businessId}/staff/${other}/weekly-windows`)
-      .set('Cookie', owner.cookie)
-      .send({ windows: [{ weekday: 1, startMinute: 600, durationMinutes: 180, slotMinutes: 60, title: null }] })
-      .expect(200);
+    const other = await addMaster(owner.cookie, businessId, 'Boris');
     const id = await book(owner.cookie, businessId, staffId, slot(0));
 
     const res = await move(owner.cookie, businessId, id, { staffId: other, ...slot(0) }).expect(200);
@@ -1002,6 +1038,57 @@ describe('moving a booking', () => {
     ]);
 
     expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([200, 409]);
+  });
+
+  it('does not undo a cancel that lands while the move is writing: 409, and the booking stays cancelled', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    const res = await meanwhile(
+      (tx) => tx.$queryRaw`SELECT 1 FROM appointments WHERE id = ${id}::uuid FOR UPDATE`,
+      () => move(owner.cookie, businessId, id, { staffId, ...slot(2) }),
+      (tx) => tx.appointment.update({ where: { id }, data: { status: 'CANCELLED' } }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'badTransition' });
+    expect(await app.get(PrismaService).appointment.findUnique({ where: { id } })).toMatchObject({
+      status: 'CANCELLED',
+      startsAt: new Date(slot(0).startsAt),
+    });
+  });
+
+  it('does not take back a booking moved to another master first: 409', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const other = await addMaster(owner.cookie, businessId, 'Boris');
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    const res = await meanwhile(
+      (tx) => tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid FOR UPDATE`,
+      () => move(owner.cookie, businessId, id, { staffId, ...slot(2) }),
+      (tx) => tx.appointment.update({ where: { id }, data: { staffId: other } }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'badTransition' });
+    expect(await app.get(PrismaService).appointment.findUnique({ where: { id } })).toMatchObject({
+      staffId: other,
+      startsAt: new Date(slot(0).startsAt),
+    });
+  });
+
+  it('still moves a booking confirmed while the move is writing', async () => {
+    const { owner, businessId, staffId } = await setUp();
+    const id = await book(owner.cookie, businessId, staffId, slot(0));
+
+    const res = await meanwhile(
+      (tx) => tx.$queryRaw`SELECT 1 FROM appointments WHERE id = ${id}::uuid FOR UPDATE`,
+      () => move(owner.cookie, businessId, id, { staffId, ...slot(2) }),
+      (tx) => tx.appointment.update({ where: { id }, data: { status: 'CONFIRMED' } }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id, ...slot(2), status: 'CONFIRMED' });
   });
 
   it('answers 404 for a booking of another business, 403 for a master of someone else', async () => {
