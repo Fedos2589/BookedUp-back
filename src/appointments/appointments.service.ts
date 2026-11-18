@@ -9,6 +9,7 @@ import { addDays, dateOfWall, type LocalDate, startOfDay, todayIn, wallAt } from
 import { withIsoTimes } from '../schedule/db-values.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import { StaffService } from '../staff/staff.service.js';
+import { appointmentSelect } from './appointments.select.js';
 import {
   type AppointmentDto,
   type AppointmentInput,
@@ -17,19 +18,6 @@ import {
   nextStatuses,
   type StatusInput,
 } from './appointments.schema.js';
-
-const appointmentSelect = {
-  id: true,
-  staffId: true,
-  startsAt: true,
-  endsAt: true,
-  status: true,
-  clientName: true,
-  clientPhone: true,
-  note: true,
-  groupId: true,
-  oneOffSessionId: true,
-} as const;
 
 const notFree = () =>
   new ConflictException({

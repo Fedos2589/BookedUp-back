@@ -1,14 +1,20 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { appointmentSelect } from '../appointments/appointments.select.js';
+import type { AuthUser } from '../auth/auth-types.js';
+import { BusinessPolicy } from '../business/business.policy.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
+import { withIsoTimes } from '../schedule/db-values.js';
+import type { ClientAppointmentsPageDto } from './client-appointments.schema.js';
 import type {
   ClientCardDto,
   ClientDto,
   ClientInput,
   ClientPatch,
   ClientsPageDto,
+  Paging,
   ClientsQuery,
 } from './clients.schema.js';
 
@@ -36,7 +42,10 @@ const conflict = (code: 'phoneTaken' | 'notHolder', message: string, clientId?: 
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly policy: BusinessPolicy,
+  ) {}
 
   async create(businessId: string, input: ClientInput): Promise<ClientDto> {
     const { name, note } = input;
@@ -66,6 +75,32 @@ export class ClientsService {
     const visitCount = await this.prisma.appointment.count({ where: { businessId, clientId: id, status: 'DONE' } });
     const { dependents, ...client } = row;
     return { ...toDto(client), dependents, visitCount };
+  }
+
+  // The history, newest first, cancelled too. A member who may not see every booking gets only
+  // those of their own schedule, in the count as well.
+  async appointments(
+    actor: AuthUser,
+    businessId: string,
+    id: string,
+    { limit, offset }: Paging,
+  ): Promise<ClientAppointmentsPageDto> {
+    if (!(await this.prisma.client.findFirst({ where: { id, businessId }, select: { id: true } }))) {
+      throw new NotFoundException();
+    }
+    const seeAll = await this.policy.seeAllBookings(actor, businessId);
+    const where = { businessId, clientId: id, ...(!seeAll && { staff: { userId: actor.id } }) };
+    const [items, total] = await Promise.all([
+      this.prisma.appointment.findMany({
+        where,
+        select: appointmentSelect,
+        orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.appointment.count({ where }),
+    ]);
+    return { items: items.map(withIsoTimes), total };
   }
 
   // Past bookings keep what was written on them (clientName, clientPhone): only the card changes.

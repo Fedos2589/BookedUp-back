@@ -4,7 +4,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { signUpOwner } from './helpers.js';
+import { memberOf, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -323,5 +323,60 @@ describe('editing a client', () => {
     await patch(olga.id, { name: '' }).expect(400);
     await patch(olga.id, { name: 'X'.repeat(101) }).expect(400);
     await patch(olga.id, { note: 'n'.repeat(2001) }).expect(400);
+  });
+});
+
+describe("a client's bookings", () => {
+  it('gives the newest first, cancelled too; a master gets only their own, the owner all', async () => {
+    const { owner, businessId, holder } = await setUp();
+    const olga = await holder('Olga');
+    const prisma = app.get(PrismaService);
+    const master = await memberOf(app, businessId, 'MASTER');
+    const mine = await prisma.staff.create({ data: { businessId, name: 'Mine', userId: master.userId } });
+    const other = await prisma.staff.create({ data: { businessId, name: 'Other' } });
+    const book = (staffId: string, day: number, status: 'DONE' | 'CANCELLED' = 'DONE') =>
+      prisma.appointment.create({
+        data: {
+          businessId,
+          staffId,
+          clientId: olga.id,
+          startsAt: new Date(Date.UTC(2030, 0, day, 10)),
+          endsAt: new Date(Date.UTC(2030, 0, day, 11)),
+          status,
+          clientName: 'Olga',
+          clientPhone: olga.phone,
+        },
+      });
+    await book(mine.id, 1);
+    await book(other.id, 2);
+    await book(mine.id, 3, 'CANCELLED');
+    const url = `${clientsUrl(businessId)}/${olga.id}/appointments`;
+    const days = (res: request.Response) =>
+      (res.body.items as { startsAt: string }[]).map((each) => each.startsAt.slice(8, 10));
+
+    const all = await http().get(url).set('Cookie', owner.cookie).expect(200);
+    const own = await http().get(url).set('Cookie', master.cookie).expect(200);
+
+    expect(days(all)).toEqual(['03', '02', '01']);
+    expect(all.body.total).toBe(3);
+    expect(all.body.items[0]).toMatchObject({ staffId: mine.id, status: 'CANCELLED', clientName: 'Olga' });
+    expect(days(own)).toEqual(['03', '01']);
+    expect(own.body.total).toBe(2);
+    expect(
+      (await http().get(url).query({ limit: 1, offset: 1 }).set('Cookie', owner.cookie).expect(200)).body,
+    ).toMatchObject({
+      total: 3,
+    });
+  });
+
+  it("answers 404 for another business's client", async () => {
+    const { owner, businessId } = await setUp();
+    const stranger = await setUp();
+    const theirs = await stranger.holder('Their client');
+
+    await http()
+      .get(`${clientsUrl(businessId)}/${theirs.id}/appointments`)
+      .set('Cookie', owner.cookie)
+      .expect(404);
   });
 });

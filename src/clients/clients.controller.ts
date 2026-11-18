@@ -1,3 +1,4 @@
+import { CurrentUser } from '@nestjs/authentication';
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -12,8 +13,10 @@ import {
 } from '@nestjs/swagger';
 import { z } from 'zod';
 
+import type { AuthUser } from '../auth/auth-types.js';
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
+import { type ClientAppointmentsPageDto, clientAppointmentsPageSchema } from './client-appointments.schema.js';
 import {
   type ClientCardDto,
   clientCardSchema,
@@ -23,6 +26,8 @@ import {
   type ClientInput,
   type ClientsPageDto,
   type ClientsQuery,
+  type Paging,
+  pagingSchema,
   clientConflictSchema,
   clientInput,
   clientsPageSchema,
@@ -98,5 +103,22 @@ export class ClientsController {
     @Body({ schema: clientPatch }) body: ClientPatch,
   ): Promise<ClientDto> {
     return this.clients.update(businessId, clientId, body);
+  }
+
+  @Get(':clientId/appointments')
+  @ApiOkResponse({
+    description:
+      "The client's bookings, newest first, cancelled too; a master gets only their own. A page and the total",
+    schema: openApi(clientAppointmentsPageSchema),
+  })
+  @ApiBadRequestResponse({ description: 'A query field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No such client in this business' })
+  appointments(
+    @CurrentUser() actor: AuthUser,
+    @Param('businessId', uuid) businessId: string,
+    @Param('clientId', uuid) clientId: string,
+    @Query({ schema: pagingSchema }) paging: Paging,
+  ): Promise<ClientAppointmentsPageDto> {
+    return this.clients.appointments(actor, businessId, clientId, paging);
   }
 }

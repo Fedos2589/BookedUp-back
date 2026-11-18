@@ -63,11 +63,16 @@ export const clientPatch = z.strictObject({
 });
 export type ClientPatch = z.infer<typeof clientPatch>;
 
+// Paged by limit and offset: «show more», not page numbers.
+export const pagingQuery = {
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+  offset: z.coerce.number().int().min(0).default(0),
+};
+
 export const clientsQuery = z.object({
   q: z.string().trim().max(100).optional().describe('Part of a name, or of a phone (digits only)'),
   phone: clientPhone.optional().describe('The holder of this phone and their dependents; q and paging are ignored'),
-  limit: z.coerce.number().int().min(1).max(100).default(30),
-  offset: z.coerce.number().int().min(0).default(0),
+  ...pagingQuery,
 });
 export type ClientsQuery = z.infer<typeof clientsQuery>;
 
@@ -86,3 +91,6 @@ export const clientConflictSchema = z.object({
   code: z.enum(['phoneTaken', 'notHolder']),
   clientId: z.uuid().optional().describe('With phoneTaken: the holder of the phone'),
 });
+
+export const pagingSchema = z.object(pagingQuery);
+export type Paging = z.infer<typeof pagingSchema>;
