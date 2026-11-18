@@ -133,6 +133,17 @@ describe('finding clients', () => {
     expect(await names('nobody')).toEqual([]);
   });
 
+  it('finds a holder by a phone typed with the Russian 8 instead of +7', async () => {
+    const { list, holder } = await setUp();
+    const anna = await holder('Anna');
+    const digits = anna.phone.replace(/\D/g, '');
+    const typed = `8 ${digits.slice(1, 4)} ${digits.slice(4, 8)}`;
+
+    const found = (await list({ q: typed }).expect(200)).body.items as { name: string }[];
+
+    expect(found.map((c) => c.name)).toEqual(['Anna']);
+  });
+
   it('pages by limit and offset with the total of all matches', async () => {
     const { list, holder } = await setUp();
     for (const name of ['Cora', 'Anna', 'Boris']) await holder(name);

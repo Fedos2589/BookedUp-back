@@ -109,7 +109,11 @@ export class AppointmentsService {
         }
         if (mode === 'ahead' && slot.full) throw full();
         // The person, found or made in this transaction: neither is left if the slot turns out taken.
-        const person = await this.clients.resolveForBooking(tx, businessId, { clientId, newClient });
+        const person = await this.clients.resolveForBooking(
+          tx,
+          businessId,
+          newClient ? { newClient } : { clientId: clientId! },
+        );
         return tx.appointment.create({
           data: {
             businessId,

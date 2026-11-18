@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { blankIsNone, clientInput } from '../clients/clients.schema.js';
+import { blankIsNone, clientConflictCode, clientInput } from '../clients/clients.schema.js';
 import { instant, slotsQuery, whenFieldsValid } from '../schedule/schedule.schema.js';
 
 export const appointmentInput = z
@@ -97,7 +97,7 @@ export const bookingConflictSchema = z.object({
   error: z.literal('Conflict'),
   message: z.string(),
   code: z
-    .enum(['notFree', 'full', 'phoneTaken', 'notHolder'])
+    .enum(['notFree', 'full', ...clientConflictCode.options])
     .describe(
       'notFree: no such slot or taken; full: every seat of the meeting is taken; phoneTaken / notHolder: the newClient, as when creating a client',
     ),
@@ -120,7 +120,7 @@ export const walkInConflictSchema = z.object({
   error: z.literal('Conflict'),
   message: z.string(),
   code: z
-    .enum(['notFree', 'notStarted', 'phoneTaken', 'notHolder'])
+    .enum(['notFree', 'notStarted', ...clientConflictCode.options])
     .describe(
       'notFree: no such meeting at this time; notStarted: the meeting is ahead — book a seat instead; phoneTaken / notHolder: the newClient, as when creating a client',
     ),

@@ -84,11 +84,13 @@ export type ClientsPageDto = z.infer<typeof clientsPageSchema>;
 
 // 409: `phoneTaken` — the phone has a holder already (`clientId`, so the form can offer them);
 // `notHolder` — the guardian is not an account holder.
+export const clientConflictCode = z.enum(['phoneTaken', 'notHolder']);
+
 export const clientConflictSchema = z.object({
   statusCode: z.literal(409),
   error: z.literal('Conflict'),
   message: z.string(),
-  code: z.enum(['phoneTaken', 'notHolder']),
+  code: clientConflictCode,
   clientId: z.uuid().optional().describe('With phoneTaken: the holder of the phone'),
 });
 

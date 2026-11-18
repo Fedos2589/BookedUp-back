@@ -60,14 +60,14 @@ export class ClientsService {
   async resolveForBooking(
     tx: Db,
     businessId: string,
-    { clientId, newClient }: { clientId?: string; newClient?: ClientInput },
+    who: { clientId: string } | { newClient: ClientInput },
   ): Promise<{ clientId: string; clientName: string; clientPhone: string }> {
-    if (newClient) {
-      const { client, phone } = await this.createIn(tx, businessId, newClient);
+    if ('newClient' in who) {
+      const { client, phone } = await this.createIn(tx, businessId, who.newClient);
       return { clientId: client.id, clientName: client.name, clientPhone: phone };
     }
     const person = await tx.client.findFirst({
-      where: { id: clientId, businessId },
+      where: { id: who.clientId, businessId },
       select: { id: true, name: true, phone: true, guardian: { select: { phone: true } } },
     });
     if (!person) throw new NotFoundException();
@@ -149,10 +149,10 @@ export class ClientsService {
   }
 
   // A taken phone is 409 with the holder who has it; anything else is not ours to explain.
-  async translate(error: unknown, businessId: string, phone: string | undefined) {
+  private async translate(error: unknown, businessId: string, phone: string | undefined) {
     if (!phone || violatedUniqueConstraint(error) !== 'clients_business_id_phone_key') return error;
-    const holder = await this.prisma.client.findFirstOrThrow({ where: { businessId, phone }, select: { id: true } });
-    return conflict('phoneTaken', 'This phone already has an account', holder.id);
+    const holder = await this.prisma.client.findFirst({ where: { businessId, phone }, select: { id: true } });
+    return conflict('phoneTaken', 'This phone already has an account', holder?.id);
   }
 
   async list(businessId: string, { q, phone, limit, offset }: ClientsQuery): Promise<ClientsPageDto> {
@@ -191,11 +191,13 @@ const byPhone = (businessId: string, phone: string): Prisma.ClientWhereInput => 
 const search = (businessId: string, q: string | undefined): Prisma.ClientWhereInput => {
   if (!q) return { businessId };
   const digits = /^[\d\s()+-]+$/.test(q) ? q.replace(/\D/g, '') : '';
+  // A Russian 8 at the start is the +7 of the stored number.
+  const typed = digits.startsWith('8') && digits.length > 1 ? [digits, `7${digits.slice(1)}`] : digits ? [digits] : [];
   return {
     businessId,
     OR: [
       { name: { contains: q, mode: 'insensitive' } },
-      ...(digits ? [{ phone: { contains: digits } }, { guardian: { is: { phone: { contains: digits } } } }] : []),
+      ...typed.flatMap((part) => [{ phone: { contains: part } }, { guardian: { is: { phone: { contains: part } } } }]),
     ],
   };
 };
