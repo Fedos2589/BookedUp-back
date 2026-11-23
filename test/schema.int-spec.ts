@@ -10,8 +10,9 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: inject('databaseUrl') }),
 });
 
-// Not a business's data: tenants themselves, people, and how people sign in.
-const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', 'sessions', '_prisma_migrations'];
+// Not a business's data: tenants themselves, people, how people sign in, and where a person is
+// reachable (a staff account's channels serve every business it is a member of).
+const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', 'sessions', 'user_channels', '_prisma_migrations'];
 
 // Random, not a clock: test files run in parallel against one database.
 const unique = () => randomUUID();
@@ -640,5 +641,174 @@ describe('clients', () => {
     await expect(
       prisma.client.create({ data: { businessId: b.id, name: 'Kid', guardianId: mother.id } }),
     ).rejects.toMatchObject({ code: 'P2003' });
+  });
+});
+
+describe('notifications (E9)', () => {
+  const insertBusinessOffsets = (offsets: number[]) =>
+    createBusiness().then(
+      ({ id }) => prisma.$executeRaw`UPDATE businesses SET reminder_offsets = ${offsets}::int[] WHERE id = ${id}::uuid`,
+    );
+
+  const bookingOf = async () => {
+    const business = await createBusiness();
+    const staff = await prisma.staff.create({ data: { businessId: business.id, name: 'Master' } });
+    const clientId = await createClient(prisma, business.id);
+    const appointment = await prisma.appointment.create({
+      data: {
+        businessId: business.id,
+        staffId: staff.id,
+        clientId,
+        startsAt: new Date('2030-03-01T10:00:00Z'),
+        endsAt: new Date('2030-03-01T11:00:00Z'),
+        clientName: 'Anna',
+        clientPhone: '+66812345678',
+      },
+    });
+    return { businessId: business.id, clientId, appointmentId: appointment.id };
+  };
+
+  const clientChannel = (
+    b: { businessId: string; clientId: string; appointmentId: string },
+    kind: string,
+    appointmentId: string | null,
+    address: string = unique(),
+  ) =>
+    prisma.$executeRaw`INSERT INTO client_channels (business_id, client_id, appointment_id, kind, address, locale)
+      VALUES (${b.businessId}::uuid, ${b.clientId}::uuid, ${appointmentId}::uuid, ${kind}::"ChannelKind", ${address}, 'en')`;
+
+  const event = (
+    b: { businessId: string; appointmentId: string },
+    kind: string,
+    offset: number | null,
+    startsAt = '2030-03-01T10:00:00Z',
+  ) =>
+    prisma.$executeRaw`INSERT INTO notification_events (business_id, appointment_id, kind, offset_minutes, starts_at)
+      VALUES (${b.businessId}::uuid, ${b.appointmentId}::uuid, ${kind}::"NotificationKind", ${offset}, ${startsAt}::timestamptz)`;
+
+  it('defaults to one reminder, a day ahead; refuses an offset off the list and a fourth offset', async () => {
+    const { id } = await createBusiness();
+    const [row] = await prisma.$queryRaw<{ reminder_offsets: number[] }[]>`
+      SELECT reminder_offsets FROM businesses WHERE id = ${id}::uuid`;
+    expect(row!.reminder_offsets).toEqual([1440]);
+
+    await expect(insertBusinessOffsets([30])).rejects.toThrow(/businesses_reminder_offsets/);
+    await expect(insertBusinessOffsets([60, 120, 180, 1440])).rejects.toThrow(/businesses_reminder_offsets/);
+    await expect(insertBusinessOffsets([])).resolves.toBeDefined();
+    await expect(insertBusinessOffsets([60, 120, 2880])).resolves.toBeDefined();
+  });
+
+  it('keeps WhatsApp on the client card and Telegram, push and email on a booking', async () => {
+    const b = await bookingOf();
+
+    await expect(clientChannel(b, 'WHATSAPP', b.appointmentId)).rejects.toThrow(/client_channels_whatsapp_on_card/);
+    await expect(clientChannel(b, 'TELEGRAM', null)).rejects.toThrow(/client_channels_whatsapp_on_card/);
+    await expect(clientChannel(b, 'EMAIL', null)).rejects.toThrow(/client_channels_whatsapp_on_card/);
+    await expect(clientChannel(b, 'LOG', b.appointmentId)).rejects.toThrow(/client_channels_kind/);
+    await expect(clientChannel(b, 'WHATSAPP', null)).resolves.toBeDefined();
+    await expect(clientChannel(b, 'TELEGRAM', b.appointmentId)).resolves.toBeDefined();
+  });
+
+  it('refuses the same channel address twice for one booking, and one card phone twice', async () => {
+    const b = await bookingOf();
+    await clientChannel(b, 'TELEGRAM', b.appointmentId, 'chat-1');
+    await clientChannel(b, 'WHATSAPP', null, '+66812345678');
+
+    await expect(clientChannel(b, 'TELEGRAM', b.appointmentId, 'chat-1')).rejects.toThrow(/client_channels_.*key/);
+    await expect(clientChannel(b, 'WHATSAPP', null, '+66812345678')).rejects.toThrow(/client_channels_.*key/);
+  });
+
+  it('refuses a booking of another business as the channel’s booking', async () => {
+    const b = await bookingOf();
+    const other = await createBusiness();
+    const otherClient = await createClient(prisma, other.id);
+
+    await expect(
+      clientChannel(
+        { businessId: other.id, clientId: otherClient, appointmentId: b.appointmentId },
+        'TELEGRAM',
+        b.appointmentId,
+      ),
+    ).rejects.toThrow(/foreign key constraint/);
+  });
+
+  it('allows at most one Telegram and one WhatsApp per account, and a push row per device', async () => {
+    const user = await createUser();
+    const channel = (kind: string, address: string) =>
+      prisma.$executeRaw`INSERT INTO user_channels (user_id, kind, address)
+        VALUES (${user.id}::uuid, ${kind}::"ChannelKind", ${address})`;
+
+    await channel('TELEGRAM', 'chat-1');
+    await expect(channel('TELEGRAM', 'chat-2')).rejects.toThrow(/user_channels_telegram/);
+    await channel('WHATSAPP', '+66811111111');
+    await expect(channel('WHATSAPP', '+66822222222')).rejects.toThrow(/user_channels_whatsapp/);
+    await channel('PUSH', 'https://push.example/1');
+    await expect(channel('PUSH', 'https://push.example/2')).resolves.toBeDefined();
+    await expect(channel('PUSH', 'https://push.example/1')).rejects.toThrow(/user_channels_.*key/);
+    await expect(channel('EMAIL', 'a@example.com')).rejects.toThrow(/user_channels_kind/);
+    await expect(channel('PUSH', '')).rejects.toThrow(/user_channels_address_length/);
+    await expect(channel('PUSH', 'x'.repeat(2049))).rejects.toThrow(/user_channels_address_length/);
+  });
+
+  it('keeps one reminder per booking, offset and start; a moved booking has a new start and a new key', async () => {
+    const b = await bookingOf();
+
+    await event(b, 'REMINDER', 1440);
+    await expect(event(b, 'REMINDER', 1440)).rejects.toThrow(/notification_events_reminder_once/);
+    await expect(event(b, 'REMINDER', 1440, '2030-03-02T10:00:00Z')).resolves.toBeDefined();
+    await expect(event(b, 'REMINDER', 60)).resolves.toBeDefined();
+    await expect(event(b, 'BOOKED', null)).resolves.toBeDefined();
+    await expect(event(b, 'BOOKED', null)).resolves.toBeDefined();
+  });
+
+  it('ties an offset to a reminder and a channel to CHANNEL_ON', async () => {
+    const b = await bookingOf();
+
+    await expect(event(b, 'BOOKED', 60)).rejects.toThrow(/notification_events_offset/);
+    await expect(event(b, 'REMINDER', null)).rejects.toThrow(/notification_events_offset/);
+    await expect(event(b, 'CHANNEL_ON', null)).rejects.toThrow(/notification_events_channel/);
+  });
+
+  it('switches a client channel off with a mark, so the event that turned it on stays', async () => {
+    const b = await bookingOf();
+    await clientChannel(b, 'TELEGRAM', b.appointmentId, 'chat-1');
+    const [channel] = await prisma.$queryRaw<{ id: string; disabled_at: Date | null }[]>`
+      SELECT id, disabled_at FROM client_channels WHERE appointment_id = ${b.appointmentId}::uuid`;
+    expect(channel!.disabled_at).toBeNull();
+    await prisma.$executeRaw`INSERT INTO notification_events (business_id, appointment_id, kind, channel_id, starts_at)
+      VALUES (${b.businessId}::uuid, ${b.appointmentId}::uuid, 'CHANNEL_ON'::"NotificationKind", ${channel!.id}::uuid, now())`;
+
+    await prisma.$executeRaw`UPDATE client_channels SET disabled_at = now() WHERE id = ${channel!.id}::uuid`;
+
+    const events = await prisma.$queryRaw<unknown[]>`
+      SELECT 1 FROM notification_events WHERE channel_id = ${channel!.id}::uuid`;
+    expect(events).toHaveLength(1);
+  });
+
+  it('sends a message once per event, channel and address', async () => {
+    const b = await bookingOf();
+    await event(b, 'BOOKED', null);
+    const [{ id: eventId }] = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM notification_events WHERE appointment_id = ${b.appointmentId}::uuid`;
+    const delivery = (audience: string) =>
+      prisma.$executeRaw`INSERT INTO notification_deliveries (business_id, event_id, channel, address, audience, locale)
+        VALUES (${b.businessId}::uuid, ${eventId}::uuid, 'TELEGRAM'::"ChannelKind", 'chat-1', ${audience}, 'en')`;
+
+    await delivery('client');
+    await expect(delivery('client')).rejects.toThrow(/notification_deliveries_.*key/);
+    // The same address can be the client and a member of the staff (the owner booking themselves).
+    await expect(delivery('staff')).resolves.toBeDefined();
+    await expect(delivery('nobody')).rejects.toThrow(/notification_deliveries_audience/);
+  });
+
+  it('defaults the account email switch and the owner’s online switch to on', async () => {
+    const business = await createBusiness();
+    const [user] = await prisma.$queryRaw<{ notify_email: boolean }[]>`
+      SELECT notify_email FROM users WHERE id = ${ownerOf(business)}::uuid`;
+    const [member] = await prisma.$queryRaw<{ notify_all_online: boolean }[]>`
+      SELECT notify_all_online FROM memberships WHERE business_id = ${business.id}::uuid`;
+
+    expect(user!.notify_email).toBe(true);
+    expect(member!.notify_all_online).toBe(true);
   });
 });

@@ -68,7 +68,7 @@ M:
 
 ## Step N — the engine
 
-### - [ ] N1: tables
+### - [x] N1: tables
 
 **Files:** `prisma/schema.prisma`, a new migration `prisma/migrations/<ts>_notifications/`,
 `test/schema.int-spec.ts`.
@@ -113,7 +113,7 @@ TELEGRAM `user_channel` for one user is refused; the same reminder key twice is
 refused; the same `(event, channel, address)` twice is refused. `npx prisma migrate reset --force` on
 the dev DB is clean. Commit `feat(notifications): tables`.
 
-### - [ ] N2: an event with every booking change
+### - [x] N2: an event with every booking change
 
 **Files:** create `src/notifications/{notifications.module.ts,notification-events.ts}`,
 `src/appointments/{appointments.service.ts,appointments.module.ts}`, `src/public-booking/public-booking.service.ts`
@@ -121,7 +121,7 @@ the dev DB is clean. Commit `feat(notifications): tables`.
 
 `recordEvent(tx, { businessId, appointmentId, kind, actorUserId, startsAt })` — one insert on the
 transaction it is given. Call it inside the existing transactions of `book` (BOOKED; a walk-in made
-as DONE writes none — it already happened), `relocate` (MOVED, the new `startsAt`), and in `transition`
+as DONE writes none — it already happened), `relocate` (MOVED, the new `startsAt`; payload `{ fromStaffId, fromStartsAt }`, written only when the time or the master changed), and in `transition`
 only for → `CANCELLED` (wrap the conditional update and the insert in one `$transaction`). Actor: the
 cabinet's `AuthUser.id`; online paths (`bookOnline`, `moveOnline`, `cancelOnline`) pass `null`.
 
@@ -135,11 +135,11 @@ cabinet's `AuthUser.id`; online paths (`bookOnline`, `moveOnline`, `cancelOnline
 
 Pure `messageFor(input): { subject: string; text: string }` with input `{ kind, audience: 'client' |
 'staff', locale: 'en' | 'ru', businessName, masterName, title: string | null (group / session),
-startsAt: Date, timeZone, clientName (staff only), offsetMinutes? (REMINDER), manageLink? (CHANNEL_ON) }`.
+startsAt: Date, fromStartsAt? (MOVED), fromMasterName? (MOVED to another master), timeZone, clientName (staff only), offsetMinutes? (REMINDER), manageLink? (CHANNEL_ON) }`.
 Client: BOOKED «You're booked: Thu 27 Nov, 17:00, with Anna, Studio X» (CHANNEL_ON is the same text +
 the link + «You'll get reminders here»); MOVED «moved to …»; CANCELLED «cancelled»; REMINDER «Tomorrow
 at 17:00…» / «In 2 hours…» (from the offset). Staff: «New booking: Maria, Thu 27 Nov 17:00» / moved
-from → to (the event has only the new start: «moved to …») / cancelled. Dates through `Intl.DateTimeFormat`
+from → to (`fromStartsAt` from the MOVED payload; the master's name changes too if `fromStaffId` differs) / cancelled. Dates through `Intl.DateTimeFormat`
 with the business zone and the locale; plain text, no markup (Telegram is sent without `parse_mode`).
 
 **Check:** `messages.spec.ts` — each kind × audience in en and ru (snapshot-free: assert the key
@@ -151,9 +151,9 @@ texts. Commit `feat(notifications): message texts`.
 **Files:** create `src/notifications/{recipients.ts,recipients.spec.ts}`.
 
 Pure `recipientsOf(event, ctx): Recipient[]`, `Recipient = { channel: ChannelKind; address; audience;
-locale }`. `ctx`: the booking's master's `userId | null`, the business's memberships `{ userId, role,
+locale }`. `ctx`: the booking's master's `userId | null` (and, for MOVED with `payload.fromStaffId` different from it, the previous master's — they get the message too, as «moved away»), the business's memberships `{ userId, role,
 email, locale, notifyEmail, notifyAllOnline, channels: { kind, address, keys }[] }[]`, the client
-channels that apply (the caller already picked: WhatsApp of the person or their guardian, and Telegram
+channels that apply (the caller already picked: not switched off (`disabled_at IS NULL`), WhatsApp of the person or their guardian, and Telegram
 / push / email with this `appointmentId` — D4), and `fallbackToLog: boolean`.
 
 Rules: staff only for BOOKED / MOVED / CANCELLED. The master's account, unless `actorUserId` is that
@@ -200,15 +200,15 @@ on a retryable error). `LogChannel` logs `{ channel, to: masked, subject, text }
 with `UPDATE … SET status = 'SENDING', attempts = attempts + 1 … FOR UPDATE SKIP LOCKED RETURNING` (its
 own transaction, committed before any call); render with `messageFor` (load what it needs, `businessId`
 in `where`); call the channel; `SENT` + `sentAt`, or `FAILED` + `lastError` (message only), or on
-`unreachable` mark `FAILED` with attempts = 3 and delete that client or user channel
-(an email `unreachable` deletes nothing: the account's address stays, M6). A delivery
+`unreachable` mark `FAILED` with attempts = 3 and switch off that client channel (`disabled_at = now()`, the row stays: its events and deliveries hang on it) or delete that user channel (nothing hangs on it)
+(an email `unreachable` changes nothing: the account's address stays, M6). A delivery
 left `SENDING` is never picked again (D3). After the last delivery of a CHANNEL_ON event is out, set
 its `payload` to `null` (D5). `dispatch(now)` = `expand` then `send`.
 
 **Check:** int test with a fake channel registered for LOG: one booking → each recipient's message sent
 once; two parallel `dispatch` → each sent once; the fake throws once → FAILED, the next `dispatch` sends
-it; after 3 failures it stays FAILED; a row left `SENDING` is not sent again; `unreachable` removes the
-client channel. Commit `feat(notifications): send deliveries`.
+it; after 3 failures it stays FAILED; a row left `SENDING` is not sent again; `unreachable` sets `disabled_at` on
+the client channel (the row and its event stay). Commit `feat(notifications): send deliveries`.
 
 ### - [ ] N7: reminders
 
@@ -255,7 +255,7 @@ save) → the business; owner and admin only (`@Can…` as for members' roles �
 anything else. Swagger: typed body and response, 400 / 403.
 
 **Check:** int test — owner sets `[1440, 60]` → GET shows `[60, 1440]`; admin can; master → 403;
-`[30]` → 400; 4 items → 400; another business's id → 403. Commit `feat(business): reminder times`.
+`[30]` → 400; `[1440, 1440]` → 400 (the CHECK lets repeats through; this schema is the only guard); 4 items → 400; another business's id → 403. Commit `feat(business): reminder times`.
 
 ### - [ ] N10: my notification switches, docs, close N
 
@@ -347,11 +347,11 @@ body: text, url }))`, TTL 1 day; 404 / 410 → `unreachable`. `url`: for a clien
 `/book/<slug>`, for staff the cabinet's `/calendar` (the delivery's audience decides). `push.schema.ts`:
 `{ endpoint: https URL ≤ 1000, keys: { p256dh ≤ 200, auth ≤ 100 } }` — M7 reuses it. Routes:
 `PUT /public/bookings/:token/push` `{ subscription, locale }` → upsert a PUSH channel for that booking +
-CHANNEL_ON (only when new); `DELETE /public/bookings/:token/push` `{ endpoint }`. Off → 404 `channelOff`.
+CHANNEL_ON (only when new); `DELETE /public/bookings/:token/push` `{ endpoint }` (sets `disabled_at`, never deletes a client channel; a PUT of the same endpoint clears it, with a CHANNEL_ON again). Off → 404 `channelOff`.
 `.env.example`: how to make keys — `npx web-push generate-vapid-keys`.
 
 **Check:** unit — 410 → `unreachable`, 500 → throws; int — PUT twice → one channel, one event; DELETE
-removes it; another booking's token can't delete it; off → 404. Commit `feat(notifications): Web Push`.
+switches it off, PUT again switches it on; another booking's token can't switch it off; off → 404. Commit `feat(notifications): Web Push`.
 
 ### - [ ] M5: WhatsApp channel, the client's route
 
@@ -359,6 +359,8 @@ removes it; another booking's token can't delete it; off → 404. Commit `feat(n
 `src/notifications/messages.ts` (+ spec), `src/notifications/channels/channel.ts`, `src/notifications/dispatcher.service.ts`,
 `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`, `src/config/env.ts` (+ spec),
 `.env.example`, `test/public-channels.int-spec.ts`.
+
+A WhatsApp row has `appointment_id` NULL, and Prisma's composite unique (`upsert`) refuses NULL parts: attach it with `INSERT … ON CONFLICT` in raw SQL (the unique index is `NULLS NOT DISTINCT`).
 
 Env (all or none): `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`. WhatsApp sends templates only (D11):
 `templateFor(input) → { name: 'bookedup_<kind>_<audience>', language: 'en'|'ru', params: string[] }` in
@@ -368,8 +370,8 @@ channel sends `POST https://graph.facebook.com/v21.0/<phone id>/messages { messa
 to, type: 'template', template: { name, language: { code }, components: [{ type: 'body', parameters }] } }`.
 Error 131026 (not on WhatsApp) → `unreachable`; others → throw. Route `PUT
 /public/bookings/:token/whatsapp` `{ locale }` → a WHATSAPP channel on the booking's client — or their
-guardian when the client has no phone — with `address` = that phone (D4), + CHANNEL_ON; `DELETE` →
-removes it.
+guardian when the client has no phone — with `address` = that phone (D4), + CHANNEL_ON (a switched-off row is switched on again); `DELETE` →
+sets `disabled_at`.
 
 **Check:** unit — the body for a reminder in ru; 131026 → `unreachable`; int — PUT → channel on the
 card (no `appointmentId`); a dependent's booking → the guardian's card; another booking of the same
@@ -385,8 +387,8 @@ Env (both or none): `RESEND_API_KEY`, `MAIL_FROM` (`BookedUp <no-reply@…>`). `
 `fetch('https://api.resend.com/emails', { from, to, subject, text })`; 422 invalid address →
 `unreachable`; 429 / 5xx → throw. In production without the key email is off (D8), logged once at
 start. Route `PUT /public/bookings/:token/email` `{ email (z.email, ≤ 254, lowercased), locale }` → an
-EMAIL channel on that booking (D4) + CHANNEL_ON; a second PUT with another address replaces it;
-`DELETE` removes it.
+EMAIL channel on that booking (D4) + CHANNEL_ON; a second PUT with another address replaces it (the old row is switched off);
+`DELETE` sets `disabled_at`; a PUT of an address that was switched off clears it.
 
 **Check:** unit with a fake `fetch`: body, auth header, 422 → `unreachable`, 500 → throws; int — PUT →
 channel on the booking + event; another booking of the same phone has no email channel; `NOT-AN-EMAIL`

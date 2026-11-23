@@ -6,6 +6,7 @@ import type { AuthUser } from '../auth/auth-types.js';
 import { BusinessPolicy } from '../business/business.policy.js';
 import { ClientsService } from '../clients/clients.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { recordEvent } from '../notifications/notification-events.js';
 import { violatedExclusion } from '../prisma/unique-violation.js';
 import { addDays, dateOfWall, type LocalDate, startOfDay, todayIn, wallAt } from '../schedule/local-time.js';
 import { withIsoTimes } from '../schedule/db-values.js';
@@ -104,6 +105,7 @@ export class AppointmentsService {
     await this.staff.authorizeChangeOf(actor, businessId, staffId);
     const { appointment } = await this.book(
       businessId,
+      actor.id,
       { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, note },
       now,
       mode,
@@ -122,11 +124,12 @@ export class AppointmentsService {
     now: Date,
     person: Person,
   ): Promise<{ appointment: AppointmentDto; title: string | null }> {
-    return this.book(businessId, input, now, 'ahead', person);
+    return this.book(businessId, null, input, now, 'ahead', person);
   }
 
   private async book(
     businessId: string,
+    actorUserId: string | null,
     {
       staffId,
       startsAt,
@@ -182,6 +185,16 @@ export class AppointmentsService {
           },
           select: appointmentSelect,
         });
+        // Someone who came without a booking has already been served: nobody is told.
+        if (mode === 'ahead') {
+          await recordEvent(tx, {
+            businessId,
+            appointmentId: created.id,
+            kind: 'BOOKED',
+            actorUserId,
+            startsAt,
+          });
+        }
         return { created, title: slot.title };
       });
       return { appointment: withIsoTimes(created), title };
@@ -229,18 +242,19 @@ export class AppointmentsService {
     if (input.staffId && input.staffId !== current.staffId) {
       await this.staff.authorizeChangeOf(actor, businessId, input.staffId);
     }
-    return this.relocate(businessId, id, current.staffId, input, now, false);
+    return this.relocate(businessId, actor.id, id, current.staffId, input, now, false);
   }
 
   // The booker moves what they booked online, until it starts: no actor, the business is the token's.
   async moveOnline(businessId: string, id: string, input: MoveInput, now: Date): Promise<AppointmentDto> {
     const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
     if (!current) throw new NotFoundException();
-    return this.relocate(businessId, id, current.staffId, input, now, true);
+    return this.relocate(businessId, null, id, current.staffId, input, now, true);
   }
 
   private async relocate(
     businessId: string,
+    actorUserId: string | null,
     id: string,
     currentStaffId: string,
     { staffId: target, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession }: MoveInput,
@@ -266,6 +280,7 @@ export class AppointmentsService {
           select: { status: true, startsAt: true },
         });
         if (!booking) throw statusConflict('badTransition', 'The booking has just changed');
+        const stays = booking.startsAt.getTime() === startsAt.getTime() && current.staffId === staffId;
         if (notStartedOnly && booking.startsAt <= now) {
           throw statusConflict('badTransition', 'The booking has already started');
         }
@@ -291,6 +306,17 @@ export class AppointmentsService {
           select: appointmentSelect,
         });
         if (!moved) throw statusConflict('badTransition', 'The booking has just changed');
+        // A save that changes nothing (a double click) is no news for anyone.
+        if (!stays) {
+          await recordEvent(tx, {
+            businessId,
+            appointmentId: id,
+            kind: 'MOVED',
+            actorUserId,
+            startsAt,
+            payload: { fromStaffId: current.staffId, fromStartsAt: booking.startsAt.toISOString() },
+          });
+        }
         return moved;
       });
       return withIsoTimes(moved);
@@ -343,7 +369,7 @@ export class AppointmentsService {
     });
     if (!current) throw new NotFoundException();
     await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
-    return this.transition(businessId, id, current, status, now);
+    return this.transition(businessId, actor.id, id, current, status, now);
   }
 
   // The booker cancels what they booked online, until it starts. Same rule and same conditional
@@ -355,11 +381,12 @@ export class AppointmentsService {
     });
     if (!current) throw new NotFoundException();
     if (current.startsAt <= now) throw statusConflict('badTransition', 'The booking has already started');
-    return this.transition(businessId, id, current, 'CANCELLED', now);
+    return this.transition(businessId, null, id, current, 'CANCELLED', now);
   }
 
   private async transition(
     businessId: string,
+    actorUserId: string | null,
     id: string,
     current: { staffId: string; status: AppointmentStatus; startsAt: Date },
     status: AppointmentStatus,
@@ -371,10 +398,24 @@ export class AppointmentsService {
     if ((status === 'DONE' || status === 'NO_SHOW') && current.startsAt > now) {
       throw statusConflict('notStarted', 'The booking has not started yet');
     }
-    const [updated] = await this.prisma.appointment.updateManyAndReturn({
-      where: { id, businessId, staffId: current.staffId, status: current.status },
-      data: { status },
-      select: appointmentSelect,
+    // The update and the event are one transaction; only a cancel is told, DONE and NO_SHOW happened.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const [changed] = await tx.appointment.updateManyAndReturn({
+        where: { id, businessId, staffId: current.staffId, status: current.status },
+        data: { status },
+        select: appointmentSelect,
+      });
+      if (changed && status === 'CANCELLED') {
+        await recordEvent(tx, {
+          businessId,
+          appointmentId: id,
+          kind: 'CANCELLED',
+          actorUserId,
+          // From the row just updated: a move that got in since the read has changed the start.
+          startsAt: changed.startsAt,
+        });
+      }
+      return changed;
     });
     if (!updated) throw statusConflict('badTransition', 'The booking has just changed');
     return withIsoTimes(updated);
