@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P4 done).
+**Status:** in progress (P1–P5 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -120,7 +120,7 @@ two slots → one client; the 4th → 409 `tooManyBookings`; the answer's keys a
 and a new phone. The cabinet's `appointments.int-spec.ts` stays green. Commit
 `feat(public-booking): book a slot by name and phone`.
 
-### - [ ] P5: any free master
+### - [x] P5: any free master
 
 **Files:** `src/public-booking/{public-booking.service.ts,public-booking.schema.ts}`, maybe a pure
 helper `src/public-booking/pick-master.ts` + spec, `test/public-booking.int-spec.ts`.

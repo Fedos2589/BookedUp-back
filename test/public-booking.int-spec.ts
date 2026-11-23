@@ -115,7 +115,16 @@ const withSchedules = async () => {
         ...extra,
       },
     });
-  return { business: owner.business, cookie: owner.cookie, hours, groups, group, book };
+  const addHours = async (name: string) => {
+    const created = await master(name, 'HOURS');
+    await as(
+      http()
+        .put(`${created.base}/weekly-windows`)
+        .send({ windows: [{ weekday: 2, startMinute: 600, durationMinutes: 120, slotMinutes: 60, title: null }] }),
+    ).expect(200);
+    return created;
+  };
+  return { business: owner.business, cookie: owner.cookie, addHours, hours, groups, group, book };
 };
 
 describe('GET /public/businesses/:slug/slots', () => {
@@ -332,5 +341,52 @@ describe('POST /public/businesses/:slug/bookings', () => {
       .set('Cookie', t.cookie)
       .expect(200);
     expect(res.body).toEqual([expect.objectContaining({ clientName: 'Vera', staffId: t.hours.id })]);
+  });
+
+  describe('without a staffId: any free master', () => {
+    const anyBody = (hour: number) => ({
+      startsAt: at(hour).toISOString(),
+      endsAt: at(hour + 1).toISOString(),
+      name: 'Vera',
+      phone: phoneOf(),
+    });
+
+    it('gives the time to the master with fewer bookings that day', async () => {
+      const t = await withSchedules();
+      const ivan = await t.addHours('Ivan');
+      await t.book(t.hours.id, at(8)); // Hana already has one
+
+      const res = await bookingsOf(t.business.slug).send(anyBody(7)).expect(201);
+
+      expect(res.body.booking).toMatchObject({ staffId: ivan.id, staffName: 'Ivan' });
+    });
+
+    it('moves on to the next master when the first is taken, and is 409 notFree when none is left', async () => {
+      const t = await withSchedules();
+      await t.addHours('Ivan');
+      const results = await Promise.all([1, 2, 3].map(() => bookingsOf(t.business.slug).send(anyBody(7))));
+      expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([201, 201, 409]);
+      const masters = results.filter((res) => res.status === 201).map((res) => res.body.booking.staffId);
+      expect(new Set(masters).size).toBe(2);
+      expect(results.find((res) => res.status === 409)?.body.code).toBe('notFree');
+    });
+
+    it("never picks a GROUPS master's meeting, nor a master who is off the team", async () => {
+      const t = await withSchedules();
+      // Gus has a meeting at 12:00Z (15:00 Moscow), no hours slot there.
+      await bookingsOf(t.business.slug).send(anyBody(12)).expect(409);
+      await prisma.staff.update({ where: { id: t.hours.id }, data: { archivedAt: new Date() } });
+      await bookingsOf(t.business.slug).send(anyBody(7)).expect(409);
+    });
+
+    it('is 400 with a groupId or a oneOffSessionId', async () => {
+      const t = await withSchedules();
+      await bookingsOf(t.business.slug)
+        .send({ ...anyBody(12), groupId: t.group })
+        .expect(400);
+      await bookingsOf(t.business.slug)
+        .send({ ...anyBody(12), oneOffSessionId: randomUUID() })
+        .expect(400);
+    });
   });
 });

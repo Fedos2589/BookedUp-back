@@ -18,7 +18,7 @@ export type PublicBusinessDto = z.infer<typeof publicBusinessSchema>;
 // A booking from the business's page: the slot, and who by name and phone.
 export const publicBookingInput = z
   .object({
-    staffId: z.uuid(),
+    staffId: z.uuid().optional().describe('The master; none: any master who is free at exactly this time'),
     startsAt: instant,
     endsAt: instant,
     groupId: z.uuid().optional().describe('Book a seat in the meeting of this group at this time'),
@@ -35,6 +35,11 @@ export const publicBookingInput = z
   .refine((booking) => !(booking.groupId && booking.oneOffSessionId), {
     path: ['oneOffSessionId'],
     message: 'A seat is in a group or in a one-off session, not both',
+    ...whenFieldsValid,
+  })
+  .refine((booking) => booking.staffId || !(booking.groupId || booking.oneOffSessionId), {
+    path: ['staffId'],
+    message: 'A meeting is one master’s: give staffId with groupId or oneOffSessionId',
     ...whenFieldsValid,
   });
 export type PublicBookingInput = z.infer<typeof publicBookingInput>;
