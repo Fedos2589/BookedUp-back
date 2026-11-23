@@ -41,7 +41,12 @@ export class NotificationsProcessor extends WorkerHost implements OnApplicationB
 
   async process(): Promise<void> {
     const now = new Date();
-    await this.reminders.scheduleReminders(now);
+    // Reminders that can't be written must not hold back the other messages: they are retried on the next tick.
+    try {
+      await this.reminders.scheduleReminders(now);
+    } catch (err) {
+      this.logger.error({ err }, 'Scheduling reminders failed');
+    }
     await this.dispatcher.dispatch(now);
   }
 }

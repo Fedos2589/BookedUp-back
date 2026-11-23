@@ -32,7 +32,7 @@ const setUp = (workerOn: boolean) => {
     queue as unknown as Queue,
   );
   Object.defineProperty(processor, 'worker', { get: () => ({ run }) });
-  return { processor, calls, nows, queue, run };
+  return { processor, calls, nows, queue, run, reminders };
 };
 
 describe('NotificationsProcessor', () => {
@@ -43,6 +43,15 @@ describe('NotificationsProcessor', () => {
 
     expect(calls).toEqual(['reminders', 'dispatch']);
     expect(nows[0]).toBe(nows[1]);
+  });
+
+  it('still dispatches when scheduling reminders fails', async () => {
+    const { processor, calls, reminders } = setUp(true);
+    reminders.scheduleReminders.mockRejectedValueOnce(new Error('lock timeout'));
+
+    await processor.process();
+
+    expect(calls).toEqual(['dispatch']);
   });
 
   it('puts the 30-second schedule in and starts the worker when it is on', async () => {
