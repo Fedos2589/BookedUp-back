@@ -153,7 +153,7 @@ texts. Commit `feat(notifications): message texts`.
 Pure `recipientsOf(event, ctx): Recipient[]`, `Recipient = { channel: ChannelKind; address; audience;
 locale }`. `ctx`: the booking's master's `userId | null` (and, for MOVED with `payload.fromStaffId` different from it, the previous master's — they get the message too, as «moved away»), the business's memberships `{ userId, role,
 email, locale, notifyEmail, notifyAllOnline, channels: { kind, address, keys }[] }[]`, the client
-channels that apply (the caller already picked: WhatsApp of the person or their guardian, and Telegram
+channels that apply (the caller already picked: not switched off (`disabled_at IS NULL`), WhatsApp of the person or their guardian, and Telegram
 / push / email with this `appointmentId` — D4), and `fallbackToLog: boolean`.
 
 Rules: staff only for BOOKED / MOVED / CANCELLED. The master's account, unless `actorUserId` is that
@@ -200,15 +200,15 @@ on a retryable error). `LogChannel` logs `{ channel, to: masked, subject, text }
 with `UPDATE … SET status = 'SENDING', attempts = attempts + 1 … FOR UPDATE SKIP LOCKED RETURNING` (its
 own transaction, committed before any call); render with `messageFor` (load what it needs, `businessId`
 in `where`); call the channel; `SENT` + `sentAt`, or `FAILED` + `lastError` (message only), or on
-`unreachable` mark `FAILED` with attempts = 3 and delete that client or user channel
-(an email `unreachable` deletes nothing: the account's address stays, M6). A delivery
+`unreachable` mark `FAILED` with attempts = 3 and switch off that client channel (`disabled_at = now()`, the row stays: its events and deliveries hang on it) or delete that user channel (nothing hangs on it)
+(an email `unreachable` changes nothing: the account's address stays, M6). A delivery
 left `SENDING` is never picked again (D3). After the last delivery of a CHANNEL_ON event is out, set
 its `payload` to `null` (D5). `dispatch(now)` = `expand` then `send`.
 
 **Check:** int test with a fake channel registered for LOG: one booking → each recipient's message sent
 once; two parallel `dispatch` → each sent once; the fake throws once → FAILED, the next `dispatch` sends
-it; after 3 failures it stays FAILED; a row left `SENDING` is not sent again; `unreachable` removes the
-client channel. Commit `feat(notifications): send deliveries`.
+it; after 3 failures it stays FAILED; a row left `SENDING` is not sent again; `unreachable` sets `disabled_at` on
+the client channel (the row and its event stay). Commit `feat(notifications): send deliveries`.
 
 ### - [ ] N7: reminders
 
@@ -347,11 +347,11 @@ body: text, url }))`, TTL 1 day; 404 / 410 → `unreachable`. `url`: for a clien
 `/book/<slug>`, for staff the cabinet's `/calendar` (the delivery's audience decides). `push.schema.ts`:
 `{ endpoint: https URL ≤ 1000, keys: { p256dh ≤ 200, auth ≤ 100 } }` — M7 reuses it. Routes:
 `PUT /public/bookings/:token/push` `{ subscription, locale }` → upsert a PUSH channel for that booking +
-CHANNEL_ON (only when new); `DELETE /public/bookings/:token/push` `{ endpoint }`. Off → 404 `channelOff`.
+CHANNEL_ON (only when new); `DELETE /public/bookings/:token/push` `{ endpoint }` (sets `disabled_at`, never deletes a client channel; a PUT of the same endpoint clears it, with a CHANNEL_ON again). Off → 404 `channelOff`.
 `.env.example`: how to make keys — `npx web-push generate-vapid-keys`.
 
 **Check:** unit — 410 → `unreachable`, 500 → throws; int — PUT twice → one channel, one event; DELETE
-removes it; another booking's token can't delete it; off → 404. Commit `feat(notifications): Web Push`.
+switches it off, PUT again switches it on; another booking's token can't switch it off; off → 404. Commit `feat(notifications): Web Push`.
 
 ### - [ ] M5: WhatsApp channel, the client's route
 
@@ -370,8 +370,8 @@ channel sends `POST https://graph.facebook.com/v21.0/<phone id>/messages { messa
 to, type: 'template', template: { name, language: { code }, components: [{ type: 'body', parameters }] } }`.
 Error 131026 (not on WhatsApp) → `unreachable`; others → throw. Route `PUT
 /public/bookings/:token/whatsapp` `{ locale }` → a WHATSAPP channel on the booking's client — or their
-guardian when the client has no phone — with `address` = that phone (D4), + CHANNEL_ON; `DELETE` →
-removes it.
+guardian when the client has no phone — with `address` = that phone (D4), + CHANNEL_ON (a switched-off row is switched on again); `DELETE` →
+sets `disabled_at`.
 
 **Check:** unit — the body for a reminder in ru; 131026 → `unreachable`; int — PUT → channel on the
 card (no `appointmentId`); a dependent's booking → the guardian's card; another booking of the same
@@ -387,8 +387,8 @@ Env (both or none): `RESEND_API_KEY`, `MAIL_FROM` (`BookedUp <no-reply@…>`). `
 `fetch('https://api.resend.com/emails', { from, to, subject, text })`; 422 invalid address →
 `unreachable`; 429 / 5xx → throw. In production without the key email is off (D8), logged once at
 start. Route `PUT /public/bookings/:token/email` `{ email (z.email, ≤ 254, lowercased), locale }` → an
-EMAIL channel on that booking (D4) + CHANNEL_ON; a second PUT with another address replaces it;
-`DELETE` removes it.
+EMAIL channel on that booking (D4) + CHANNEL_ON; a second PUT with another address replaces it (the old row is switched off);
+`DELETE` sets `disabled_at`; a PUT of an address that was switched off clears it.
 
 **Check:** unit with a fake `fetch`: body, auth header, 422 → `unreachable`, 500 → throws; int — PUT →
 channel on the booking + event; another booking of the same phone has no email channel; `NOT-AN-EMAIL`

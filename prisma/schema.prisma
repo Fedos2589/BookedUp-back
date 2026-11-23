@@ -506,6 +506,9 @@ model ClientChannel {
   keys          Json?
   /// `en` or `ru` (CHECK).
   locale        String
+  /// Switched off (the client turned it off, or it was unreachable): the row stays, because its events and
+  /// deliveries hang on it. Nothing is sent to it; turning it on again clears the mark.
+  disabledAt    DateTime?   @map("disabled_at") @db.Timestamptz(3)
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
 
   business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)

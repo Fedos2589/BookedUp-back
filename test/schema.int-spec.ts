@@ -769,6 +769,22 @@ describe('notifications (E9)', () => {
     await expect(event(b, 'CHANNEL_ON', null)).rejects.toThrow(/notification_events_channel/);
   });
 
+  it('switches a client channel off with a mark, so the event that turned it on stays', async () => {
+    const b = await bookingOf();
+    await clientChannel(b, 'TELEGRAM', b.appointmentId, 'chat-1');
+    const [channel] = await prisma.$queryRaw<{ id: string; disabled_at: Date | null }[]>`
+      SELECT id, disabled_at FROM client_channels WHERE appointment_id = ${b.appointmentId}::uuid`;
+    expect(channel!.disabled_at).toBeNull();
+    await prisma.$executeRaw`INSERT INTO notification_events (business_id, appointment_id, kind, channel_id, starts_at)
+      VALUES (${b.businessId}::uuid, ${b.appointmentId}::uuid, 'CHANNEL_ON'::"NotificationKind", ${channel!.id}::uuid, now())`;
+
+    await prisma.$executeRaw`UPDATE client_channels SET disabled_at = now() WHERE id = ${channel!.id}::uuid`;
+
+    const events = await prisma.$queryRaw<unknown[]>`
+      SELECT 1 FROM notification_events WHERE channel_id = ${channel!.id}::uuid`;
+    expect(events).toHaveLength(1);
+  });
+
   it('sends a message once per event, channel and address', async () => {
     const b = await bookingOf();
     await event(b, 'BOOKED', null);
