@@ -169,7 +169,7 @@ booking → the master; online → master + owner, admin with the switch off lef
 also the owner gets one set; email off → only their linked channels; two push devices → two; REMINDER → clients only; CHANNEL_ON → the one
 channel. Commit `feat(notifications): who gets an event`.
 
-### - [ ] N5: events into deliveries
+### - [x] N5: events into deliveries
 
 **Files:** create `src/notifications/{dispatcher.service.ts}`, `src/notifications/notifications.module.ts`,
 create `test/notification-dispatch.int-spec.ts`.

@@ -17,6 +17,7 @@ import { type Env, validateEnv } from './config/env.js';
 import { InvitationsModule } from './invitations/invitations.module.js';
 import { MembersModule } from './members/members.module.js';
 import { HealthController } from './health/health.controller.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { PublicBookingModule } from './public-booking/public-booking.module.js';
 import { ScheduleModule } from './schedule/schedule.module.js';
@@ -87,6 +88,7 @@ import { StaffModule } from './staff/staff.module.js';
     MembersModule,
     InvitationsModule,
     PublicBookingModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
   providers: [
