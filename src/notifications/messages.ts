@@ -1,4 +1,7 @@
-export type MessageLocale = 'en' | 'ru';
+import type { Locale } from '../account/locale.js';
+
+// The same two languages as the accounts' (src/account/locale.ts): one list to extend.
+export type MessageLocale = Locale;
 
 export type MessageInput = {
   kind: 'BOOKED' | 'MOVED' | 'CANCELLED' | 'REMINDER' | 'CHANNEL_ON';
@@ -135,7 +138,9 @@ const clientText = (input: MessageInput) => {
     case 'REMINDER':
       return `${leadOf(input.offsetMinutes ?? MINUTES_IN_DAY, locale)}: ${slot}`;
     case 'CHANNEL_ON':
-      return [`${w.booked}: ${slot}`, `${w.manage}: ${input.manageLink ?? ''}`, w.remindersHere].join('\n');
+      // The link is wiped from the event once sent (D5): a message without it is a bug, not a blank.
+      if (!input.manageLink) throw new Error('CHANNEL_ON needs manageLink');
+      return [`${w.booked}: ${slot}`, `${w.manage}: ${input.manageLink}`, w.remindersHere].join('\n');
   }
 };
 
@@ -144,15 +149,17 @@ const staffText = (input: MessageInput) => {
   const { locale, timeZone } = input;
   const at = (date: Date) => `${dayOf(date, locale, timeZone)} ${timeOf(date, locale, timeZone)}`;
   const title = input.title === null ? '' : `, ${input.title}`;
+  // An account's channels serve every business it belongs to: say which one this is.
+  const prefix = `${input.businessName} · `;
   switch (input.kind) {
     case 'BOOKED':
-      return `${w.newBooking}: ${input.clientName}, ${at(input.startsAt)}${title}`;
+      return `${prefix}${w.newBooking}: ${input.clientName}, ${at(input.startsAt)}${title}`;
     case 'CANCELLED':
-      return `${w.bookingOf} ${input.clientName} ${w.cancelledStaff}: ${at(input.startsAt)}${title}`;
+      return `${prefix}${w.bookingOf} ${input.clientName} ${w.cancelledStaff}: ${at(input.startsAt)}${title}`;
     case 'MOVED': {
       const from = [input.fromMasterName, input.fromStartsAt && at(input.fromStartsAt)].filter(Boolean).join(', ');
       const to = [input.fromMasterName && input.masterName, at(input.startsAt)].filter(Boolean).join(', ');
-      return `${w.bookingOf} ${input.clientName} ${w.movedStaff}: ${from ? `${from} → ` : ''}${to}${title}`;
+      return `${prefix}${w.bookingOf} ${input.clientName} ${w.movedStaff}: ${from ? `${from} → ` : ''}${to}${title}`;
     }
     case 'REMINDER':
     case 'CHANNEL_ON':
@@ -160,8 +167,14 @@ const staffText = (input: MessageInput) => {
   }
 };
 
+// «Booking confirmed» is for the client; the master is told of a new booking.
+const subjectOf = (input: MessageInput) =>
+  input.audience === 'staff' && input.kind === 'BOOKED'
+    ? WORDS[input.locale].newBooking
+    : WORDS[input.locale].subject[input.kind];
+
 // The text of one notification. Plain text, no markup: Telegram is sent without `parse_mode`.
 export const messageFor = (input: MessageInput): Message => ({
-  subject: WORDS[input.locale].subject[input.kind],
+  subject: subjectOf(input),
   text: input.audience === 'client' ? clientText(input) : staffText(input),
 });

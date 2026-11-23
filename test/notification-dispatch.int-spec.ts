@@ -156,4 +156,50 @@ describe('events into deliveries', () => {
     const clientRows = (await t.deliveries()).filter((row) => row.includes(' client '));
     expect(clientRows).toEqual(['LOG client en +70000000001']);
   });
+
+  it('leaves out a channel turned on after the event', async () => {
+    const t = await setUp();
+    const clientId = await createClient(prisma, t.businessId, phone());
+    const appointment = await t.book(clientId);
+    await t.bookedEvent(appointment);
+    await prisma.clientChannel.create({
+      data: {
+        businessId: t.businessId,
+        clientId,
+        appointmentId: appointment.id,
+        kind: 'TELEGRAM',
+        address: 'late',
+        locale: 'en',
+      },
+    });
+
+    await drain();
+
+    expect((await t.deliveries()).filter((row) => row.includes(' client '))).toEqual([]);
+  });
+
+  it('one event that cannot be read does not hold the others back', async () => {
+    const t = await setUp();
+    const appointment = await t.book(await createClient(prisma, t.businessId, phone()));
+    // A MOVED event whose payload points at a staff id that is no id at all.
+    const poisoned = await prisma.notificationEvent.create({
+      data: {
+        businessId: t.businessId,
+        appointmentId: appointment.id,
+        kind: 'MOVED',
+        startsAt: appointment.startsAt,
+        payload: { fromStaffId: 'not-an-id', fromStartsAt: appointment.startsAt.toISOString() },
+      },
+      select: { id: true },
+    });
+    await t.bookedEvent(appointment);
+
+    await drain();
+
+    expect(await t.deliveries()).toHaveLength(2);
+    const left = await prisma.notificationEvent.findMany({ where: { businessId: t.businessId, processedAt: null } });
+    expect(left.map((event) => event.id)).toEqual([poisoned.id]);
+    // The shared database would keep retrying it, and logging, in every later test.
+    await prisma.notificationEvent.delete({ where: { id: poisoned.id } });
+  });
 });

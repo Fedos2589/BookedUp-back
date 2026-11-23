@@ -67,6 +67,10 @@ describe('messageFor: client', () => {
     );
   });
 
+  it('CHANNEL_ON without the link is a bug, not an empty «Manage your booking: »', () => {
+    expect(() => messageFor({ ...base, kind: 'CHANNEL_ON' })).toThrow('manageLink');
+  });
+
   it('has a subject', () => {
     expect(messageFor(base).subject).not.toBe('');
   });
@@ -91,6 +95,18 @@ describe('messageFor: staff', () => {
   it('CANCELLED', () => {
     has({ ...staff, kind: 'CANCELLED' }, 'cancelled', 'Maria');
     has({ ...staff, kind: 'CANCELLED', locale: 'ru' }, 'отменена', 'Maria');
+  });
+
+  it('names the business: one account can work in several', () => {
+    has({ ...staff }, 'Studio X');
+    has({ ...staff, kind: 'MOVED', fromStartsAt: new Date('2026-11-26T09:00:00Z') }, 'Studio X');
+    has({ ...staff, kind: 'CANCELLED' }, 'Studio X');
+  });
+
+  it('has its own subject for a new booking, not the client’s «confirmed»', () => {
+    expect(messageFor({ ...base, ...staff }).subject).toBe('New booking');
+    expect(messageFor({ ...base, ...staff, locale: 'ru' }).subject).toBe('Новая запись');
+    expect(messageFor(base).subject).toBe('Booking confirmed');
   });
 
   it('never carries the manage link', () => {

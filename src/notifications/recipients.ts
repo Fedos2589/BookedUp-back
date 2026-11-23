@@ -38,7 +38,7 @@ export type RecipientsContext = {
   fallbackToLog: boolean;
 };
 
-const STAFF_KINDS: readonly NotificationKind[] = ['BOOKED', 'MOVED', 'CANCELLED'];
+export const STAFF_KINDS: readonly NotificationKind[] = ['BOOKED', 'MOVED', 'CANCELLED'];
 
 // The accounts that hear about the event. The one who acted never hears about their own action.
 const staffUserIds = (event: RecipientsEvent, ctx: RecipientsContext) => {
@@ -48,8 +48,9 @@ const staffUserIds = (event: RecipientsEvent, ctx: RecipientsContext) => {
   if (ctx.previousMasterUserId !== null) ids.add(ctx.previousMasterUserId);
   if (event.actorUserId === null) {
     for (const m of ctx.members) if (m.role !== 'MASTER' && m.notifyAllOnline) ids.add(m.userId);
+  } else {
+    ids.delete(event.actorUserId);
   }
-  if (event.actorUserId !== null) ids.delete(event.actorUserId);
   return ids;
 };
 
