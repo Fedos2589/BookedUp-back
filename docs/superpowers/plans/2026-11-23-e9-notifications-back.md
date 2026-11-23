@@ -68,7 +68,7 @@ M:
 
 ## Step N — the engine
 
-### - [ ] N1: tables
+### - [x] N1: tables
 
 **Files:** `prisma/schema.prisma`, a new migration `prisma/migrations/<ts>_notifications/`,
 `test/schema.int-spec.ts`.

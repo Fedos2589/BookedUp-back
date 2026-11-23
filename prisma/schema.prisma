@@ -31,28 +31,34 @@ enum MemberRole {
 
 /// A business on BookedUp — the tenant.
 model Business {
-  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  name      String
+  id              String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  name            String
   /// Address of the public booking page: /book/<slug>. Lowercase latin, digits and single
   /// hyphens (a CHECK constraint enforces it), so uniqueness is case-insensitive.
-  slug      String   @unique
+  slug            String   @unique
   /// IANA time zone, e.g. Europe/Moscow. Slots and reports are computed in it.
-  timeZone  String   @map("time_zone")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  timeZone        String   @map("time_zone")
+  /// Minutes before a booking at which its client is reminded: 0 to 3 of 60, 120, 180, 1440, 2880
+  /// (a CHECK constraint enforces the list). Empty = no reminders.
+  reminderOffsets Int[]    @default([1440]) @map("reminder_offsets")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  locations          Location[]
-  memberships        Membership[]
-  staff              Staff[]
-  invitations        Invitation[]
-  weeklyWindows      WeeklyWindow[]
-  dayOverrides       DayOverride[]
-  groups             Group[]
-  groupCancellations GroupCancellation[]
-  oneOffSessions     OneOffSession[]
-  timeOffs           TimeOff[]
-  appointments       Appointment[]
-  clients            Client[]
+  locations              Location[]
+  memberships            Membership[]
+  staff                  Staff[]
+  invitations            Invitation[]
+  weeklyWindows          WeeklyWindow[]
+  dayOverrides           DayOverride[]
+  groups                 Group[]
+  groupCancellations     GroupCancellation[]
+  oneOffSessions         OneOffSession[]
+  timeOffs               TimeOff[]
+  appointments           Appointment[]
+  clients                Client[]
+  clientChannels         ClientChannel[]
+  notificationEvents     NotificationEvent[]
+  notificationDeliveries NotificationDelivery[]
 
   @@map("businesses")
 }
@@ -77,19 +83,22 @@ model Location {
 /// later), each with only required columns; registration creates the user and at least
 /// one of them in one transaction.
 model User {
-  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   /// Always lowercase (a CHECK constraint enforces it), so uniqueness is case-insensitive.
-  email     String   @unique
-  name      String
+  email       String   @unique
+  name        String
   /// Interface language: `en` or `ru` (a CHECK constraint enforces the list, see src/account/locale.ts).
-  locale    String   @default("en")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  locale      String   @default("en")
+  /// The account's email channel for notifications (E9): its address is `email`.
+  notifyEmail Boolean  @default(true) @map("notify_email")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   passwordLogin   PasswordLogin?
   memberships     Membership[]
   sessions        Session[]
   invitationsSent Invitation[]
+  channels        UserChannel[]
 
   @@map("users")
 }
@@ -138,12 +147,14 @@ enum SessionMfaState {
 /// created together with its owner, and ownership is handed over by demoting the old
 /// owner and promoting the new one in one transaction.
 model Membership {
-  id         String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  businessId String     @map("business_id") @db.Uuid
-  userId     String     @map("user_id") @db.Uuid
-  role       MemberRole
-  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id              String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId      String     @map("business_id") @db.Uuid
+  userId          String     @map("user_id") @db.Uuid
+  role            MemberRole
+  /// Owner / admin: get every online booking, move and cancel of the business (E9).
+  notifyAllOnline Boolean    @default(true) @map("notify_all_online")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -391,12 +402,15 @@ model Appointment {
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  staff         Staff          @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
-  client        Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
-  group         Group?         @relation(fields: [businessId, staffId, groupId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
-  oneOffSession OneOffSession? @relation(fields: [businessId, staffId, oneOffSessionId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff              Staff               @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
+  client             Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
+  channels           ClientChannel[]
+  notificationEvents NotificationEvent[]
+  group              Group?              @relation(fields: [businessId, staffId, groupId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
+  oneOffSession      OneOffSession?      @relation(fields: [businessId, staffId, oneOffSessionId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([businessId, id])
   @@index([businessId, startsAt])
   @@index([businessId, groupId, startsAt])
   @@index([businessId, oneOffSessionId])
@@ -420,10 +434,11 @@ model Client {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  guardian     Client?       @relation("Guardian", fields: [businessId, guardianId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
-  dependents   Client[]      @relation("Guardian")
+  business     Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  guardian     Client?         @relation("Guardian", fields: [businessId, guardianId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
+  dependents   Client[]        @relation("Guardian")
   appointments Appointment[]
+  channels     ClientChannel[]
 
   /// What bookings reference together with business_id (AGENTS.md, «Связи внутри бизнеса»).
   @@unique([businessId, id])
@@ -431,4 +446,131 @@ model Client {
   @@unique([businessId, phone])
   @@index([businessId, guardianId])
   @@map("clients")
+}
+
+/// Where a message can go (E9). LOG is the development and test channel: it only writes the log.
+enum ChannelKind {
+  EMAIL
+  TELEGRAM
+  WHATSAPP
+  PUSH
+  LOG
+}
+
+enum NotificationKind {
+  BOOKED
+  MOVED
+  CANCELLED
+  REMINDER
+  CHANNEL_ON
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+/// A channel of a staff account, for every business it is a member of. Its email is `users.email`
+/// (+ `notify_email`), so only TELEGRAM, WHATSAPP and PUSH are stored (CHECK `user_channels_kind`);
+/// at most one TELEGRAM and one WHATSAPP per account are partial unique indexes in the migration.
+model UserChannel {
+  id        String      @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  kind      ChannelKind
+  /// Chat id / E.164 / push endpoint.
+  address   String
+  /// Push: `p256dh` and `auth`.
+  keys      Json?
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, address])
+  @@map("user_channels")
+}
+
+/// A channel of a client. WHATSAPP sits on the client card (the phone), the others on the booking
+/// whose manage link turned them on: `(kind = 'WHATSAPP') = (appointment_id IS NULL)` (CHECK).
+/// The unique key `(business_id, client_id, kind, address, appointment_id) NULLS NOT DISTINCT`
+/// is in the migration, Prisma can't express it.
+model ClientChannel {
+  id            String      @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId    String      @map("business_id") @db.Uuid
+  clientId      String      @map("client_id") @db.Uuid
+  appointmentId String?     @map("appointment_id") @db.Uuid
+  kind          ChannelKind
+  /// Chat id / E.164 / push endpoint / email (at most 254).
+  address       String
+  keys          Json?
+  /// `en` or `ru` (CHECK).
+  locale        String
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  client      Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
+  appointment Appointment?        @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
+  events      NotificationEvent[]
+
+  @@unique([businessId, id])
+  /// Declared so Prisma knows the index; the migration creates it NULLS NOT DISTINCT (a WhatsApp row has
+  /// no booking), which the schema can't say.
+  @@unique([businessId, clientId, kind, address, appointmentId], map: "client_channels_address_key")
+  @@index([businessId, clientId])
+  @@index([businessId, appointmentId])
+  @@map("client_channels")
+}
+
+/// Outbox: a booking's change, written in the same transaction as the change (E9, decision 1).
+model NotificationEvent {
+  id            String           @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId    String           @map("business_id") @db.Uuid
+  appointmentId String           @map("appointment_id") @db.Uuid
+  kind          NotificationKind
+  /// Who made the change; NULL = the client online or the system.
+  actorUserId   String?          @map("actor_user_id") @db.Uuid
+  /// The booking's start when the event was written.
+  startsAt      DateTime         @map("starts_at") @db.Timestamptz(3)
+  /// REMINDER only (CHECK `notification_events_offset`).
+  offsetMinutes Int?             @map("offset_minutes")
+  /// CHANNEL_ON only (CHECK `notification_events_channel`): the channel just turned on.
+  channelId     String?          @map("channel_id") @db.Uuid
+  /// CHANNEL_ON: `{ manageLink }`, wiped once sent (decision 5).
+  payload       Json?
+  processedAt   DateTime?        @map("processed_at") @db.Timestamptz(3)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business    Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointment Appointment            @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
+  channel     ClientChannel?         @relation(fields: [businessId, channelId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
+  deliveries  NotificationDelivery[]
+
+  @@unique([businessId, id])
+  @@map("notification_events")
+}
+
+/// One message to one address: unique per `(event, channel, address)`, claimed before the call to
+/// the outside service (E9, decision 3).
+model NotificationDelivery {
+  id         String         @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  businessId String         @map("business_id") @db.Uuid
+  eventId    String         @map("event_id") @db.Uuid
+  channel    ChannelKind
+  address    String
+  /// `client` or `staff` (CHECK).
+  audience   String
+  /// `en` or `ru` (CHECK).
+  locale     String
+  status     DeliveryStatus @default(PENDING)
+  attempts   Int            @default(0)
+  lastError  String?        @map("last_error")
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt     DateTime?      @map("sent_at") @db.Timestamptz(3)
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  event    NotificationEvent @relation(fields: [businessId, eventId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([eventId, channel, address])
+  @@map("notification_deliveries")
 }
