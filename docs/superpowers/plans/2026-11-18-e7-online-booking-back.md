@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P8 done).
+**Status:** done, awaiting review and merge (P1–P9).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -182,7 +182,7 @@ comment naming that file. `Cache-Control: public, max-age=3600`. Swagger: an obj
 **Check:** int test — the content type, `start_url` / `scope` of the slug, the business name; unknown
 slug → 404. Commit `feat(public-booking): web manifest per business`.
 
-### - [ ] P9: docs and the common plan
+### - [x] P9: docs and the common plan
 
 **Files:** `.claude/skills/back-access/SKILL.md`, `AGENTS.md` (only the «Вход, доступ» paragraph, one
 line), `docs/superpowers/plans/2026-11-18-e7-online-booking.md`, this file.
