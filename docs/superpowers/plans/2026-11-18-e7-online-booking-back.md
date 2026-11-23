@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P2 done).
+**Status:** in progress (P1–P3 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -73,7 +73,7 @@ filter has `businessId`), not an error.
 `capacity` / `booked` come back; a booked hour is gone; `staffId` of another business's master → `[]`;
 `to` 40 days after `from` → 400. Commit `feat(public-booking): free slots`.
 
-### - [ ] P3: manage token on a booking
+### - [x] P3: manage token on a booking
 
 **Files:** `prisma/schema.prisma`, a new migration `prisma/migrations/<ts>_appointment_manage_token/`,
 create `src/public-booking/manage-token.ts` + `manage-token.spec.ts`.

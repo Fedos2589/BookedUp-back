@@ -386,6 +386,8 @@ model Appointment {
   note            String?
   groupId         String?           @map("group_id") @db.Uuid
   oneOffSessionId String?           @map("one_off_session_id") @db.Uuid
+  /// SHA-256 of the private link's token: only a booking made online has one (E7).
+  manageTokenHash String?           @unique @map("manage_token_hash")
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
