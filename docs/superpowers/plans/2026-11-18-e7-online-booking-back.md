@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** not started.
+**Status:** in progress (P1–P3 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -44,7 +44,7 @@ next to this file. Open it only if a task leaves a question this file doesn't an
 
 ---
 
-### - [ ] P1: public business page data
+### - [x] P1: public business page data
 
 **Files:** create `src/public-booking/{public-booking.module.ts,public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `src/app.module.ts` (import the module), create `test/public-booking.int-spec.ts`.
@@ -58,7 +58,7 @@ A service method `businessIdOf(slug)` that the next tasks reuse.
 the live master only, with no cookie; unknown slug → 404; `A_B` → 400. Swagger lists the route under
 `public-booking`. Commit `feat(public-booking): business and its masters by slug`.
 
-### - [ ] P2: public free slots
+### - [x] P2: public free slots
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `test/public-booking.int-spec.ts`.
@@ -73,7 +73,7 @@ filter has `businessId`), not an error.
 `capacity` / `booked` come back; a booked hour is gone; `staffId` of another business's master → `[]`;
 `to` 40 days after `from` → 400. Commit `feat(public-booking): free slots`.
 
-### - [ ] P3: manage token on a booking
+### - [x] P3: manage token on a booking
 
 **Files:** `prisma/schema.prisma`, a new migration `prisma/migrations/<ts>_appointment_manage_token/`,
 create `src/public-booking/manage-token.ts` + `manage-token.spec.ts`.

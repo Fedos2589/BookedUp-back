@@ -12,7 +12,8 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { assignableRoleSchema } from '../members/members.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
-import { hashInvitationToken, invitationLink, newInvitationToken } from './invitation-token.js';
+import { hashRandomToken, newRandomToken } from '../common/random-token.js';
+import { invitationLink } from './invitation-token.js';
 import type {
   CreatedInvitation,
   CreateInvitationInput,
@@ -75,14 +76,14 @@ export class InvitationsService {
     await this.authorization.authorize(BusinessPolicy, 'manageRole', actor, businessId, input.role);
     if (input.staffId) await this.assertFreeSchedule(businessId, input.staffId);
 
-    const token = newInvitationToken();
+    const token = newRandomToken();
     const invitation = toView(
       await this.prisma.invitation.create({
         data: {
           businessId,
           ...input,
           invitedById: actor.id,
-          tokenHash: hashInvitationToken(token),
+          tokenHash: hashRandomToken(token),
           expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
         },
         select: invitationSelect,
@@ -138,7 +139,7 @@ export class InvitationsService {
 
   async preview(token: string): Promise<InvitationPreview> {
     const invitation = await this.prisma.invitation.findFirst({
-      where: { tokenHash: hashInvitationToken(token), ...pendingAt(new Date()) },
+      where: { tokenHash: hashRandomToken(token), ...pendingAt(new Date()) },
       select: { role: true, business: { select: { name: true } }, invitedBy: { select: { name: true } } },
     });
     if (!invitation) throw new InvitationGone();
@@ -150,7 +151,7 @@ export class InvitationsService {
   }
 
   async accept(token: string, userId: string): Promise<MemberBusiness> {
-    return this.prisma.$transaction((tx) => this.join(tx, hashInvitationToken(token), userId));
+    return this.prisma.$transaction((tx) => this.join(tx, hashRandomToken(token), userId));
   }
 
   // The account and the membership in one transaction: a link that doesn't work leaves no
@@ -161,7 +162,7 @@ export class InvitationsService {
     token: string,
     { email, password, name, locale }: InvitationSignUpInput,
   ): Promise<InvitationSignUpResult> {
-    const tokenHash = hashInvitationToken(token);
+    const tokenHash = hashRandomToken(token);
     const live = await this.prisma.invitation.count({ where: { tokenHash, ...pendingAt(new Date()) } });
     if (!live) throw new InvitationGone();
     const passwordHash = await this.hasher.hash(password);

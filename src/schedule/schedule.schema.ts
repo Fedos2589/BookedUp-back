@@ -123,22 +123,32 @@ export type SlotDto = z.infer<typeof slotSchema>;
 
 const MAX_DAYS = 31;
 
-// Days on the business's clock, both included.
-export const slotsQuery = z
-  .object({
-    from: z.iso.date(),
-    to: z.iso.date(),
-    staffId: z.uuid().optional(),
+const slotsRange = z.object({
+  from: z.iso.date(),
+  to: z.iso.date(),
+  staffId: z.uuid().optional(),
+});
+
+// Days on the business's clock, both included, at most MAX_DAYS of them.
+const withinRange = <S extends z.ZodType<{ from: string; to: string }>>(schema: S) =>
+  schema
+    .refine(({ from, to }) => from <= to, { path: ['to'], message: 'Before from', ...whenFieldsValid })
+    .refine(({ from, to }) => to < addDays(from, MAX_DAYS), {
+      path: ['to'],
+      message: `More than ${MAX_DAYS} days after from`,
+      ...whenFieldsValid,
+    });
+
+export const slotsQuery = withinRange(
+  slotsRange.extend({
     includePast: z
       .enum(['true', 'false'])
       .default('false')
       .transform((flag) => flag === 'true')
       .describe('Also meetings that have started or are over (the calendar grid); default: from now on'),
-  })
-  .refine(({ from, to }) => from <= to, { path: ['to'], message: 'Before from', ...whenFieldsValid })
-  .refine(({ from, to }) => to < addDays(from, MAX_DAYS), {
-    path: ['to'],
-    message: `More than ${MAX_DAYS} days after from`,
-    ...whenFieldsValid,
-  });
+  }),
+);
+// What a visitor may ask: what can still be booked, never the past.
+export const publicSlotsQuery = withinRange(slotsRange);
+export type PublicSlotsQuery = z.infer<typeof publicSlotsQuery>;
 export type SlotsQuery = z.infer<typeof slotsQuery>;

@@ -332,7 +332,13 @@ describe('appointments', () => {
     master: { businessId: string; staffId: string },
     startsAt: string,
     endsAt: string,
-    extra: { status?: 'CANCELLED'; groupId?: string; oneOffSessionId?: string; clientId?: string } = {},
+    extra: {
+      status?: 'CANCELLED';
+      groupId?: string;
+      oneOffSessionId?: string;
+      clientId?: string;
+      manageTokenHash?: string;
+    } = {},
   ) =>
     prisma.appointment.create({
       data: {
@@ -345,6 +351,18 @@ describe('appointments', () => {
         ...extra,
       },
     });
+
+  it('keeps a manage token once: only online bookings have one, and no two share it', async () => {
+    const master = await staffOf();
+    const first = await booking(master, '2030-02-10T10:00:00Z', '2030-02-10T11:00:00Z');
+    expect(first.manageTokenHash).toBeNull();
+    const hash = unique();
+    const withToken = (startsAt: string, endsAt: string) =>
+      booking(master, startsAt, endsAt, { manageTokenHash: hash });
+    await withToken('2030-02-10T12:00:00Z', '2030-02-10T13:00:00Z');
+    const second = await withToken('2030-02-10T14:00:00Z', '2030-02-10T15:00:00Z').catch((error: unknown) => error);
+    expect(violatedUniqueConstraint(second)).toBe('appointments_manage_token_hash_key');
+  });
 
   it('refuses two overlapping bookings of one master, but not once the first is cancelled', async () => {
     const master = await staffOf();

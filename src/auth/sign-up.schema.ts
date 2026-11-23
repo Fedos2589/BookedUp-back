@@ -1,14 +1,11 @@
 import { z } from 'zod';
 
-import { businessSchema } from '../business/business.schema.js';
+import { businessSchema, slugSchema } from '../business/business.schema.js';
 import { localeSchema } from '../account/locale.js';
 import { userSchema } from '../account/user.schema.js';
 import { conflictErrorSchema } from '../common/api-errors.js';
 import { canonicalTimeZone } from '../common/time-zone.js';
 import { emailSchema, passwordSchema } from './credentials.schema.js';
-
-// The format the database enforces too (CHECK businesses_slug_format).
-export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 // Parsed once here; the service trusts it. Email and slug arrive lowercased and the time
 // zone canonical, so the database's CHECKs only ever back this up. Every string has a
@@ -21,7 +18,7 @@ export const signUpSchema = z.object({
   locale: localeSchema.default('en'),
   business: z.object({
     name: z.string().trim().min(1).max(100),
-    slug: z.string().trim().toLowerCase().max(63).regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens'),
+    slug: slugSchema,
     timeZone: z
       .string()
       .max(64)
