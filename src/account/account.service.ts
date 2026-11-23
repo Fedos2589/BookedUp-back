@@ -2,7 +2,8 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 import { businessSelect } from '../business/business.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { localeSchema, type Locale } from './locale.js';
+import type { Locale } from './locale.js';
+import { toUser, userSelect } from './user.schema.js';
 import type { Account } from './account.schema.js';
 
 @Injectable()
@@ -14,10 +15,7 @@ export class AccountService {
     const account = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
-        email: true,
-        name: true,
-        locale: true,
+        ...userSelect,
         memberships: {
           orderBy: { createdAt: 'asc' },
           select: { role: true, business: { select: businessSelect } },
@@ -28,7 +26,7 @@ export class AccountService {
     if (!account) throw new UnauthorizedException();
     const { memberships, ...user } = account;
     return {
-      user: { ...user, locale: localeSchema.parse(user.locale) },
+      user: toUser(user),
       businesses: memberships.map(({ role, business }) => ({ ...business, role })),
     };
   }

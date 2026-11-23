@@ -1,4 +1,4 @@
-import { localeSchema } from '../account/locale.js';
+import { toUser, userSelect } from '../account/user.schema.js';
 import { PasswordHasher } from '@nestjs/authentication';
 import { AuthorizationService } from '@nestjs/authorization';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -169,7 +169,7 @@ export class InvitationsService {
       const user = await tx.user
         .create({
           data: { email, name, locale, passwordLogin: { create: { passwordHash } } },
-          select: { id: true, email: true, name: true, locale: true },
+          select: userSelect,
         })
         .catch((error: unknown) => {
           if (violatedUniqueConstraint(error) !== 'users_email_key') throw error;
@@ -182,7 +182,7 @@ export class InvitationsService {
           throw new ConflictException(body);
         });
       return {
-        user: { ...user, locale: localeSchema.parse(user.locale) },
+        user: toUser(user),
         business: await this.join(tx, tokenHash, user.id),
       };
     });

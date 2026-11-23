@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { businessSchema } from '../business/business.schema.js';
 import { localeSchema } from '../account/locale.js';
+import { userSchema } from '../account/user.schema.js';
 import { conflictErrorSchema } from '../common/api-errors.js';
 import { canonicalTimeZone } from '../common/time-zone.js';
 import { emailSchema, passwordSchema } from './credentials.schema.js';
@@ -36,7 +37,7 @@ export const signUpSchema = z.object({
 export type SignUpInput = z.infer<typeof signUpSchema>;
 
 export const signUpResultSchema = z.object({
-  user: z.object({ id: z.uuid(), email: z.email(), name: z.string(), locale: localeSchema }),
+  user: userSchema,
   business: businessSchema,
 });
 

@@ -1,7 +1,7 @@
 import { PasswordHasher } from '@nestjs/authentication';
 import { ConflictException, Injectable } from '@nestjs/common';
 
-import { localeSchema } from '../account/locale.js';
+import { toUser, userSelect } from '../account/user.schema.js';
 import { businessSelect } from '../business/business.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
@@ -36,15 +36,12 @@ export class SignUpService {
           memberships: { create: { role: 'OWNER', business: { create: business } } },
         },
         select: {
-          id: true,
-          email: true,
-          name: true,
-          locale: true,
+          ...userSelect,
           memberships: { select: { business: { select: businessSelect } } },
         },
       });
       const { memberships, ...account } = user;
-      return { user: { ...account, locale: localeSchema.parse(account.locale) }, business: memberships[0].business };
+      return { user: toUser(account), business: memberships[0].business };
     } catch (error) {
       const constraint = violatedUniqueConstraint(error);
       const field = constraint ? TAKEN_FIELD[constraint] : undefined;
