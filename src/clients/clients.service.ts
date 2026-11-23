@@ -75,22 +75,21 @@ export class ClientsService {
   }
 
   // The client of a booking made on the business's page: whoever holds the phone (their card is left
-  // as it is; the booking carries the name typed now), or a new holder. Two bookings of one new phone
-  // end on one client: the unique phone decides, not a check. The row is locked until the
-  // transaction ends, so a count of this client's bookings made after it is not raced by another.
+  // as it is; the booking carries the name typed now), or a new holder. One statement, so two
+  // bookings of one new phone, even for two masters, end on one client: the unique phone decides, and
+  // DO UPDATE (a phone set to itself) locks an existing row until the transaction ends, so a count of
+  // this client's bookings made after it is not raced by another.
   async resolveByPhone(
     tx: Prisma.TransactionClient,
     businessId: string,
     { name, phone }: { name: string; phone: string },
   ): Promise<{ clientId: string; clientName: string; clientPhone: string }> {
-    const { id } = await tx.client.upsert({
-      where: { businessId_phone: { businessId, phone } },
-      create: { businessId, name, phone },
-      update: {},
-      select: { id: true },
-    });
-    await tx.$queryRaw`SELECT 1 FROM clients WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
-    return { clientId: id, clientName: name, clientPhone: phone };
+    const [{ id }] = await tx.$queryRaw<{ id: string }[]>`
+      INSERT INTO clients (business_id, name, phone)
+      VALUES (${businessId}::uuid, ${name}, ${phone})
+      ON CONFLICT (business_id, phone) DO UPDATE SET phone = EXCLUDED.phone
+      RETURNING id`;
+    return { clientId: id!, clientName: name, clientPhone: phone };
   }
 
   private async createIn(db: Db, businessId: string, input: ClientInput) {

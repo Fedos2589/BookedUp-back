@@ -20,13 +20,18 @@ import {
   type StatusInput,
 } from './appointments.schema.js';
 
-const notFree = () =>
+const NOT_FREE = 'notFree';
+
+export const notFree = () =>
   new ConflictException({
     statusCode: 409,
     error: 'Conflict',
     message: 'This time is not free',
-    code: 'notFree',
+    code: NOT_FREE,
   });
+
+export const isNotFree = (error: unknown) =>
+  error instanceof ConflictException && (error.getResponse() as { code?: string }).code === NOT_FREE;
 
 const full = () =>
   new ConflictException({

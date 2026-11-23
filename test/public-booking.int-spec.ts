@@ -275,12 +275,14 @@ describe('POST /public/businesses/:slug/bookings', () => {
     expect(results.find((res) => res.status === 409)?.body.code).toBe('full');
   });
 
-  it('ends on one client when two bookings of two slots come with one new phone', async () => {
+  it('ends on one client when two masters are booked at once with one new phone', async () => {
     const t = await withSchedules();
+    const ivan = await t.addHours('Ivan');
     const phone = phoneOf();
-    const results = await Promise.all(
-      [7, 8].map((hour) => bookingsOf(t.business.slug).send(hoursBody(t, hour, { phone }))),
-    );
+    const results = await Promise.all([
+      bookingsOf(t.business.slug).send(hoursBody(t, 7, { phone })),
+      bookingsOf(t.business.slug).send(hoursBody(t, 7, { phone, staffId: ivan.id })),
+    ]);
     expect(results.map((res) => res.status)).toEqual([201, 201]);
     expect(await prisma.client.count({ where: { businessId: t.business.id, phone } })).toBe(1);
   });

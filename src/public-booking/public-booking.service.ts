@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { AppointmentsService } from '../appointments/appointments.service.js';
+import { AppointmentsService, isNotFree, notFree } from '../appointments/appointments.service.js';
 import { ClientsService } from '../clients/clients.service.js';
 import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
@@ -14,13 +14,7 @@ import { orderMasters } from './pick-master.js';
 import { manageLink } from './manage-token.js';
 import type { PublicBookingInput, PublicBookingResult, PublicBusinessDto } from './public-booking.schema.js';
 
-const notFree = () =>
-  new ConflictException({ statusCode: 409, error: 'Conflict', message: 'This time is not free', code: 'notFree' });
-
-const isConflict = (error: unknown, code: string) =>
-  error instanceof ConflictException && (error.getResponse() as { code?: string }).code === code;
-
-// Live bookings still to come that one phone may hold at a business.
+// Bookings to come that hold time (not cancelled) that one phone may have at a business.
 const MAX_AHEAD = 3;
 
 // What a visitor does without signing in. The slug is turned into the business's id once per
@@ -86,7 +80,7 @@ export class PublicBookingService {
         booked = await attempt(master);
         break;
       } catch (error) {
-        if (!isConflict(error, 'notFree')) throw error;
+        if (!isNotFree(error)) throw error;
       }
     }
     if (!booked) throw notFree();
