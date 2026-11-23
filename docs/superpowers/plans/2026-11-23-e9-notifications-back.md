@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** not started.
+**Status:** step N done on branches `e9/notifications` … `e9/n6-sending` (N1–N5 merged, N6–N10 awaiting review); step M not started.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -257,7 +257,7 @@ anything else. Swagger: typed body and response, 400 / 403.
 **Check:** int test — owner sets `[1440, 60]` → GET shows `[60, 1440]`; admin can; master → 403;
 `[30]` → 400; `[1440, 1440]` → 400 (the CHECK lets repeats through; this schema is the only guard); 4 items → 400; another business's id → 403. Commit `feat(business): reminder times`.
 
-### - [ ] N10: my notification switches, docs, close N
+### - [x] N10: my notification switches, docs, close N
 
 **Files:** create `src/notifications/{my-notifications.controller.ts,my-notifications.schema.ts}`,
 `src/notifications/notifications.module.ts`, `test/my-notifications.int-spec.ts`, `AGENTS.md` (one line

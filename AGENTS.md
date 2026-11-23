@@ -32,6 +32,7 @@ API сервиса онлайн-записи для малого бизнеса 
 - Prisma, миграции, таблицы — скилл `back-prisma`; владелец, `Staff`/`Membership`, приглашения — `back-team`; график и слоты — `back-schedule`.
 - `APP_URL` — адрес фронта, из него строятся ссылки, которые отдаёт API (приглашения); путь сохраняется (`invitationLink`). В production обязателен, иначе ссылки вели бы на localhost; в остальных окружениях по умолчанию dev-сервер Vite.
 - `src/app.setup.ts` — `configureApp()`: то, что нужно приложению сверх `AppModule` (сейчас `enableCsrfProtection()`). Вызывают и `main.ts`, и `test/test-app.ts`, чтобы тесты шли с тем же, что и прод. Настройку, которую можно выразить провайдером (`APP_PIPE`, `APP_GUARD`), кладём в `AppModule`, а не сюда.
+- `src/notifications/` — события пишутся в транзакции записи (outbox), раз в 30 с задание `notifications` (`NOTIFICATIONS_WORKER`) ставит напоминания, раскладывает события по получателям и отправляет; канал — класс за интерфейсом `Channel`, в разработке всё идёт в лог (`LogChannel`).
 - Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
 - Логи — `nestjs-pino`, не `console.log`. Ошибку кладём под ключ `err` (`logger.warn({ err: error }, …)`): только его pino разбирает в тип, сообщение и стек, под другим ключом `Error` выйдет в лог как `{}`.
 

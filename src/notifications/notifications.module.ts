@@ -4,12 +4,22 @@ import { Module } from '@nestjs/common';
 import { ChannelRegistry } from './channels/channel-registry.js';
 import { LogChannel } from './channels/log.channel.js';
 import { DispatcherService } from './dispatcher.service.js';
+import { MyBusinessNotificationsController, MyNotificationsController } from './my-notifications.controller.js';
+import { MyNotificationsService } from './my-notifications.service.js';
 import { NOTIFICATIONS_QUEUE, NotificationsProcessor } from './notifications.processor.js';
 import { RemindersService } from './reminders.service.js';
 
 @Module({
   imports: [BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE })],
-  providers: [NotificationsProcessor, DispatcherService, RemindersService, ChannelRegistry, LogChannel],
+  controllers: [MyNotificationsController, MyBusinessNotificationsController],
+  providers: [
+    MyNotificationsService,
+    NotificationsProcessor,
+    DispatcherService,
+    RemindersService,
+    ChannelRegistry,
+    LogChannel,
+  ],
   exports: [DispatcherService, RemindersService],
 })
 export class NotificationsModule {}
