@@ -11,5 +11,7 @@ export const recordEvent = (
     kind: 'BOOKED' | 'MOVED' | 'CANCELLED';
     actorUserId: string | null;
     startsAt: Date;
+    // MOVED: where the booking was, `{ fromStaffId, fromStartsAt }`: the booking itself has the new place.
+    payload?: Prisma.InputJsonObject;
   },
 ) => tx.notificationEvent.create({ data: event, select: { id: true } });

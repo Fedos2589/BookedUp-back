@@ -307,7 +307,16 @@ export class AppointmentsService {
         });
         if (!moved) throw statusConflict('badTransition', 'The booking has just changed');
         // A save that changes nothing (a double click) is no news for anyone.
-        if (!stays) await recordEvent(tx, { businessId, appointmentId: id, kind: 'MOVED', actorUserId, startsAt });
+        if (!stays) {
+          await recordEvent(tx, {
+            businessId,
+            appointmentId: id,
+            kind: 'MOVED',
+            actorUserId,
+            startsAt,
+            payload: { fromStaffId: current.staffId, fromStartsAt: booking.startsAt.toISOString() },
+          });
+        }
         return moved;
       });
       return withIsoTimes(moved);

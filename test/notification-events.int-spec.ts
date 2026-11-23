@@ -52,8 +52,10 @@ const setUp = async () => {
       .post(`/public/businesses/${owner.business.slug}/bookings`)
       .send({ staffId, ...slot(index), name: 'Vera', phone: phone() });
   const events = () =>
-    prisma.$queryRaw<{ kind: string; actor_user_id: string | null; starts_at: Date; appointment_id: string }[]>`
-      SELECT kind, actor_user_id, starts_at, appointment_id FROM notification_events
+    prisma.$queryRaw<
+      { kind: string; actor_user_id: string | null; starts_at: Date; appointment_id: string; payload: unknown }[]
+    >`
+      SELECT kind, actor_user_id, starts_at, appointment_id, payload FROM notification_events
       WHERE business_id = ${businessId}::uuid ORDER BY created_at, id`;
   return { owner, businessId, staffId, as, url, book, bookOnline, events };
 };
@@ -70,6 +72,7 @@ describe('an event with every booking change', () => {
         actor_user_id: await userIdOf(app, t.owner.cookie),
         starts_at: new Date(slot(0).startsAt),
         appointment_id: res.body.id,
+        payload: null,
       },
     ]);
   });
@@ -118,8 +121,37 @@ describe('an event with every booking change', () => {
       actor_user_id: await userIdOf(app, t.owner.cookie),
       starts_at: new Date(slot(1).startsAt),
       appointment_id: id,
+      // Where it was: the old master and time can't be read from the booking any more.
+      payload: { fromStaffId: t.staffId, fromStartsAt: slot(0).startsAt },
     });
     expect(movedOnline).toMatchObject({ kind: 'MOVED', actor_user_id: null, starts_at: new Date(slot(0).startsAt) });
+  });
+
+  it('remembers the old master when the booking goes to another one', async () => {
+    const t = await setUp();
+    const id = (await t.book(0).expect(201)).body.id as string;
+    const other = (await t.as(http().post(`/businesses/${t.businessId}/staff`).send({ name: 'Boris' })).expect(201))
+      .body.id as string;
+    await t
+      .as(
+        http()
+          .put(`/businesses/${t.businessId}/staff/${other}/weekly-windows`)
+          .send({ windows: [{ weekday: 1, startMinute: 600, durationMinutes: 180, slotMinutes: 60, title: null }] }),
+      )
+      .expect(200);
+
+    await t
+      .as(
+        http()
+          .patch(`${t.url}/${id}`)
+          .send({ staffId: other, ...slot(0) }),
+      )
+      .expect(200);
+
+    expect((await t.events())[1]).toMatchObject({
+      kind: 'MOVED',
+      payload: { fromStaffId: t.staffId, fromStartsAt: slot(0).startsAt },
+    });
   });
 
   it('writes nothing for a move to where the booking already is', async () => {
