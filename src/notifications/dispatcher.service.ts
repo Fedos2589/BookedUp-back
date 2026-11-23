@@ -13,8 +13,15 @@ const BATCH = 50;
 // The statuses of a booking that still expects its client (the same as the reminders').
 const LIVE: readonly AppointmentStatus[] = ['BOOKED', 'CONFIRMED'];
 
-// A delivery is tried this many times, then stays FAILED.
-const MAX_ATTEMPTS = 3;
+// How long a FAILED delivery waits before its next try, by the number of tries so far: a provider that is down
+// for a few minutes doesn't use up every try. After the last pause comes the last try; then it stays FAILED.
+const RETRY_AFTER_MINUTES = [1, 10] as const;
+const MAX_ATTEMPTS = RETRY_AFTER_MINUTES.length + 1;
+
+const retryAt = (attempts: number, now: Date): Date | null => {
+  const minutes = RETRY_AFTER_MINUTES[attempts - 1];
+  return minutes === undefined ? null : new Date(now.getTime() + minutes * 60_000);
+};
 
 // `en` or `ru`: a CHECK constraint keeps the columns to these two; a new language fails loudly here.
 const localeOf = (value: string): MessageLocale => localeSchema.parse(value);
@@ -36,6 +43,8 @@ type Claimed = {
   address: string;
   audience: string;
   locale: string;
+  // Tries so far, this one included.
+  attempts: number;
 };
 
 type Outcome = SendResult | 'stale' | { error: string };
@@ -71,8 +80,9 @@ export class DispatcherService {
       WHERE id IN (
         SELECT id FROM notification_deliveries
         WHERE status IN ('PENDING', 'FAILED') AND attempts < ${MAX_ATTEMPTS}
+          AND (retry_at IS NULL OR retry_at <= ${now}::timestamptz)
         ORDER BY created_at, id LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
-      RETURNING id, business_id AS "businessId", event_id AS "eventId", channel, address, audience, locale`;
+      RETURNING id, business_id AS "businessId", event_id AS "eventId", channel, address, audience, locale, attempts`;
     for (const delivery of claimed) await this.deliver(delivery, now);
     return claimed.length;
   }
@@ -117,7 +127,7 @@ export class DispatcherService {
         lastError: outcome === 'stale' ? 'booking changed' : outcome,
       });
     } else {
-      await write({ status: 'FAILED', lastError: outcome.error });
+      await write({ status: 'FAILED', lastError: outcome.error, retryAt: retryAt(delivery.attempts, now) });
     }
     if (outcome === 'unreachable') await this.switchOff(delivery, now);
   }

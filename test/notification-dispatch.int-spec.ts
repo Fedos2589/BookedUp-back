@@ -23,6 +23,8 @@ afterAll(async () => {
   await app.close();
 });
 
+const after = (from: Date, seconds: number) => new Date(from.getTime() + seconds * 1000);
+
 const phone = () => `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
 
 // Other test files write events into the same database, and `expand` takes them 50 at a time.
@@ -267,14 +269,15 @@ describe('sending deliveries', () => {
     expect(sentTo(t.addresses)).toEqual([...t.addresses].sort());
   });
 
-  it('retries a failure on the next dispatch, and stops after three', async () => {
+  it('retries a failure after a minute, not on the next tick', async () => {
     const t = await booked();
     send.mockImplementation(async (address) => {
       if (address === t.address) throw new Error('provider down');
       return 'sent';
     });
+    const now = new Date();
 
-    await dispatcher.dispatch(new Date());
+    await dispatcher.dispatch(now);
     expect(await statusesOf(t.businessId)).toEqual(['FAILED', 'SENT', 'SENT']);
     const failed = await prisma.notificationDelivery.findFirstOrThrow({
       where: { businessId: t.businessId, status: 'FAILED' },
@@ -282,14 +285,30 @@ describe('sending deliveries', () => {
     expect(failed.lastError).toBe('provider down');
 
     send.mockResolvedValue('sent');
-    await dispatcher.dispatch(new Date());
-    expect(await statusesOf(t.businessId)).toEqual(['SENT', 'SENT', 'SENT']);
+    await dispatcher.dispatch(after(now, 30));
+    expect(await statusesOf(t.businessId)).toEqual(['FAILED', 'SENT', 'SENT']);
 
+    await dispatcher.dispatch(after(now, 60));
+    expect(await statusesOf(t.businessId)).toEqual(['SENT', 'SENT', 'SENT']);
+  });
+
+  it('spreads three tries over more than ten minutes, then stops', async () => {
     const u = await booked();
     send.mockRejectedValue(new Error('still down'));
-    for (let i = 0; i < 4; i++) await dispatcher.dispatch(new Date());
+    const now = new Date();
+    const triesTo = () => send.mock.calls.filter(([address]) => address === u.address).length;
+
+    await dispatcher.dispatch(now);
+    await dispatcher.dispatch(after(now, 60));
+    expect(triesTo()).toBe(2);
+    // The second failure waits ten minutes.
+    await dispatcher.dispatch(after(now, 60 + 9 * 60));
+    expect(triesTo()).toBe(2);
+    await dispatcher.dispatch(after(now, 60 + 10 * 60));
+    await dispatcher.dispatch(after(now, 24 * 3600));
+
+    expect(triesTo()).toBe(3);
     expect(await statusesOf(u.businessId)).toEqual(['FAILED', 'FAILED', 'FAILED']);
-    expect(send.mock.calls.filter(([address]) => address === u.address)).toHaveLength(3);
   });
 
   it('never picks a delivery left SENDING again', async () => {
