@@ -391,8 +391,17 @@ describe('sending deliveries', () => {
 
   it('does not send twice when the database fails after a message went out, and the rest of the batch still goes', async () => {
     const t = await booked();
-    // The first write of a result (the first delivery's SENT) fails once.
-    const write = vi.spyOn(prisma.notificationDelivery, 'updateMany').mockRejectedValueOnce(new Error('db down'));
+    // The first write of one of our results (a SENT) fails once. Other tests' deliveries go out in the same
+    // dispatch, so the first write overall may be theirs.
+    const updateMany = prisma.notificationDelivery.updateMany.bind(prisma.notificationDelivery);
+    let failed = false;
+    const write = vi.spyOn(prisma.notificationDelivery, 'updateMany').mockImplementation(((args) => {
+      if (!failed && args.where?.businessId === t.businessId) {
+        failed = true;
+        return Promise.reject(new Error('db down'));
+      }
+      return updateMany(args);
+    }) as typeof updateMany);
 
     await dispatcher.dispatch(new Date());
     write.mockRestore();
