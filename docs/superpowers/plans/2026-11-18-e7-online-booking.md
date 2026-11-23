@@ -73,6 +73,11 @@ Made while planning — the user checks them in this plan's PR:
 8. **Online booking is on for every business**; a switch in settings comes if a pilot asks. The
    cabinet shows online bookings like any other; telling the master about them is E9.
 
+9. **A phone is not confirmed until E7b (decided in the review of #39, 2026-11-23).** Whoever knows a
+   regular's phone can book on their card and use up the 3 bookings of that phone; `tooManyBookings`
+   then shows the phone has 3 bookings to come. Accepted until the code (OTP) arrives. The 10 an hour
+   per IP counts failed attempts too; softer limits later if a pilot hits it.
+
 ## Out of E7a
 
 The code and the account's people (E7b), notifications and reminders (E9), prepayment (E10), a cut-off
