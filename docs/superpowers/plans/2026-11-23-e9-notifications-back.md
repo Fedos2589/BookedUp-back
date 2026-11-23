@@ -244,7 +244,7 @@ keeps the worker off in tests). `test/test-app.ts` sets it to `false`.
 30 s the log shows the master's LOG message. Note the hand check in the commit. Commit
 `feat(notifications): run every 30 seconds`.
 
-### - [ ] N9: reminder times in the business settings
+### - [x] N9: reminder times in the business settings
 
 **Files:** `src/business/{business.controller.ts,business.service.ts,business.schema.ts}`,
 `test/business-access.int-spec.ts` or a new `test/reminder-settings.int-spec.ts`.

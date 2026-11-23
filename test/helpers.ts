@@ -33,7 +33,16 @@ export const signUpOwner = async (app: INestApplication<App>) => {
   const res = await request(app.getHttpServer()).post('/auth/sign-up').send(ownerInput()).expect(201);
   const cookie = sessionCookie(res);
   if (!cookie) throw new Error('sign-up set no session cookie');
-  return { cookie, business: res.body.business as { id: string; name: string; slug: string; timeZone: string } };
+  return {
+    cookie,
+    business: res.body.business as {
+      id: string;
+      name: string;
+      slug: string;
+      timeZone: string;
+      reminderOffsets: number[];
+    },
+  };
 };
 
 // The signed-in user's id, as the front learns it.

@@ -20,6 +20,8 @@ const abilities = {
   manageTeam: (role: MemberRole) => manages[role].length > 0,
   // Everyone's bookings in the calendar; a role without it sees only its own master's.
   seeAllBookings: (role: MemberRole) => manages[role].length > 0,
+  // The business's settings: reminder times.
+  manageSettings: (role: MemberRole) => manages[role].length > 0,
 } as const satisfies Record<string, (role: MemberRole) => boolean>;
 
 export type BusinessAbility = keyof typeof abilities;

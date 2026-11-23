@@ -34,6 +34,11 @@ export class BusinessPolicy {
     return role !== null && roleCan(role, 'seeAllBookings');
   }
 
+  async manageSettings(user: AuthUser | null, businessId: string): Promise<boolean> {
+    const role = await this.roleOf(user, businessId);
+    return role !== null && roleCan(role, 'manageSettings');
+  }
+
   // Whether the user may invite someone as `target`, or change or remove a member who is one.
   // The role comes from the request or the row, so services call it through
   // AuthorizationService.authorize(), after the route's manageTeam.

@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { businessSelect, type MemberBusiness } from './business.schema.js';
+import { businessSelect, type MemberBusiness, type SetRemindersInput } from './business.schema.js';
 
 @Injectable()
 export class BusinessService {
@@ -17,5 +17,15 @@ export class BusinessService {
     // Removed from the business between the guard and here.
     if (!membership) throw new ForbiddenException();
     return { ...membership.business, role: membership.role };
+  }
+
+  // The route's ability is the check; the update is for this business only, and the answer is read back
+  // through the membership like `describe`.
+  async setReminders(userId: string, businessId: string, { offsets }: SetRemindersInput): Promise<MemberBusiness> {
+    await this.prisma.business.update({
+      where: { id: businessId },
+      data: { reminderOffsets: [...offsets].sort((a, b) => a - b) },
+    });
+    return this.describe(userId, businessId);
   }
 }
