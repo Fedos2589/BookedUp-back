@@ -222,18 +222,33 @@ export class AppointmentsService {
   // Moves a BOOKED or CONFIRMED booking to another slot, the same master's or another's, by the same
   // checks as booking, in one transaction. Both masters' rows are locked in id order, so two moves
   // across the same two masters can't deadlock and two moves into one slot take turns.
-  async move(
-    actor: AuthUser,
-    businessId: string,
-    id: string,
-    { staffId: target, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession }: MoveInput,
-    now: Date,
-  ): Promise<AppointmentDto> {
+  async move(actor: AuthUser, businessId: string, id: string, input: MoveInput, now: Date): Promise<AppointmentDto> {
     const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
     if (!current) throw new NotFoundException();
-    const staffId = target ?? current.staffId;
     await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
-    if (staffId !== current.staffId) await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    if (input.staffId && input.staffId !== current.staffId) {
+      await this.staff.authorizeChangeOf(actor, businessId, input.staffId);
+    }
+    return this.relocate(businessId, id, current.staffId, input, now, false);
+  }
+
+  // The booker moves what they booked online, until it starts: no actor, the business is the token's.
+  async moveOnline(businessId: string, id: string, input: MoveInput, now: Date): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
+    if (!current) throw new NotFoundException();
+    return this.relocate(businessId, id, current.staffId, input, now, true);
+  }
+
+  private async relocate(
+    businessId: string,
+    id: string,
+    currentStaffId: string,
+    { staffId: target, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession }: MoveInput,
+    now: Date,
+    notStartedOnly: boolean,
+  ): Promise<AppointmentDto> {
+    const current = { staffId: currentStaffId };
+    const staffId = target ?? current.staffId;
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { timeZone: true },
@@ -248,9 +263,12 @@ export class AppointmentsService {
         // waited for this lock and is simply moved on from.
         const booking = await tx.appointment.findFirst({
           where: { id, businessId, staffId: current.staffId },
-          select: { status: true },
+          select: { status: true, startsAt: true },
         });
         if (!booking) throw statusConflict('badTransition', 'The booking has just changed');
+        if (notStartedOnly && booking.startsAt <= now) {
+          throw statusConflict('badTransition', 'The booking has already started');
+        }
         if (booking.status !== 'BOOKED' && booking.status !== 'CONFIRMED') {
           throw statusConflict('badTransition', `A booking that is ${booking.status} can't be moved`);
         }

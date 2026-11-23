@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P6 done).
+**Status:** in progress (P1–P7 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -153,7 +153,7 @@ cancel reuses the status rule and the conditional update of `AppointmentsService
 public slots; cancelling twice → 409; a started booking → 409; a cabinet booking (no token) can't be
 reached; malformed token → 400, unknown → 404. Commit `feat(public-booking): see and cancel by link`.
 
-### - [ ] P7: move by the link
+### - [x] P7: move by the link
 
 **Files:** `src/appointments/appointments.service.ts`, `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `test/public-booking.int-spec.ts`.

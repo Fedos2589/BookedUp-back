@@ -1,5 +1,5 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -13,6 +13,7 @@ import { hours, Throttle } from '@nestjs/throttler';
 
 import { z } from 'zod';
 
+import { type MoveInput, moveInput } from '../appointments/appointments.schema.js';
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { type PublicSlotsQuery, publicSlotsQuery, type SlotDto, slotSchema } from '../schedule/schedule.schema.js';
@@ -24,6 +25,7 @@ import {
   publicBookingResultSchema,
   type ManagedBookingDto,
   managedBookingConflictSchema,
+  publicMoveConflictSchema,
   managedBookingSchema,
   manageTokenSchema,
   type PublicBusinessDto,
@@ -107,5 +109,21 @@ export class PublicBookingController {
   })
   cancel(@Param('token', { schema: manageTokenSchema }) token: string): Promise<ManagedBookingDto> {
     return this.service.cancel(token);
+  }
+
+  @Patch('bookings/:token')
+  @ApiOkResponse({ description: 'Moved: the booking as it is now', schema: openApi(managedBookingSchema) })
+  @ApiBadRequestResponse({ description: 'The token or a field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
+  @ApiConflictResponse({
+    description:
+      'The new place is not a free slot (notFree) or has no seat left (full), or the booking has started or is not BOOKED / CONFIRMED (badTransition)',
+    schema: openApi(publicMoveConflictSchema),
+  })
+  move(
+    @Param('token', { schema: manageTokenSchema }) token: string,
+    @Body({ schema: moveInput }) input: MoveInput,
+  ): Promise<ManagedBookingDto> {
+    return this.service.move(token, input);
   }
 }

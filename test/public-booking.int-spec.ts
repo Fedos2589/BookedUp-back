@@ -487,4 +487,68 @@ describe('see and cancel by the link', () => {
     await http().get('/public/bookings/short').expect(400);
     expect((await prisma.appointment.findFirstOrThrow({ where: { id: booking.id } })).status).toBe('BOOKED');
   });
+
+  describe('move', () => {
+    const slot = (hour: number) => ({ startsAt: at(hour).toISOString(), endsAt: at(hour + 1).toISOString() });
+    const moveTo = (token: string, body: object) => http().patch(`/public/bookings/${token}`).send(body);
+
+    it('moves to another free hour: the old one frees, the new one is taken', async () => {
+      const t = await withSchedules();
+      const { id, token } = await bookOnline(t, 7);
+
+      const res = await moveTo(token, slot(8)).expect(200);
+
+      expect(res.body).toMatchObject({
+        booking: { ...slot(8), staffId: t.hours.id, status: 'BOOKED' },
+        canChange: true,
+      });
+      expect(await prisma.appointment.findFirstOrThrow({ where: { id } })).toMatchObject({ startsAt: at(8) });
+      const slots = await http()
+        .get(`/public/businesses/${t.business.slug}/slots`)
+        .query({ from: tuesday, to: tuesday })
+        .expect(200);
+      const starts = slots.body
+        .filter((each: { staffId: string }) => each.staffId === t.hours.id)
+        .map((each: { startsAt: string }) => each.startsAt);
+      expect(starts).toEqual([at(7).toISOString()]);
+    });
+
+    it('is 409 full into a full meeting and leaves the booking where it was', async () => {
+      const t = await withSchedules();
+      const { id, token } = await bookOnline(t, 7);
+      for (let i = 0; i < 5; i++) await t.book(t.groups.id, at(12), { groupId: t.group });
+
+      const res = await moveTo(token, { staffId: t.groups.id, ...slot(12), groupId: t.group }).expect(409);
+
+      expect(res.body.code).toBe('full');
+      expect(await prisma.appointment.findFirstOrThrow({ where: { id } })).toMatchObject({
+        startsAt: at(7),
+        staffId: t.hours.id,
+      });
+    });
+
+    it("never moves into another business's master", async () => {
+      const t = await withSchedules();
+      const other = await withSchedules();
+      const { id, token } = await bookOnline(t, 7);
+
+      await moveTo(token, { staffId: other.hours.id, ...slot(8) }).expect(409);
+
+      expect(await prisma.appointment.findFirstOrThrow({ where: { id } })).toMatchObject({
+        staffId: t.hours.id,
+        startsAt: at(7),
+      });
+    });
+
+    it('is 409 badTransition for a started or a cancelled booking, 404 for an unknown token, 400 for a bad body', async () => {
+      const t = await withSchedules();
+      const started = await startedBooking(t);
+      expect((await moveTo(started, slot(8)).expect(409)).body.code).toBe('badTransition');
+      const { token } = await bookOnline(t, 7);
+      await http().post(`/public/bookings/${token}/cancel`).expect(201);
+      expect((await moveTo(token, slot(8)).expect(409)).body.code).toBe('badTransition');
+      await moveTo(newRandomToken(), slot(8)).expect(404);
+      await moveTo(token, { startsAt: 'x' }).expect(400);
+    });
+  });
 });

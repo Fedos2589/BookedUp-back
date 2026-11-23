@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import type { MoveInput } from '../appointments/appointments.schema.js';
 import { AppointmentsService, isNotFree, notFree } from '../appointments/appointments.service.js';
 import { ClientsService } from '../clients/clients.service.js';
 import { newRandomToken, hashRandomToken } from '../common/random-token.js';
@@ -111,11 +112,7 @@ export class PublicBookingService {
 
   // The booking the token belongs to, with the business it is in; every later query carries that id.
   private async managedBy(token: string, now: Date): Promise<ManagedBookingDto> {
-    const found = await this.prisma.appointment.findUnique({
-      where: { manageTokenHash: hashRandomToken(token) },
-      select: { id: true, businessId: true },
-    });
-    if (!found) throw new NotFoundException();
+    const found = await this.idsOf(token);
     const row = await this.prisma.appointment.findFirstOrThrow({
       where: { id: found.id, businessId: found.businessId },
       select: {
@@ -151,14 +148,27 @@ export class PublicBookingService {
     return this.managedBy(token, new Date());
   }
 
-  async cancel(token: string): Promise<ManagedBookingDto> {
-    const now = new Date();
+  private async idsOf(token: string): Promise<{ id: string; businessId: string }> {
     const found = await this.prisma.appointment.findUnique({
       where: { manageTokenHash: hashRandomToken(token) },
       select: { id: true, businessId: true },
     });
     if (!found) throw new NotFoundException();
-    await this.appointments.cancelOnline(found.businessId, found.id, now);
+    return found;
+  }
+
+  async cancel(token: string): Promise<ManagedBookingDto> {
+    const now = new Date();
+    const { id, businessId } = await this.idsOf(token);
+    await this.appointments.cancelOnline(businessId, id, now);
+    return this.managedBy(token, now);
+  }
+
+  // Another slot, the same master's unless `staffId` says otherwise; the checks are booking's.
+  async move(token: string, input: MoveInput): Promise<ManagedBookingDto> {
+    const now = new Date();
+    const { id, businessId } = await this.idsOf(token);
+    await this.appointments.moveOnline(businessId, id, input, now);
     return this.managedBy(token, now);
   }
 

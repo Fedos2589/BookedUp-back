@@ -96,3 +96,7 @@ export type ManagedBookingDto = z.infer<typeof managedBookingSchema>;
 export const managedBookingConflictSchema = bookingConflictSchema.omit({ code: true }).extend({
   code: z.literal('badTransition').describe('The booking has started or is not BOOKED / CONFIRMED any more'),
 });
+
+export const publicMoveConflictSchema = bookingConflictSchema.omit({ code: true }).extend({
+  code: z.enum(['notFree', 'full', 'badTransition']),
+});
