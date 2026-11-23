@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
@@ -114,7 +115,7 @@ const withSchedules = async () => {
         ...extra,
       },
     });
-  return { business: owner.business, hours, groups, group, book };
+  return { business: owner.business, cookie: owner.cookie, hours, groups, group, book };
 };
 
 describe('GET /public/businesses/:slug/slots', () => {
@@ -168,5 +169,168 @@ describe('GET /public/businesses/:slug/slots', () => {
       .query({ from: '2020-01-07', to: '2020-01-07', includePast: 'true' })
       .expect(200);
     expect(res.body).toEqual([]);
+  });
+});
+
+describe('POST /public/businesses/:slug/bookings', () => {
+  const phoneOf = () => `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
+  const bookingsOf = (slug: string) => http().post(`/public/businesses/${slug}/bookings`);
+  const hoursBody = (t: Awaited<ReturnType<typeof withSchedules>>, hour: number, who = {}) => ({
+    staffId: t.hours.id,
+    startsAt: at(hour).toISOString(),
+    endsAt: at(hour + 1).toISOString(),
+    name: 'Vera',
+    phone: phoneOf(),
+    ...who,
+  });
+
+  it('books an hours slot by name and phone, and the owner sees it with the typed name', async () => {
+    const t = await withSchedules();
+    const body = hoursBody(t, 7);
+
+    const res = await bookingsOf(t.business.slug).send(body).expect(201);
+
+    expect(res.body).toEqual({
+      booking: {
+        id: expect.any(String),
+        staffId: t.hours.id,
+        staffName: 'Hana',
+        startsAt: body.startsAt,
+        endsAt: body.endsAt,
+        title: null,
+        groupId: null,
+        oneOffSessionId: null,
+      },
+      manageLink: expect.stringMatching(/^http:\/\/localhost:5173\/book\/.+\/manage\/[\w-]{43}$/),
+    });
+    const stored = await prisma.appointment.findFirstOrThrow({ where: { id: res.body.booking.id } });
+    expect(stored).toMatchObject({ businessId: t.business.id, clientName: 'Vera', clientPhone: body.phone });
+    expect(stored.manageTokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(res.body.manageLink).not.toContain(stored.manageTokenHash);
+  });
+
+  it('takes a seat in a meeting and names it', async () => {
+    const t = await withSchedules();
+    const res = await bookingsOf(t.business.slug)
+      .send({
+        staffId: t.groups.id,
+        startsAt: at(12).toISOString(),
+        endsAt: at(13).toISOString(),
+        groupId: t.group,
+        name: 'Vera',
+        phone: phoneOf(),
+      })
+      .expect(201);
+    expect(res.body.booking).toMatchObject({ title: 'Football', groupId: t.group, staffName: 'Gus' });
+  });
+
+  it('puts a known phone on the same client and leaves the card name alone; the answer has the same keys', async () => {
+    const t = await withSchedules();
+    const known = phoneOf();
+    const clientId = await createClient(prisma, t.business.id, known); // card name «Olga»
+
+    const first = await bookingsOf(t.business.slug)
+      .send(hoursBody(t, 7, { phone: known }))
+      .expect(201);
+    const second = await bookingsOf(t.business.slug).send(hoursBody(t, 8)).expect(201);
+
+    const stored = await prisma.appointment.findFirstOrThrow({ where: { id: first.body.booking.id } });
+    expect(stored).toMatchObject({ clientId, clientName: 'Vera' });
+    expect((await prisma.client.findFirstOrThrow({ where: { id: clientId } })).name).toBe('Olga');
+    expect(Object.keys(first.body.booking)).toEqual(Object.keys(second.body.booking));
+    expect(Object.keys(first.body)).toEqual(Object.keys(second.body));
+  });
+
+  it('lets one of two parallel requests for one hours slot in, the other is 409 notFree', async () => {
+    const t = await withSchedules();
+    const results = await Promise.all([1, 2].map(() => bookingsOf(t.business.slug).send(hoursBody(t, 7))));
+    expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([201, 409]);
+    expect(results.find((res) => res.status === 409)?.body.code).toBe('notFree');
+  });
+
+  it('lets one of two parallel requests for the last seat in, the other is 409 full', async () => {
+    const t = await withSchedules();
+    const seat = {
+      staffId: t.groups.id,
+      startsAt: at(12).toISOString(),
+      endsAt: at(13).toISOString(),
+      groupId: t.group,
+    };
+    for (let i = 0; i < 4; i++) {
+      await t.book(t.groups.id, at(12), { groupId: t.group });
+    }
+    const results = await Promise.all(
+      [1, 2].map(() => bookingsOf(t.business.slug).send({ ...seat, name: 'Vera', phone: phoneOf() })),
+    );
+    expect(results.map((res) => res.status).sort((a, b) => a - b)).toEqual([201, 409]);
+    expect(results.find((res) => res.status === 409)?.body.code).toBe('full');
+  });
+
+  it('ends on one client when two bookings of two slots come with one new phone', async () => {
+    const t = await withSchedules();
+    const phone = phoneOf();
+    const results = await Promise.all(
+      [7, 8].map((hour) => bookingsOf(t.business.slug).send(hoursBody(t, hour, { phone }))),
+    );
+    expect(results.map((res) => res.status)).toEqual([201, 201]);
+    expect(await prisma.client.count({ where: { businessId: t.business.id, phone } })).toBe(1);
+  });
+
+  it('refuses a 4th live future booking of one phone with 409 tooManyBookings', async () => {
+    const t = await withSchedules();
+    const phone = phoneOf();
+    const clientId = await createClient(prisma, t.business.id, phone);
+    for (const day of [1, 2, 3]) {
+      const startsAt = new Date(at(7).getTime() + day * 86_400_000);
+      await prisma.appointment.create({
+        data: {
+          businessId: t.business.id,
+          clientId,
+          staffId: t.hours.id,
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 3600_000),
+          clientName: 'Vera',
+          clientPhone: phone,
+        },
+      });
+    }
+
+    const res = await bookingsOf(t.business.slug)
+      .send(hoursBody(t, 7, { phone }))
+      .expect(409);
+    expect(res.body.code).toBe('tooManyBookings');
+    // Someone else's phone, and a cancelled booking, don't count.
+    await bookingsOf(t.business.slug).send(hoursBody(t, 7)).expect(201);
+    await prisma.appointment.updateMany({ where: { clientId }, data: { status: 'CANCELLED' } });
+    await bookingsOf(t.business.slug)
+      .send(hoursBody(t, 8, { phone }))
+      .expect(201);
+  });
+
+  it('is 404 for an unknown slug, 400 for a bad phone or a missing name, and 409 for another business’s master', async () => {
+    const t = await withSchedules();
+    const other = await withSchedules();
+    await bookingsOf('no-such-business-at-all').send(hoursBody(t, 7)).expect(404);
+    await bookingsOf(t.business.slug)
+      .send(hoursBody(t, 7, { phone: '123' }))
+      .expect(400);
+    await bookingsOf(t.business.slug)
+      .send(hoursBody(t, 7, { name: '' }))
+      .expect(400);
+    const res = await bookingsOf(t.business.slug)
+      .send(hoursBody(t, 7, { staffId: other.hours.id }))
+      .expect(409);
+    expect(res.body.code).toBe('notFree');
+  });
+
+  it('is in the cabinet list under the typed name', async () => {
+    const t = await withSchedules();
+    await bookingsOf(t.business.slug).send(hoursBody(t, 7)).expect(201);
+    const res = await http()
+      .get(`/businesses/${t.business.id}/appointments`)
+      .query({ from: tuesday, to: tuesday })
+      .set('Cookie', t.cookie)
+      .expect(200);
+    expect(res.body).toEqual([expect.objectContaining({ clientName: 'Vera', staffId: t.hours.id })]);
   });
 });

@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P3 done).
+**Status:** in progress (P1–P4 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -88,7 +88,7 @@ and import it from both — don't keep two copies.
 tests for `manageLink` with and without a path in `APP_URL`. Commit
 `feat(appointments): manage token for online bookings`.
 
-### - [ ] P4: book online
+### - [x] P4: book online
 
 **Files:** `src/appointments/appointments.service.ts`, `src/clients/clients.service.ts`,
 `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,

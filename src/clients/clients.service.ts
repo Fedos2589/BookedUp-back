@@ -74,6 +74,25 @@ export class ClientsService {
     return { clientId: person.id, clientName: person.name, clientPhone: (person.phone ?? person.guardian?.phone)! };
   }
 
+  // The client of a booking made on the business's page: whoever holds the phone (their card is left
+  // as it is; the booking carries the name typed now), or a new holder. Two bookings of one new phone
+  // end on one client: the unique phone decides, not a check. The row is locked until the
+  // transaction ends, so a count of this client's bookings made after it is not raced by another.
+  async resolveByPhone(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    { name, phone }: { name: string; phone: string },
+  ): Promise<{ clientId: string; clientName: string; clientPhone: string }> {
+    const { id } = await tx.client.upsert({
+      where: { businessId_phone: { businessId, phone } },
+      create: { businessId, name, phone },
+      update: {},
+      select: { id: true },
+    });
+    await tx.$queryRaw`SELECT 1 FROM clients WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
+    return { clientId: id, clientName: name, clientPhone: phone };
+  }
+
   private async createIn(db: Db, businessId: string, input: ClientInput) {
     const { name, note } = input;
     const guardianId = 'guardianId' in input ? input.guardianId : undefined;

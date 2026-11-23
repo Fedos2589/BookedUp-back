@@ -36,6 +36,21 @@ const full = () =>
     code: 'full',
   });
 
+// The slot to book and what is written on it.
+export type SlotBooking = {
+  staffId: string;
+  startsAt: Date;
+  endsAt: Date;
+  groupId?: string | undefined;
+  oneOffSessionId?: string | undefined;
+  note?: string | null | undefined;
+};
+
+// Finds or makes the person in the booking's transaction.
+export type Person = (
+  tx: Prisma.TransactionClient,
+) => Promise<{ clientId: string; clientName: string; clientPhone: string }>;
+
 const statusConflict = (code: 'badTransition' | 'notStarted', message: string) =>
   new ConflictException({ statusCode: 409, error: 'Conflict', message, code });
 
@@ -80,9 +95,47 @@ export class AppointmentsService {
     now: Date,
     mode: 'ahead' | 'walkIn',
   ): Promise<AppointmentDto> {
+    await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    const { appointment } = await this.book(
+      businessId,
+      { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, note },
+      now,
+      mode,
+      // The person, found or made in this transaction: neither is left if the slot turns out taken.
+      (tx) => this.clients.resolveForBooking(tx, businessId, newClient ? { newClient } : { clientId: clientId! }),
+    );
+    return appointment;
+  }
+
+  // Someone who booked on the business's page: no account, no actor. The same lock, slot and seat
+  // checks as the cabinet; the person comes from `person`, which runs in the booking's transaction
+  // (the phone's client, the limit on bookings). Only ahead of the start.
+  bookOnline(
+    businessId: string,
+    input: SlotBooking & { manageTokenHash: string },
+    now: Date,
+    person: Person,
+  ): Promise<{ appointment: AppointmentDto; title: string | null }> {
+    return this.book(businessId, input, now, 'ahead', person);
+  }
+
+  private async book(
+    businessId: string,
+    {
+      staffId,
+      startsAt,
+      endsAt,
+      groupId: seatGroup,
+      oneOffSessionId: seatSession,
+      note,
+      manageTokenHash,
+    }: SlotBooking & { manageTokenHash?: string },
+    now: Date,
+    mode: 'ahead' | 'walkIn',
+    person: Person,
+  ): Promise<{ appointment: AppointmentDto; title: string | null }> {
     const groupId = seatGroup ?? null;
     const oneOffSessionId = seatSession ?? null;
-    await this.staff.authorizeChangeOf(actor, businessId, staffId);
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { timeZone: true },
@@ -93,7 +146,7 @@ export class AppointmentsService {
     // Booking ahead is offered what is still to come; a walk-in, the whole day it came on.
     const notBefore = mode === 'walkIn' ? new Date(startOfDay(timeZone, date)) : now;
     try {
-      const created = await this.prisma.$transaction(async (tx) => {
+      const { created, title } = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
         const slot = await this.findSlot(
           tx,
@@ -107,28 +160,25 @@ export class AppointmentsService {
           throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
         }
         if (mode === 'ahead' && slot.full) throw full();
-        // The person, found or made in this transaction: neither is left if the slot turns out taken.
-        const person = await this.clients.resolveForBooking(
-          tx,
-          businessId,
-          newClient ? { newClient } : { clientId: clientId! },
-        );
-        return tx.appointment.create({
+        const who = await person(tx);
+        const created = await tx.appointment.create({
           data: {
             businessId,
-            ...person,
+            ...who,
             staffId,
             startsAt,
             endsAt,
             groupId,
             oneOffSessionId,
             note,
+            manageTokenHash,
             ...(mode === 'walkIn' && { status: 'DONE' }),
           },
           select: appointmentSelect,
         });
+        return { created, title: slot.title };
       });
-      return withIsoTimes(created);
+      return { appointment: withIsoTimes(created), title };
     } catch (error) {
       if (violatedExclusion(error) === 'Appointment') throw notFree();
       throw error;

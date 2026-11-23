@@ -1,13 +1,30 @@
 import { Public } from '@nestjs/authentication';
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiNotFoundResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiTags,
+  ApiTooManyRequestsResponse,
+} from '@nestjs/swagger';
+import { hours, Throttle } from '@nestjs/throttler';
 
 import { z } from 'zod';
 
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { type PublicSlotsQuery, publicSlotsQuery, type SlotDto, slotSchema } from '../schedule/schedule.schema.js';
-import { type PublicBusinessDto, publicBusinessSchema } from './public-booking.schema.js';
+import {
+  type PublicBookingInput,
+  publicBookingConflictSchema,
+  publicBookingInput,
+  type PublicBookingResult,
+  publicBookingResultSchema,
+  type PublicBusinessDto,
+  publicBusinessSchema,
+} from './public-booking.schema.js';
 import { PublicBookingService } from './public-booking.service.js';
 
 // What a client does on a business's page, without an account. Never under /businesses/:businessId:
@@ -45,5 +62,26 @@ export class PublicBookingController {
     @Query({ schema: publicSlotsQuery }) query: PublicSlotsQuery,
   ): Promise<SlotDto[]> {
     return this.service.slots(slug, query);
+  }
+
+  @Post('businesses/:slug/bookings')
+  @Throttle({ default: { limit: 10, ttl: hours(1) } })
+  @ApiCreatedResponse({
+    description: 'Booked. `manageLink` is shown once: it is how the booker sees, cancels or moves it',
+    schema: openApi(publicBookingResultSchema),
+  })
+  @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No business with this slug' })
+  @ApiConflictResponse({
+    description:
+      'The time is not a free slot of the master (notFree), the meeting has no seat left (full), or this phone already has 3 bookings to come (tooManyBookings)',
+    schema: openApi(publicBookingConflictSchema),
+  })
+  @ApiTooManyRequestsResponse({ description: 'Too many bookings from this address; try again later' })
+  book(
+    @Param('slug', { schema: slugSchema }) slug: string,
+    @Body({ schema: publicBookingInput }) input: PublicBookingInput,
+  ): Promise<PublicBookingResult> {
+    return this.service.book(slug, input);
   }
 }
