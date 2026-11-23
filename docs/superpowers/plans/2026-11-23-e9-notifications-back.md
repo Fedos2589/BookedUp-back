@@ -129,7 +129,7 @@ cabinet's `AuthUser.id`; online paths (`bookOnline`, `moveOnline`, `cancelOnline
 `null`; move → MOVED with the new start; cancel → CANCELLED; DONE / NO_SHOW → no new event; a 409
 (slot taken) → no event; a walk-in → no event. Commit `feat(notifications): an event with every booking change`.
 
-### - [ ] N3: message texts
+### - [x] N3: message texts
 
 **Files:** create `src/notifications/{messages.ts,messages.spec.ts}`.
 
