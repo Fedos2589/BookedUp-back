@@ -14,7 +14,13 @@ describe('validateEnv', () => {
       TRUST_PROXY: 0,
       SESSION_COOKIE_SECURE: true,
       APP_URL: 'http://localhost:5173',
+      NOTIFICATIONS_WORKER: true,
     });
+  });
+
+  it('runs the notifications worker unless told not to', () => {
+    expect(validateEnv(valid).NOTIFICATIONS_WORKER).toBe(true);
+    expect(validateEnv({ ...valid, NOTIFICATIONS_WORKER: 'false' }).NOTIFICATIONS_WORKER).toBe(false);
   });
 
   it('keeps the session cookie Secure unless told otherwise', () => {

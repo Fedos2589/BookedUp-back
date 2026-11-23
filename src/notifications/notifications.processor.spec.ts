@@ -1,0 +1,65 @@
+import type { ConfigService } from '@nestjs/config';
+import type { Queue } from 'bullmq';
+
+import type { Env } from '../config/env.js';
+import type { DispatcherService } from './dispatcher.service.js';
+import { NotificationsProcessor } from './notifications.processor.js';
+import type { RemindersService } from './reminders.service.js';
+
+const setUp = (workerOn: boolean) => {
+  const calls: string[] = [];
+  const nows: Date[] = [];
+  const reminders = {
+    scheduleReminders: vi.fn(async (now: Date) => {
+      calls.push('reminders');
+      nows.push(now);
+      return 0;
+    }),
+  };
+  const dispatcher = {
+    dispatch: vi.fn(async (now: Date) => {
+      calls.push('dispatch');
+      nows.push(now);
+    }),
+  };
+  const queue = { upsertJobScheduler: vi.fn().mockResolvedValue(undefined) };
+  const run = vi.fn().mockResolvedValue(undefined);
+  const config = { get: vi.fn(() => workerOn) };
+  const processor = new NotificationsProcessor(
+    reminders as unknown as RemindersService,
+    dispatcher as unknown as DispatcherService,
+    config as unknown as ConfigService<Env, true>,
+    queue as unknown as Queue,
+  );
+  Object.defineProperty(processor, 'worker', { get: () => ({ run }) });
+  return { processor, calls, nows, queue, run };
+};
+
+describe('NotificationsProcessor', () => {
+  it('schedules reminders, then dispatches, with one now', async () => {
+    const { processor, calls, nows } = setUp(true);
+
+    await processor.process();
+
+    expect(calls).toEqual(['reminders', 'dispatch']);
+    expect(nows[0]).toBe(nows[1]);
+  });
+
+  it('puts the 30-second schedule in and starts the worker when it is on', async () => {
+    const { processor, queue, run } = setUp(true);
+
+    await processor.onApplicationBootstrap();
+
+    expect(queue.upsertJobScheduler).toHaveBeenCalledWith('tick', { every: 30_000 });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('touches neither the schedule nor the worker when it is off', async () => {
+    const { processor, queue, run } = setUp(false);
+
+    await processor.onApplicationBootstrap();
+
+    expect(queue.upsertJobScheduler).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+});

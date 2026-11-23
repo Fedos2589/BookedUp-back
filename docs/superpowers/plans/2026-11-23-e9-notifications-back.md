@@ -226,7 +226,7 @@ cancelled → none; moved after an event was written → the old key stays, the 
 event when due; booked after the reminder time → none; offsets `[1440, 60]` → two events at their
 times; `[]` → none. Commit `feat(notifications): reminders`.
 
-### - [ ] N8: the queue that runs it
+### - [x] N8: the queue that runs it
 
 **Files:** create `src/notifications/{notifications.processor.ts,notifications.processor.spec.ts}`,
 `src/notifications/notifications.module.ts`, `src/config/env.ts` (+ `env.spec.ts`), `.env.example`,

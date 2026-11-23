@@ -16,6 +16,9 @@ const envSchema = z
     // The front's address, for the links the API hands out (an invitation: <APP_URL>/invite/<token>).
     // Required in production; elsewhere it defaults to the Vite dev server (below).
     APP_URL: z.url().optional(),
+    // Whether this process runs the notifications queue (reminders and sending). One process is enough;
+    // tests turn it off.
+    NOTIFICATIONS_WORKER: z.stringbool().default(true),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],
