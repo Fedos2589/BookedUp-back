@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P3 done).
+**Status:** done, awaiting review and merge (P1–P9).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -88,7 +88,7 @@ and import it from both — don't keep two copies.
 tests for `manageLink` with and without a path in `APP_URL`. Commit
 `feat(appointments): manage token for online bookings`.
 
-### - [ ] P4: book online
+### - [x] P4: book online
 
 **Files:** `src/appointments/appointments.service.ts`, `src/clients/clients.service.ts`,
 `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
@@ -120,7 +120,7 @@ two slots → one client; the 4th → 409 `tooManyBookings`; the answer's keys a
 and a new phone. The cabinet's `appointments.int-spec.ts` stays green. Commit
 `feat(public-booking): book a slot by name and phone`.
 
-### - [ ] P5: any free master
+### - [x] P5: any free master
 
 **Files:** `src/public-booking/{public-booking.service.ts,public-booking.schema.ts}`, maybe a pure
 helper `src/public-booking/pick-master.ts` + spec, `test/public-booking.int-spec.ts`.
@@ -137,7 +137,7 @@ bookings gets it; the first taken in between (book it directly first) → the se
 master's meeting at the same time is never picked; `staffId` absent with `groupId` → 400. Commit
 `feat(public-booking): any free master`.
 
-### - [ ] P6: see and cancel by the link
+### - [x] P6: see and cancel by the link
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `src/appointments/appointments.service.ts` (only if the status change needs a no-actor entry),
@@ -153,7 +153,7 @@ cancel reuses the status rule and the conditional update of `AppointmentsService
 public slots; cancelling twice → 409; a started booking → 409; a cabinet booking (no token) can't be
 reached; malformed token → 400, unknown → 404. Commit `feat(public-booking): see and cancel by link`.
 
-### - [ ] P7: move by the link
+### - [x] P7: move by the link
 
 **Files:** `src/appointments/appointments.service.ts`, `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `test/public-booking.int-spec.ts`.
@@ -168,7 +168,7 @@ meeting → 409 `full`, booking unchanged; into a slot of another business's mas
 404 / 409, never moved; a started booking → 409. The cabinet's move tests stay green. Commit
 `feat(public-booking): move by link`.
 
-### - [ ] P8: the business's web manifest
+### - [x] P8: the business's web manifest
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,
 `test/public-booking.int-spec.ts`.
@@ -182,7 +182,7 @@ comment naming that file. `Cache-Control: public, max-age=3600`. Swagger: an obj
 **Check:** int test — the content type, `start_url` / `scope` of the slug, the business name; unknown
 slug → 404. Commit `feat(public-booking): web manifest per business`.
 
-### - [ ] P9: docs and the common plan
+### - [x] P9: docs and the common plan
 
 **Files:** `.claude/skills/back-access/SKILL.md`, `AGENTS.md` (only the «Вход, доступ» paragraph, one
 line), `docs/superpowers/plans/2026-11-18-e7-online-booking.md`, this file.

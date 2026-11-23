@@ -18,11 +18,11 @@ crosses repos. **Tasks live in each repo's own plan** — an executor opens only
 
 ## Steps of E7a and where their tasks are
 
-| Step | Repo           | Branch                | Plan                                                                         | Status      |
-| ---- | -------------- | --------------------- | ---------------------------------------------------------------------------- | ----------- |
-| P    | BookedUp-back  | `e7/public-booking`   | `docs/superpowers/plans/2026-11-18-e7-online-booking-back.md` (next to this) | not started |
-| K6   | ted-ui         | `feature/slot-picker` | task text in the front plan's «Before G1»                                    | not started |
-| G    | BookedUp-front | `e7/public-booking`   | `~/work/BookedUp-front/docs/plans/2026-11-18-e7-online-booking-front.md`     | not started |
+| Step | Repo           | Branch                | Plan                                                                         | Status                                             |
+| ---- | -------------- | --------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------- |
+| P    | BookedUp-back  | `e7/public-booking`   | `docs/superpowers/plans/2026-11-18-e7-online-booking-back.md` (next to this) | done, in review (PR #39); merged → «done — PR #39» |
+| K6   | ted-ui         | `feature/slot-picker` | task text in the front plan's «Before G1»                                    | not started                                        |
+| G    | BookedUp-front | `e7/public-booking`   | `~/work/BookedUp-front/docs/plans/2026-11-18-e7-online-booking-front.md`     | not started                                        |
 
 **Order:** back → front; K6 runs in parallel with the back and is needed from G3. Each step is one
 branch and one PR, reviewed by Opus before the next. The last task of each step's plan updates its
@@ -72,6 +72,11 @@ Made while planning — the user checks them in this plan's PR:
    cabinet adds, and if it's heavy, precaching only the public chunks is a follow-up.
 8. **Online booking is on for every business**; a switch in settings comes if a pilot asks. The
    cabinet shows online bookings like any other; telling the master about them is E9.
+
+9. **A phone is not confirmed until E7b (decided in the review of #39, 2026-11-23).** Whoever knows a
+   regular's phone can book on their card and use up the 3 bookings of that phone; `tooManyBookings`
+   then shows the phone has 3 bookings to come. Accepted until the code (OTP) arrives. The 10 an hour
+   per IP counts failed attempts too; softer limits later if a pilot hits it.
 
 ## Out of E7a
 

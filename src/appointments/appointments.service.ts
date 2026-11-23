@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
+import type { AppointmentStatus } from '../generated/prisma/enums.js';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { BusinessPolicy } from '../business/business.policy.js';
@@ -20,13 +21,18 @@ import {
   type StatusInput,
 } from './appointments.schema.js';
 
-const notFree = () =>
+const NOT_FREE = 'notFree';
+
+export const notFree = () =>
   new ConflictException({
     statusCode: 409,
     error: 'Conflict',
     message: 'This time is not free',
-    code: 'notFree',
+    code: NOT_FREE,
   });
+
+export const isNotFree = (error: unknown) =>
+  error instanceof ConflictException && (error.getResponse() as { code?: string }).code === NOT_FREE;
 
 const full = () =>
   new ConflictException({
@@ -35,6 +41,21 @@ const full = () =>
     message: 'Every seat is taken',
     code: 'full',
   });
+
+// The slot to book and what is written on it.
+export type SlotBooking = {
+  staffId: string;
+  startsAt: Date;
+  endsAt: Date;
+  groupId?: string | undefined;
+  oneOffSessionId?: string | undefined;
+  note?: string | null | undefined;
+};
+
+// Finds or makes the person in the booking's transaction.
+export type Person = (
+  tx: Prisma.TransactionClient,
+) => Promise<{ clientId: string; clientName: string; clientPhone: string }>;
 
 const statusConflict = (code: 'badTransition' | 'notStarted', message: string) =>
   new ConflictException({ statusCode: 409, error: 'Conflict', message, code });
@@ -80,9 +101,47 @@ export class AppointmentsService {
     now: Date,
     mode: 'ahead' | 'walkIn',
   ): Promise<AppointmentDto> {
+    await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    const { appointment } = await this.book(
+      businessId,
+      { staffId, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession, note },
+      now,
+      mode,
+      // The person, found or made in this transaction: neither is left if the slot turns out taken.
+      (tx) => this.clients.resolveForBooking(tx, businessId, newClient ? { newClient } : { clientId: clientId! }),
+    );
+    return appointment;
+  }
+
+  // Someone who booked on the business's page: no account, no actor. The same lock, slot and seat
+  // checks as the cabinet; the person comes from `person`, which runs in the booking's transaction
+  // (the phone's client, the limit on bookings). Only ahead of the start.
+  bookOnline(
+    businessId: string,
+    input: SlotBooking & { manageTokenHash: string },
+    now: Date,
+    person: Person,
+  ): Promise<{ appointment: AppointmentDto; title: string | null }> {
+    return this.book(businessId, input, now, 'ahead', person);
+  }
+
+  private async book(
+    businessId: string,
+    {
+      staffId,
+      startsAt,
+      endsAt,
+      groupId: seatGroup,
+      oneOffSessionId: seatSession,
+      note,
+      manageTokenHash,
+    }: SlotBooking & { manageTokenHash?: string },
+    now: Date,
+    mode: 'ahead' | 'walkIn',
+    person: Person,
+  ): Promise<{ appointment: AppointmentDto; title: string | null }> {
     const groupId = seatGroup ?? null;
     const oneOffSessionId = seatSession ?? null;
-    await this.staff.authorizeChangeOf(actor, businessId, staffId);
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { timeZone: true },
@@ -93,7 +152,7 @@ export class AppointmentsService {
     // Booking ahead is offered what is still to come; a walk-in, the whole day it came on.
     const notBefore = mode === 'walkIn' ? new Date(startOfDay(timeZone, date)) : now;
     try {
-      const created = await this.prisma.$transaction(async (tx) => {
+      const { created, title } = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM staff WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
         const slot = await this.findSlot(
           tx,
@@ -107,28 +166,25 @@ export class AppointmentsService {
           throw statusConflict('notStarted', 'The meeting has not started yet: book a seat instead');
         }
         if (mode === 'ahead' && slot.full) throw full();
-        // The person, found or made in this transaction: neither is left if the slot turns out taken.
-        const person = await this.clients.resolveForBooking(
-          tx,
-          businessId,
-          newClient ? { newClient } : { clientId: clientId! },
-        );
-        return tx.appointment.create({
+        const who = await person(tx);
+        const created = await tx.appointment.create({
           data: {
             businessId,
-            ...person,
+            ...who,
             staffId,
             startsAt,
             endsAt,
             groupId,
             oneOffSessionId,
             note,
+            manageTokenHash,
             ...(mode === 'walkIn' && { status: 'DONE' }),
           },
           select: appointmentSelect,
         });
+        return { created, title: slot.title };
       });
-      return withIsoTimes(created);
+      return { appointment: withIsoTimes(created), title };
     } catch (error) {
       if (violatedExclusion(error) === 'Appointment') throw notFree();
       throw error;
@@ -166,18 +222,33 @@ export class AppointmentsService {
   // Moves a BOOKED or CONFIRMED booking to another slot, the same master's or another's, by the same
   // checks as booking, in one transaction. Both masters' rows are locked in id order, so two moves
   // across the same two masters can't deadlock and two moves into one slot take turns.
-  async move(
-    actor: AuthUser,
-    businessId: string,
-    id: string,
-    { staffId: target, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession }: MoveInput,
-    now: Date,
-  ): Promise<AppointmentDto> {
+  async move(actor: AuthUser, businessId: string, id: string, input: MoveInput, now: Date): Promise<AppointmentDto> {
     const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
     if (!current) throw new NotFoundException();
-    const staffId = target ?? current.staffId;
     await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
-    if (staffId !== current.staffId) await this.staff.authorizeChangeOf(actor, businessId, staffId);
+    if (input.staffId && input.staffId !== current.staffId) {
+      await this.staff.authorizeChangeOf(actor, businessId, input.staffId);
+    }
+    return this.relocate(businessId, id, current.staffId, input, now, false);
+  }
+
+  // The booker moves what they booked online, until it starts: no actor, the business is the token's.
+  async moveOnline(businessId: string, id: string, input: MoveInput, now: Date): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
+    if (!current) throw new NotFoundException();
+    return this.relocate(businessId, id, current.staffId, input, now, true);
+  }
+
+  private async relocate(
+    businessId: string,
+    id: string,
+    currentStaffId: string,
+    { staffId: target, startsAt, endsAt, groupId: seatGroup, oneOffSessionId: seatSession }: MoveInput,
+    now: Date,
+    notStartedOnly: boolean,
+  ): Promise<AppointmentDto> {
+    const current = { staffId: currentStaffId };
+    const staffId = target ?? current.staffId;
     const { timeZone } = await this.prisma.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { timeZone: true },
@@ -192,9 +263,12 @@ export class AppointmentsService {
         // waited for this lock and is simply moved on from.
         const booking = await tx.appointment.findFirst({
           where: { id, businessId, staffId: current.staffId },
-          select: { status: true },
+          select: { status: true, startsAt: true },
         });
         if (!booking) throw statusConflict('badTransition', 'The booking has just changed');
+        if (notStartedOnly && booking.startsAt <= now) {
+          throw statusConflict('badTransition', 'The booking has already started');
+        }
         if (booking.status !== 'BOOKED' && booking.status !== 'CONFIRMED') {
           throw statusConflict('badTransition', `A booking that is ${booking.status} can't be moved`);
         }
@@ -269,6 +343,28 @@ export class AppointmentsService {
     });
     if (!current) throw new NotFoundException();
     await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
+    return this.transition(businessId, id, current, status, now);
+  }
+
+  // The booker cancels what they booked online, until it starts. Same rule and same conditional
+  // update as the cabinet's status change; the booker is no actor, the business is the token's.
+  async cancelOnline(businessId: string, id: string, now: Date): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({
+      where: { id, businessId },
+      select: { staffId: true, status: true, startsAt: true },
+    });
+    if (!current) throw new NotFoundException();
+    if (current.startsAt <= now) throw statusConflict('badTransition', 'The booking has already started');
+    return this.transition(businessId, id, current, 'CANCELLED', now);
+  }
+
+  private async transition(
+    businessId: string,
+    id: string,
+    current: { staffId: string; status: AppointmentStatus; startsAt: Date },
+    status: AppointmentStatus,
+    now: Date,
+  ): Promise<AppointmentDto> {
     if (!nextStatuses[current.status].includes(status)) {
       throw statusConflict('badTransition', `A booking that is ${current.status} can't become ${status}`);
     }
