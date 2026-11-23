@@ -1,7 +1,9 @@
 import type { INestApplication } from '@nestjs/common';
+import type { MockInstance } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { App } from 'supertest/types.js';
 
+import { LogChannel } from '../src/notifications/channels/log.channel.js';
 import { DispatcherService } from '../src/notifications/dispatcher.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createClient, memberOf, signUpOwner } from './helpers.js';
@@ -170,6 +172,8 @@ describe('events into deliveries', () => {
         kind: 'TELEGRAM',
         address: 'late',
         locale: 'en',
+        // Not «now»: the event's own timestamp can fall in the same millisecond.
+        createdAt: new Date(Date.now() + 60_000),
       },
     });
 
@@ -201,5 +205,148 @@ describe('events into deliveries', () => {
     expect(left.map((event) => event.id)).toEqual([poisoned.id]);
     // The shared database would keep retrying it, and logging, in every later test.
     await prisma.notificationEvent.delete({ where: { id: poisoned.id } });
+  });
+});
+
+describe('sending deliveries', () => {
+  let send: MockInstance<LogChannel['send']>;
+  beforeEach(() => {
+    send = vi.spyOn(app.get(LogChannel), 'send').mockResolvedValue('sent');
+  });
+  afterEach(() => {
+    send.mockRestore();
+  });
+
+  // Other tests' deliveries are in the same database and go out with ours: look at our addresses only.
+  const sentTo = (addresses: string[]) =>
+    send.mock.calls
+      .map(([address]) => address)
+      .filter((address) => addresses.includes(address))
+      .sort();
+  const statusesOf = async (businessId: string) =>
+    (await prisma.notificationDelivery.findMany({ where: { businessId } })).map((d) => d.status).sort();
+
+  // An online booking with a Telegram client channel: three deliveries (owner, master, client).
+  const booked = async () => {
+    const t = await setUp();
+    const clientId = await createClient(prisma, t.businessId, phone());
+    const appointment = await t.book(clientId);
+    const address = randomUUID();
+    const channel = await prisma.clientChannel.create({
+      data: {
+        businessId: t.businessId,
+        clientId,
+        appointmentId: appointment.id,
+        kind: 'TELEGRAM',
+        address,
+        locale: 'ru',
+      },
+    });
+    const event = await t.bookedEvent(appointment);
+    const addresses = [await t.emailOf(t.ownerId), await t.emailOf(t.master.userId), address];
+    return { ...t, address, addresses, channel, event, appointment, clientId };
+  };
+
+  it('sends each recipient their message once', async () => {
+    const t = await booked();
+
+    await dispatcher.dispatch(new Date());
+    await dispatcher.dispatch(new Date());
+
+    expect(sentTo(t.addresses)).toEqual([...t.addresses].sort());
+    expect(await statusesOf(t.businessId)).toEqual(['SENT', 'SENT', 'SENT']);
+    const [, message] = send.mock.calls.find(([address]) => address === t.address) ?? [];
+    expect(message?.text).toContain('Anna');
+  });
+
+  it('two dispatches at once send each delivery once', async () => {
+    const t = await booked();
+
+    await Promise.all([dispatcher.dispatch(new Date()), dispatcher.dispatch(new Date())]);
+
+    expect(sentTo(t.addresses)).toEqual([...t.addresses].sort());
+  });
+
+  it('retries a failure on the next dispatch, and stops after three', async () => {
+    const t = await booked();
+    send.mockImplementation(async (address) => {
+      if (address === t.address) throw new Error('provider down');
+      return 'sent';
+    });
+
+    await dispatcher.dispatch(new Date());
+    expect(await statusesOf(t.businessId)).toEqual(['FAILED', 'SENT', 'SENT']);
+    const failed = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { businessId: t.businessId, status: 'FAILED' },
+    });
+    expect(failed.lastError).toBe('provider down');
+
+    send.mockResolvedValue('sent');
+    await dispatcher.dispatch(new Date());
+    expect(await statusesOf(t.businessId)).toEqual(['SENT', 'SENT', 'SENT']);
+
+    const u = await booked();
+    send.mockRejectedValue(new Error('still down'));
+    for (let i = 0; i < 4; i++) await dispatcher.dispatch(new Date());
+    expect(await statusesOf(u.businessId)).toEqual(['FAILED', 'FAILED', 'FAILED']);
+    expect(send.mock.calls.filter(([address]) => address === u.address)).toHaveLength(3);
+  });
+
+  it('never picks a delivery left SENDING again', async () => {
+    const t = await booked();
+    await drain();
+    await prisma.notificationDelivery.updateMany({ where: { businessId: t.businessId }, data: { status: 'SENDING' } });
+
+    await dispatcher.dispatch(new Date());
+
+    expect(sentTo(t.addresses)).toEqual([]);
+  });
+
+  it('switches the client channel off when the address is unreachable, and keeps its row and event', async () => {
+    const t = await booked();
+    send.mockImplementation(async (address) => (address === t.address ? 'unreachable' : 'sent'));
+
+    await dispatcher.dispatch(new Date());
+    await dispatcher.dispatch(new Date());
+
+    const channel = await prisma.clientChannel.findUniqueOrThrow({ where: { id: t.channel.id } });
+    expect(channel.disabledAt).not.toBeNull();
+    expect(await prisma.notificationEvent.count({ where: { id: t.event.id } })).toBe(1);
+    expect(send.mock.calls.filter(([address]) => address === t.address)).toHaveLength(1);
+    expect(await statusesOf(t.businessId)).toEqual(['FAILED', 'SENT', 'SENT']);
+  });
+
+  it('deletes a member’s channel when the address is unreachable', async () => {
+    const t = await booked();
+    const address = randomUUID();
+    await prisma.userChannel.create({ data: { userId: t.master.userId, kind: 'TELEGRAM', address } });
+    await prisma.notificationEvent.deleteMany({ where: { id: t.event.id } });
+    await t.bookedEvent(t.appointment);
+    send.mockImplementation(async (to) => (to === address ? 'unreachable' : 'sent'));
+
+    await dispatcher.dispatch(new Date());
+
+    expect(await prisma.userChannel.count({ where: { userId: t.master.userId } })).toBe(0);
+  });
+
+  it('wipes the manage link from a CHANNEL_ON event once its message is out, and sends it', async () => {
+    const t = await booked();
+    const link = `https://example.test/manage/${randomUUID()}`;
+    const event = await prisma.notificationEvent.create({
+      data: {
+        businessId: t.businessId,
+        appointmentId: t.appointment.id,
+        kind: 'CHANNEL_ON',
+        channelId: t.channel.id,
+        startsAt: t.appointment.startsAt,
+        payload: { manageLink: link },
+      },
+    });
+
+    await dispatcher.dispatch(new Date());
+
+    const texts = send.mock.calls.filter(([address]) => address === t.address).map(([, message]) => message.text);
+    expect(texts.filter((text) => text.includes(link))).toHaveLength(1);
+    expect((await prisma.notificationEvent.findUniqueOrThrow({ where: { id: event.id } })).payload).toBeNull();
   });
 });

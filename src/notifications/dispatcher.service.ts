@@ -1,24 +1,37 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { localeSchema } from '../account/locale.js';
-import type { Prisma } from '../generated/prisma/client.js';
+import { type ChannelKind, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { MessageLocale } from './messages.js';
+import { ChannelRegistry } from './channels/channel-registry.js';
+import { type MessageLocale, messageFor } from './messages.js';
 import { type Member, recipientsOf, type RecipientsContext, STAFF_KINDS } from './recipients.js';
 
 const BATCH = 50;
 
-// Until the real channels exist (step M) every message goes to the log.
-const FALLBACK_TO_LOG = true;
+// A delivery is tried this many times, then stays FAILED.
+const MAX_ATTEMPTS = 3;
 
 // `en` or `ru`: a CHECK constraint keeps the columns to these two; a new language fails loudly here.
 const localeOf = (value: string): MessageLocale => localeSchema.parse(value);
 
-// MOVED events keep where the booking was in their payload: `{ fromStaffId, fromStartsAt }`.
-const fromStaffIdOf = (payload: Prisma.JsonValue): string | null => {
+const fieldOf = (payload: Prisma.JsonValue, key: string): string | null => {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
-  const { fromStaffId } = payload;
-  return typeof fromStaffId === 'string' ? fromStaffId : null;
+  const value = payload[key];
+  return typeof value === 'string' ? value : null;
+};
+
+// MOVED events keep where the booking was in their payload: `{ fromStaffId, fromStartsAt }`.
+const fromStaffIdOf = (payload: Prisma.JsonValue) => fieldOf(payload, 'fromStaffId');
+
+type Claimed = {
+  id: string;
+  businessId: string;
+  eventId: string;
+  channel: ChannelKind;
+  address: string;
+  audience: string;
+  locale: string;
 };
 
 type Event = Prisma.NotificationEventGetPayload<object>;
@@ -27,7 +40,129 @@ type Event = Prisma.NotificationEventGetPayload<object>;
 export class DispatcherService {
   private readonly logger = new Logger(DispatcherService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly channels: ChannelRegistry,
+  ) {}
+
+  async dispatch(now: Date): Promise<void> {
+    await this.expand(now);
+    await this.send(now);
+  }
+
+  // Sends what is due, at most BATCH deliveries. A delivery is claimed (SENDING, attempts + 1) in a
+  // transaction of its own, committed before any call to the outside: a crash in between leaves it SENDING,
+  // and it is never picked again — a message twice is worse than a message lost (E9, decision 3).
+  // Two runs at once claim different rows (SKIP LOCKED).
+  async send(now: Date): Promise<number> {
+    // The scan crosses businesses by design: the outbox is one queue for all of them.
+    const claimed = await this.prisma.$queryRaw<Claimed[]>`
+      UPDATE notification_deliveries SET status = 'SENDING', attempts = attempts + 1
+      WHERE id IN (
+        SELECT id FROM notification_deliveries
+        WHERE status IN ('PENDING', 'FAILED') AND attempts < ${MAX_ATTEMPTS}
+        ORDER BY created_at, id LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
+      RETURNING id, business_id AS "businessId", event_id AS "eventId", channel, address, audience, locale`;
+    for (const delivery of claimed) await this.deliver(delivery, now);
+    return claimed.length;
+  }
+
+  private async deliver(delivery: Claimed, now: Date): Promise<void> {
+    const { id, businessId, eventId } = delivery;
+    try {
+      const message = await this.render(delivery);
+      const result = await this.channels.get(delivery.channel).send(delivery.address, message);
+      if (result === 'sent') {
+        await this.prisma.notificationDelivery.update({
+          where: { id },
+          data: { status: 'SENT', sentAt: now, lastError: null },
+        });
+      } else {
+        await this.prisma.notificationDelivery.update({
+          where: { id },
+          data: { status: 'FAILED', attempts: MAX_ATTEMPTS, lastError: 'unreachable' },
+        });
+        await this.switchOff(delivery, now);
+      }
+    } catch (error) {
+      this.logger.warn({ err: error, deliveryId: id }, 'Sending a notification failed');
+      const lastError = error instanceof Error ? error.message : 'unknown error';
+      await this.prisma.notificationDelivery.update({ where: { id }, data: { status: 'FAILED', lastError } });
+    }
+    await this.wipePayloadIfOut(businessId, eventId);
+  }
+
+  // The address will never work. A client channel stays, switched off: its events and deliveries hang on it.
+  // A member's channel has nothing hanging on it, so it goes; their email is their account's, it stays.
+  // With the log standing in for every channel the kind is unknown, the address alone finds it.
+  private async switchOff({ businessId, audience, channel, address }: Claimed, now: Date) {
+    const kind = channel === 'LOG' ? {} : { kind: channel };
+    if (audience === 'client') {
+      await this.prisma.clientChannel.updateMany({
+        where: { businessId, address, disabledAt: null, ...kind },
+        data: { disabledAt: now },
+      });
+    } else if (channel !== 'EMAIL') {
+      await this.prisma.userChannel.deleteMany({ where: { address, ...kind } });
+    }
+  }
+
+  // The manage link lives in a CHANNEL_ON event's payload only until its messages are out (decision 5).
+  private async wipePayloadIfOut(businessId: string, eventId: string) {
+    const waiting = await this.prisma.notificationDelivery.count({
+      where: {
+        businessId,
+        eventId,
+        OR: [{ status: { in: ['PENDING', 'SENDING'] } }, { status: 'FAILED', attempts: { lt: MAX_ATTEMPTS } }],
+      },
+    });
+    if (waiting > 0) return;
+    await this.prisma.notificationEvent.updateMany({
+      where: { businessId, id: eventId, kind: 'CHANNEL_ON', payload: { not: Prisma.DbNull } },
+      data: { payload: Prisma.DbNull },
+    });
+  }
+
+  private async render({ businessId, eventId, audience, locale }: Claimed) {
+    const event = await this.prisma.notificationEvent.findFirstOrThrow({
+      where: { businessId, id: eventId },
+      include: {
+        appointment: {
+          select: {
+            clientName: true,
+            staffId: true,
+            staff: { select: { name: true } },
+            group: { select: { title: true } },
+            oneOffSession: { select: { title: true } },
+            business: { select: { name: true, timeZone: true } },
+          },
+        },
+      },
+    });
+    const { appointment } = event;
+    const fromStaffId = fromStaffIdOf(event.payload);
+    const fromStartsAt = fieldOf(event.payload, 'fromStartsAt');
+    const manageLink = fieldOf(event.payload, 'manageLink');
+    const previousMaster =
+      fromStaffId === null || fromStaffId === appointment.staffId
+        ? null
+        : await this.prisma.staff.findFirst({ where: { businessId, id: fromStaffId }, select: { name: true } });
+    return messageFor({
+      kind: event.kind,
+      audience: audience === 'client' ? 'client' : 'staff',
+      locale: localeOf(locale),
+      businessName: appointment.business.name,
+      masterName: appointment.staff.name,
+      title: appointment.group?.title ?? appointment.oneOffSession?.title ?? null,
+      startsAt: event.startsAt,
+      ...(fromStartsAt === null ? {} : { fromStartsAt: new Date(fromStartsAt) }),
+      ...(previousMaster === null ? {} : { fromMasterName: previousMaster.name }),
+      timeZone: appointment.business.timeZone,
+      clientName: appointment.clientName,
+      ...(event.offsetMinutes === null ? {} : { offsetMinutes: event.offsetMinutes }),
+      ...(manageLink === null ? {} : { manageLink }),
+    });
+  }
 
   // Turns the events nobody has looked at yet into one delivery per recipient and marks them processed.
   // Returns how many it took, at most BATCH. Each event has a transaction of its own: one that cannot be
@@ -142,7 +277,7 @@ export class DispatcherService {
       previousMasterUserId: previousMaster?.userId ?? null,
       members,
       clientChannels: clientChannels.map((c) => ({ ...c, locale: localeOf(c.locale) })),
-      fallbackToLog: FALLBACK_TO_LOG,
+      fallbackToLog: this.channels.fallbackToLog,
     };
   }
 }

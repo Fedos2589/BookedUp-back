@@ -186,7 +186,7 @@ constant `true`.
 expected delivery rows (channel LOG, audiences); a second `expand` adds nothing; two parallel `expand`
 → the same rows, no error. Commit `feat(notifications): events into deliveries`.
 
-### - [ ] N6: sending deliveries
+### - [x] N6: sending deliveries
 
 **Files:** create `src/notifications/channels/{channel.ts,log.channel.ts,channel-registry.ts}`,
 `src/notifications/dispatcher.service.ts`, `test/notification-dispatch.int-spec.ts`.
