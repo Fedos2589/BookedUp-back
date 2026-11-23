@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1 done).
+**Status:** in progress (P1–P2 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -58,7 +58,7 @@ A service method `businessIdOf(slug)` that the next tasks reuse.
 the live master only, with no cookie; unknown slug → 404; `A_B` → 400. Swagger lists the route under
 `public-booking`. Commit `feat(public-booking): business and its masters by slug`.
 
-### - [ ] P2: public free slots
+### - [x] P2: public free slots
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `test/public-booking.int-spec.ts`.
