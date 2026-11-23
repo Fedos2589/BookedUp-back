@@ -574,6 +574,10 @@ describe('GET /public/businesses/:slug/manifest.webmanifest', () => {
   });
 
   it('is 404 for an unknown slug', async () => {
-    await http().get('/public/businesses/no-such-business-at-all/manifest.webmanifest').expect(404);
+    const res = await http().get('/public/businesses/no-such-business-at-all/manifest.webmanifest').expect(404);
+
+    // A 404 must not be cached for an hour: the business may be signed up a minute later.
+    expect(res.headers['cache-control']).toBeUndefined();
+    expect(res.headers['content-type']).not.toMatch(/manifest/);
   });
 });

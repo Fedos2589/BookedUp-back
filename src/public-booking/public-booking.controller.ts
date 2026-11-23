@@ -1,5 +1,5 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -11,6 +11,7 @@ import {
 } from '@nestjs/swagger';
 import { hours, Throttle } from '@nestjs/throttler';
 
+import type { Response } from 'express';
 import { z } from 'zod';
 
 import { type MoveInput, moveInput } from '../appointments/appointments.schema.js';
@@ -55,16 +56,22 @@ export class PublicBookingController {
   }
 
   @Get('businesses/:slug/manifest.webmanifest')
-  @Header('Content-Type', 'application/manifest+json')
-  @Header('Cache-Control', 'public, max-age=3600')
   @ApiOkResponse({
     description: "The business's web app manifest: installing /book/<slug> makes an app of its own",
     schema: openApi(businessManifestSchema),
   })
   @ApiBadRequestResponse({ description: 'The slug is malformed', schema: openApi(validationErrorSchema) })
   @ApiNotFoundResponse({ description: 'No business with this slug' })
-  manifest(@Param('slug', { schema: slugSchema }) slug: string): Promise<BusinessManifestDto> {
-    return this.service.manifest(slug);
+  // The headers are set after the business is found: @Header would put them on the 404 too, and a
+  // browser would keep «no such business» for an hour.
+  async manifest(
+    @Param('slug', { schema: slugSchema }) slug: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<BusinessManifestDto> {
+    const manifest = await this.service.manifest(slug);
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return manifest;
   }
 
   @Get('businesses/:slug/slots')
