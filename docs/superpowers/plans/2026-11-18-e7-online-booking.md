@@ -22,7 +22,7 @@ crosses repos. **Tasks live in each repo's own plan** — an executor opens only
 | ---- | -------------- | --------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
 | P    | BookedUp-back  | `e7/public-booking`   | `docs/superpowers/plans/2026-11-18-e7-online-booking-back.md` (next to this) | done — PRs #38, #39                               |
 | K6   | ted-ui         | `feature/slot-picker` | task text in the front plan's «Before G1»                                    | done — ted-ui PR #21, v0.8.0 (front is on v0.8.1) |
-| G    | BookedUp-front | `e7/public-booking`   | `~/work/BookedUp-front/docs/plans/2026-11-18-e7-online-booking-front.md`     | not started                                       |
+| G    | BookedUp-front | `e7/public-booking`   | `~/work/BookedUp-front/docs/plans/2026-11-18-e7-online-booking-front.md`     | done — front PRs #45, #46, #48–#50                |
 
 **Order:** back → front; K6 runs in parallel with the back and is needed from G3. Each step is one
 branch and one PR, reviewed by Opus before the next. The last task of each step's plan updates its
