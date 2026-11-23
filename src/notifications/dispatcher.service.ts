@@ -100,9 +100,17 @@ export class DispatcherService {
     const outcome = await this.trySending(delivery);
     try {
       await this.record(delivery, outcome, now);
-      await this.wipePayloadIfOut(delivery.businessId, delivery.eventId);
     } catch (error) {
       this.logger.error({ err: error, deliveryId: delivery.id }, 'Recording a delivery failed; it stays SENDING');
+      return;
+    }
+    try {
+      await this.wipePayloadIfOut(delivery.businessId, delivery.eventId);
+    } catch (error) {
+      this.logger.error(
+        { err: error, eventId: delivery.eventId },
+        'Wiping the manage link failed; it stays in the payload until the next delivery of the event',
+      );
     }
   }
 

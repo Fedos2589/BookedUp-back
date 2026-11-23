@@ -26,6 +26,8 @@ export class RemindersService {
       JOIN appointments a ON a.business_id = b.id
       CROSS JOIN LATERAL (SELECT a.starts_at - make_interval(mins => o.minutes) AS at) due
       WHERE a.status IN ('BOOKED', 'CONFIRMED')
+        -- These two follow from the due.at pair below; written on starts_at itself, they let the scan use
+        -- the (business_id, starts_at) index instead of reading every booking of the business.
         AND a.starts_at > ${now}::timestamptz
         AND a.starts_at <= ${now}::timestamptz + make_interval(mins => o.minutes)
         AND due.at <= ${now}::timestamptz
