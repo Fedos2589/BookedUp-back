@@ -25,8 +25,9 @@ export class RemindersService {
       CROSS JOIN LATERAL unnest(b.reminder_offsets) AS o(minutes)
       JOIN appointments a ON a.business_id = b.id
       CROSS JOIN LATERAL (SELECT a.starts_at - make_interval(mins => o.minutes) AS at) due
-      WHERE a.status = 'BOOKED'
+      WHERE a.status IN ('BOOKED', 'CONFIRMED')
         AND a.starts_at > ${now}::timestamptz
+        AND a.starts_at <= ${now}::timestamptz + make_interval(mins => o.minutes)
         AND due.at <= ${now}::timestamptz
         AND due.at > ${now}::timestamptz - make_interval(mins => ${WINDOW_MINUTES})
         AND a.created_at <= due.at

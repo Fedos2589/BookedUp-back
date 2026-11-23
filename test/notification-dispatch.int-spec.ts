@@ -349,4 +349,44 @@ describe('sending deliveries', () => {
     expect(texts.filter((text) => text.includes(link))).toHaveLength(1);
     expect((await prisma.notificationEvent.findUniqueOrThrow({ where: { id: event.id } })).payload).toBeNull();
   });
+
+  it('does not send twice when the database fails after a message went out, and the rest of the batch still goes', async () => {
+    const t = await booked();
+    // The first write of a result (the first delivery's SENT) fails once.
+    const write = vi.spyOn(prisma.notificationDelivery, 'updateMany').mockRejectedValueOnce(new Error('db down'));
+
+    await dispatcher.dispatch(new Date());
+    write.mockRestore();
+    await dispatcher.dispatch(new Date());
+
+    expect(sentTo(t.addresses)).toEqual([...t.addresses].sort());
+    expect(await statusesOf(t.businessId)).toEqual(['SENDING', 'SENT', 'SENT']);
+  });
+
+  it('does not send a reminder for a booking that was cancelled or moved since the event', async () => {
+    const t = await booked();
+    const reminderOf = (startsAt: Date) =>
+      prisma.notificationEvent.create({
+        data: {
+          businessId: t.businessId,
+          appointmentId: t.appointment.id,
+          kind: 'REMINDER',
+          offsetMinutes: 1440,
+          startsAt,
+        },
+      });
+    await drain();
+    await prisma.notificationDelivery.deleteMany({ where: { businessId: t.businessId } });
+    await prisma.notificationEvent.deleteMany({ where: { businessId: t.businessId } });
+    const stale = await reminderOf(new Date(t.appointment.startsAt.getTime() - 3_600_000));
+    const cancelled = await reminderOf(t.appointment.startsAt);
+    await prisma.appointment.update({ where: { id: t.appointment.id }, data: { status: 'CANCELLED' } });
+
+    await dispatcher.dispatch(new Date());
+
+    expect(sentTo(t.addresses)).toEqual([]);
+    const rows = await prisma.notificationDelivery.findMany({ where: { eventId: { in: [stale.id, cancelled.id] } } });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((d) => d.status === 'FAILED' && d.attempts === 3)).toBe(true);
+  });
 });

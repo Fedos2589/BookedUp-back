@@ -30,7 +30,12 @@ export class NotificationsProcessor extends WorkerHost implements OnApplicationB
   // After every module's init: the worker is made by then.
   async onApplicationBootstrap(): Promise<void> {
     if (!this.config.get('NOTIFICATIONS_WORKER', { infer: true })) return;
-    await this.queue.upsertJobScheduler('tick', { every: TICK_EVERY_MS });
+    // 2880 ticks a day: the finished ones are not kept (BullMQ keeps them all by default).
+    await this.queue.upsertJobScheduler(
+      'tick',
+      { every: TICK_EVERY_MS },
+      { name: 'tick', opts: { removeOnComplete: true, removeOnFail: 100 } },
+    );
     this.worker.run().catch((err: unknown) => this.logger.error({ err }, 'The notifications worker stopped'));
   }
 

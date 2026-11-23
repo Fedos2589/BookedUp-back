@@ -33,7 +33,10 @@ const setUp = async (reminderOffsets?: number[]) => {
   if (reminderOffsets) await prisma.business.update({ where: { id: businessId }, data: { reminderOffsets } });
   const staff = await prisma.staff.create({ data: { businessId, name: 'Anna' }, select: { id: true } });
   const clientId = await createClient(prisma, businessId, phone());
-  const book = (startsAt: Date, extra: { status?: 'CANCELLED'; createdAt?: Date } = {}) =>
+  const book = (
+    startsAt: Date,
+    extra: { status?: 'CANCELLED' | 'CONFIRMED' | 'DONE' | 'NO_SHOW'; createdAt?: Date } = {},
+  ) =>
     prisma.appointment.create({
       data: {
         businessId,
@@ -103,6 +106,17 @@ describe('scheduleReminders', () => {
     await reminders.scheduleReminders(NOW);
 
     expect(await t.events()).toHaveLength(1);
+  });
+
+  it('writes one for a confirmed booking too, and none for one that is done or missed', async () => {
+    const t = await setUp();
+    await t.book(after(1440), { status: 'CONFIRMED' });
+    await t.book(after(1440 + 5), { status: 'DONE' });
+    await t.book(after(1440 + 10), { status: 'NO_SHOW' });
+
+    await reminders.scheduleReminders(NOW);
+
+    expect(await t.events()).toEqual([reminder(1440, after(1440))]);
   });
 
   it('writes nothing for a cancelled booking', async () => {

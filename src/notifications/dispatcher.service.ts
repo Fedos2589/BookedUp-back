@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { localeSchema } from '../account/locale.js';
-import { type ChannelKind, Prisma } from '../generated/prisma/client.js';
+import { type AppointmentStatus, type ChannelKind, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ChannelRegistry } from './channels/channel-registry.js';
+import type { SendResult } from './channels/channel.js';
 import { type MessageLocale, messageFor } from './messages.js';
 import { type Member, recipientsOf, type RecipientsContext, STAFF_KINDS } from './recipients.js';
 
 const BATCH = 50;
+
+// The statuses of a booking that still expects its client (the same as the reminders').
+const LIVE: readonly AppointmentStatus[] = ['BOOKED', 'CONFIRMED'];
 
 // A delivery is tried this many times, then stays FAILED.
 const MAX_ATTEMPTS = 3;
@@ -33,6 +37,12 @@ type Claimed = {
   audience: string;
   locale: string;
 };
+
+type Outcome = SendResult | 'stale' | { error: string };
+
+// A reminder whose booking was cancelled or moved after the event was written: not worth sending, not worth
+// retrying (the new time has its own reminder).
+class StaleReminder extends Error {}
 
 type Event = Prisma.NotificationEventGetPayload<object>;
 
@@ -67,29 +77,49 @@ export class DispatcherService {
     return claimed.length;
   }
 
+  // One delivery, start to finish; never throws, so one failure doesn't leave the rest of the claimed batch
+  // SENDING for good. What happens to the row depends on how far it got:
+  // - the message was not sent (render or channel failed): FAILED, tried again while attempts last;
+  // - the message went out but the database refuses the record: the row stays SENDING and is never sent again
+  //   (a message twice is worse than a message lost, decision 3), and the failure is in the log.
   private async deliver(delivery: Claimed, now: Date): Promise<void> {
-    const { id, businessId, eventId } = delivery;
+    const outcome = await this.trySending(delivery);
+    try {
+      await this.record(delivery, outcome, now);
+      await this.wipePayloadIfOut(delivery.businessId, delivery.eventId);
+    } catch (error) {
+      this.logger.error({ err: error, deliveryId: delivery.id }, 'Recording a delivery failed; it stays SENDING');
+    }
+  }
+
+  private async trySending(delivery: Claimed): Promise<Outcome> {
     try {
       const message = await this.render(delivery);
-      const result = await this.channels.get(delivery.channel).send(delivery.address, message);
-      if (result === 'sent') {
-        await this.prisma.notificationDelivery.update({
-          where: { id },
-          data: { status: 'SENT', sentAt: now, lastError: null },
-        });
-      } else {
-        await this.prisma.notificationDelivery.update({
-          where: { id },
-          data: { status: 'FAILED', attempts: MAX_ATTEMPTS, lastError: 'unreachable' },
-        });
-        await this.switchOff(delivery, now);
-      }
+      return await this.channels.get(delivery.channel).send(delivery.address, message);
     } catch (error) {
-      this.logger.warn({ err: error, deliveryId: id }, 'Sending a notification failed');
-      const lastError = error instanceof Error ? error.message : 'unknown error';
-      await this.prisma.notificationDelivery.update({ where: { id }, data: { status: 'FAILED', lastError } });
+      if (error instanceof StaleReminder) return 'stale';
+      this.logger.warn({ err: error, deliveryId: delivery.id }, 'Sending a notification failed');
+      return { error: error instanceof Error ? error.message : 'unknown error' };
     }
-    await this.wipePayloadIfOut(businessId, eventId);
+  }
+
+  // The delivery's own row, found by its business too.
+  private async record(delivery: Claimed, outcome: Outcome, now: Date) {
+    const { id, businessId } = delivery;
+    const write = (data: Prisma.NotificationDeliveryUpdateManyMutationInput) =>
+      this.prisma.notificationDelivery.updateMany({ where: { id, businessId }, data });
+    if (outcome === 'sent') {
+      await write({ status: 'SENT', sentAt: new Date(), lastError: null });
+    } else if (outcome === 'unreachable' || outcome === 'stale') {
+      await write({
+        status: 'FAILED',
+        attempts: MAX_ATTEMPTS,
+        lastError: outcome === 'stale' ? 'booking changed' : outcome,
+      });
+    } else {
+      await write({ status: 'FAILED', lastError: outcome.error });
+    }
+    if (outcome === 'unreachable') await this.switchOff(delivery, now);
   }
 
   // The address will never work. A client channel stays, switched off: its events and deliveries hang on it.
@@ -130,6 +160,8 @@ export class DispatcherService {
         appointment: {
           select: {
             clientName: true,
+            status: true,
+            startsAt: true,
             staffId: true,
             staff: { select: { name: true } },
             group: { select: { title: true } },
@@ -140,6 +172,12 @@ export class DispatcherService {
       },
     });
     const { appointment } = event;
+    if (
+      event.kind === 'REMINDER' &&
+      !(LIVE.includes(appointment.status) && appointment.startsAt.getTime() === event.startsAt.getTime())
+    ) {
+      throw new StaleReminder();
+    }
     const fromStaffId = fromStaffIdOf(event.payload);
     const fromStartsAt = fieldOf(event.payload, 'fromStartsAt');
     const manageLink = fieldOf(event.payload, 'manageLink');

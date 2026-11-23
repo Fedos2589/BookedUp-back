@@ -50,7 +50,12 @@ describe('NotificationsProcessor', () => {
 
     await processor.onApplicationBootstrap();
 
-    expect(queue.upsertJobScheduler).toHaveBeenCalledWith('tick', { every: 30_000 });
+    // The finished ticks don't pile up in Redis: 2880 a day.
+    expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
+      'tick',
+      { every: 30_000 },
+      { name: 'tick', opts: { removeOnComplete: true, removeOnFail: 100 } },
+    );
     expect(run).toHaveBeenCalledOnce();
   });
 

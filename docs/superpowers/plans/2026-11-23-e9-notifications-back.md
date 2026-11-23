@@ -276,6 +276,18 @@ the merge. Commit `feat(notifications): my switches; docs`.
 
 ---
 
+## Follow-ups from the review of PR #46 (for step M)
+
+- **Backoff:** a FAILED delivery is taken again on the next 30 s tick, so with a real provider three attempts
+  burn in a minute. Add `next_attempt_at` (claim: `AND (next_attempt_at IS NULL OR next_attempt_at <= now())`,
+  on error `now() + 1 min * 5^attempts`) with the first real channel (M1).
+- **`switchOff` finds the channel by address:** store `channelId` on the delivery (client channel) and delete the
+  member's channel by `(userId, kind, address)`, so two cards with one email don't switch each other off. Needs a
+  migration; with M1, when `unreachable` first becomes possible.
+- **Render per event, not per delivery:** group the claimed rows by `eventId` (one load of the event, booking and
+  master; one render per audience and locale; one `wipePayloadIfOut`). About 4× fewer queries for a BOOKED event
+  with ten recipients. Do it if the tick gets slow.
+
 ## Step M — real channels
 
 Branch `e9/channels` from `main` after N is merged.
