@@ -122,6 +122,21 @@ describe('an event with every booking change', () => {
     expect(movedOnline).toMatchObject({ kind: 'MOVED', actor_user_id: null, starts_at: new Date(slot(0).startsAt) });
   });
 
+  it('writes nothing for a move to where the booking already is', async () => {
+    const t = await setUp();
+    const id = (await t.book(0).expect(201)).body.id as string;
+
+    await t
+      .as(
+        http()
+          .patch(`${t.url}/${id}`)
+          .send({ ...slot(0) }),
+      )
+      .expect(200);
+
+    expect(await t.events()).toHaveLength(1);
+  });
+
   it('writes nothing for a move into a taken slot', async () => {
     const t = await setUp();
     await t.book(0).expect(201);

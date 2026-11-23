@@ -746,6 +746,8 @@ describe('notifications (E9)', () => {
     await expect(channel('PUSH', 'https://push.example/2')).resolves.toBeDefined();
     await expect(channel('PUSH', 'https://push.example/1')).rejects.toThrow(/user_channels_.*key/);
     await expect(channel('EMAIL', 'a@example.com')).rejects.toThrow(/user_channels_kind/);
+    await expect(channel('PUSH', '')).rejects.toThrow(/user_channels_address_length/);
+    await expect(channel('PUSH', 'x'.repeat(2049))).rejects.toThrow(/user_channels_address_length/);
   });
 
   it('keeps one reminder per booking, offset and start; a moved booking has a new start and a new key', async () => {
@@ -778,6 +780,8 @@ describe('notifications (E9)', () => {
 
     await delivery('client');
     await expect(delivery('client')).rejects.toThrow(/notification_deliveries_.*key/);
+    // The same address can be the client and a member of the staff (the owner booking themselves).
+    await expect(delivery('staff')).resolves.toBeDefined();
     await expect(delivery('nobody')).rejects.toThrow(/notification_deliveries_audience/);
   });
 

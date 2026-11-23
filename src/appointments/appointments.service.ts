@@ -280,6 +280,7 @@ export class AppointmentsService {
           select: { status: true, startsAt: true },
         });
         if (!booking) throw statusConflict('badTransition', 'The booking has just changed');
+        const stays = booking.startsAt.getTime() === startsAt.getTime() && current.staffId === staffId;
         if (notStartedOnly && booking.startsAt <= now) {
           throw statusConflict('badTransition', 'The booking has already started');
         }
@@ -305,7 +306,8 @@ export class AppointmentsService {
           select: appointmentSelect,
         });
         if (!moved) throw statusConflict('badTransition', 'The booking has just changed');
-        await recordEvent(tx, { businessId, appointmentId: id, kind: 'MOVED', actorUserId, startsAt });
+        // A save that changes nothing (a double click) is no news for anyone.
+        if (!stays) await recordEvent(tx, { businessId, appointmentId: id, kind: 'MOVED', actorUserId, startsAt });
         return moved;
       });
       return withIsoTimes(moved);
@@ -400,7 +402,8 @@ export class AppointmentsService {
           appointmentId: id,
           kind: 'CANCELLED',
           actorUserId,
-          startsAt: current.startsAt,
+          // From the row just updated: a move that got in since the read has changed the start.
+          startsAt: changed.startsAt,
         });
       }
       return changed;

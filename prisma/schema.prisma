@@ -550,7 +550,7 @@ model NotificationEvent {
   @@map("notification_events")
 }
 
-/// One message to one address: unique per `(event, channel, address)`, claimed before the call to
+/// One message to one address: unique per `(event, channel, address, audience)`, claimed before the call to
 /// the outside service (E9, decision 3).
 model NotificationDelivery {
   id         String         @id @default(dbgenerated("uuidv7()")) @db.Uuid
@@ -571,6 +571,6 @@ model NotificationDelivery {
   business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   event    NotificationEvent @relation(fields: [businessId, eventId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([eventId, channel, address])
+  @@unique([eventId, channel, address, audience])
   @@map("notification_deliveries")
 }

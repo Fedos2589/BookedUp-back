@@ -255,7 +255,7 @@ save) → the business; owner and admin only (`@Can…` as for members' roles �
 anything else. Swagger: typed body and response, 400 / 403.
 
 **Check:** int test — owner sets `[1440, 60]` → GET shows `[60, 1440]`; admin can; master → 403;
-`[30]` → 400; 4 items → 400; another business's id → 403. Commit `feat(business): reminder times`.
+`[30]` → 400; `[1440, 1440]` → 400 (the CHECK lets repeats through; this schema is the only guard); 4 items → 400; another business's id → 403. Commit `feat(business): reminder times`.
 
 ### - [ ] N10: my notification switches, docs, close N
 
@@ -359,6 +359,8 @@ removes it; another booking's token can't delete it; off → 404. Commit `feat(n
 `src/notifications/messages.ts` (+ spec), `src/notifications/channels/channel.ts`, `src/notifications/dispatcher.service.ts`,
 `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`, `src/config/env.ts` (+ spec),
 `.env.example`, `test/public-channels.int-spec.ts`.
+
+A WhatsApp row has `appointment_id` NULL, and Prisma's composite unique (`upsert`) refuses NULL parts: attach it with `INSERT … ON CONFLICT` in raw SQL (the unique index is `NULLS NOT DISTINCT`).
 
 Env (all or none): `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`. WhatsApp sends templates only (D11):
 `templateFor(input) → { name: 'bookedup_<kind>_<audience>', language: 'en'|'ru', params: string[] }` in
