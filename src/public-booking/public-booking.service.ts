@@ -67,9 +67,9 @@ export class PublicBookingService {
   // Colors and icons are copied from BookedUp-front vite.config.ts (VitePWA manifest); the icons are
   // absolute because this file is served under /api. Only the name, scope and start_url are the business's.
   async manifest(slug: string): Promise<BusinessManifestDto> {
-    const { name } = await this.prisma.business
-      .findUnique({ where: { slug }, select: { name: true } })
-      .then((business) => business ?? Promise.reject(new NotFoundException()));
+    const business = await this.prisma.business.findUnique({ where: { slug }, select: { name: true } });
+    if (!business) throw new NotFoundException();
+    const { name } = business;
     const page = `/book/${slug}`;
     return {
       id: page,
