@@ -22,6 +22,10 @@ import {
   publicBookingInput,
   type PublicBookingResult,
   publicBookingResultSchema,
+  type ManagedBookingDto,
+  managedBookingConflictSchema,
+  managedBookingSchema,
+  manageTokenSchema,
   type PublicBusinessDto,
   publicBusinessSchema,
 } from './public-booking.schema.js';
@@ -83,5 +87,25 @@ export class PublicBookingController {
     @Body({ schema: publicBookingInput }) input: PublicBookingInput,
   ): Promise<PublicBookingResult> {
     return this.service.book(slug, input);
+  }
+
+  @Get('bookings/:token')
+  @ApiOkResponse({ description: 'The booking the private link belongs to', schema: openApi(managedBookingSchema) })
+  @ApiBadRequestResponse({ description: 'The token is malformed', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
+  managed(@Param('token', { schema: manageTokenSchema }) token: string): Promise<ManagedBookingDto> {
+    return this.service.managed(token);
+  }
+
+  @Post('bookings/:token/cancel')
+  @ApiCreatedResponse({ description: 'Cancelled: the booking as it is now', schema: openApi(managedBookingSchema) })
+  @ApiBadRequestResponse({ description: 'The token is malformed', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
+  @ApiConflictResponse({
+    description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
+    schema: openApi(managedBookingConflictSchema),
+  })
+  cancel(@Param('token', { schema: manageTokenSchema }) token: string): Promise<ManagedBookingDto> {
+    return this.service.cancel(token);
   }
 }

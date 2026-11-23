@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { bookingConflictSchema } from '../appointments/appointments.schema.js';
 import { blankIsNone, clientName, clientPhone } from '../clients/clients.schema.js';
 import { instant, whenFieldsValid } from '../schedule/schedule.schema.js';
-import { ScheduleMode } from '../generated/prisma/enums.js';
+import { AppointmentStatus, ScheduleMode } from '../generated/prisma/enums.js';
 
 // What a visitor sees of a business: its name and zone, and the masters they can book. Nothing
 // about clients.
@@ -67,4 +67,32 @@ export const publicBookingConflictSchema = bookingConflictSchema.omit({ code: tr
     .describe(
       'notFree: no such slot or taken; full: every seat of the meeting is taken; tooManyBookings: this phone already has 3 bookings to come',
     ),
+});
+
+// The private link's token: 32 random bytes in base64url.
+export const manageTokenSchema = z
+  .string()
+  .length(43)
+  .regex(/^[\w-]+$/);
+
+// A booking as its booker sees it by the link: the business to show, the booking without any id or
+// client, and whether it can still be changed (live and not started).
+export const managedBookingSchema = z.object({
+  business: z.object({ name: z.string(), slug: z.string(), timeZone: z.string() }),
+  booking: z.object({
+    staffId: z.uuid(),
+    staffName: z.string(),
+    startsAt: z.iso.datetime(),
+    endsAt: z.iso.datetime(),
+    title: z.string().nullable().describe("The meeting's title; none for an hours booking"),
+    status: z.enum(AppointmentStatus),
+    groupId: z.uuid().nullable(),
+    oneOffSessionId: z.uuid().nullable(),
+  }),
+  canChange: z.boolean().describe('BOOKED or CONFIRMED and not started: it can be cancelled or moved'),
+});
+export type ManagedBookingDto = z.infer<typeof managedBookingSchema>;
+
+export const managedBookingConflictSchema = bookingConflictSchema.omit({ code: true }).extend({
+  code: z.literal('badTransition').describe('The booking has started or is not BOOKED / CONFIRMED any more'),
 });

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
+import type { AppointmentStatus } from '../generated/prisma/enums.js';
 
 import type { AuthUser } from '../auth/auth-types.js';
 import { BusinessPolicy } from '../business/business.policy.js';
@@ -324,6 +325,28 @@ export class AppointmentsService {
     });
     if (!current) throw new NotFoundException();
     await this.staff.authorizeChangeOf(actor, businessId, current.staffId);
+    return this.transition(businessId, id, current, status, now);
+  }
+
+  // The booker cancels what they booked online, until it starts. Same rule and same conditional
+  // update as the cabinet's status change; the booker is no actor, the business is the token's.
+  async cancelOnline(businessId: string, id: string, now: Date): Promise<AppointmentDto> {
+    const current = await this.prisma.appointment.findFirst({
+      where: { id, businessId },
+      select: { staffId: true, status: true, startsAt: true },
+    });
+    if (!current) throw new NotFoundException();
+    if (current.startsAt <= now) throw statusConflict('badTransition', 'The booking has already started');
+    return this.transition(businessId, id, current, 'CANCELLED', now);
+  }
+
+  private async transition(
+    businessId: string,
+    id: string,
+    current: { staffId: string; status: AppointmentStatus; startsAt: Date },
+    status: AppointmentStatus,
+    now: Date,
+  ): Promise<AppointmentDto> {
     if (!nextStatuses[current.status].includes(status)) {
       throw statusConflict('badTransition', `A booking that is ${current.status} can't become ${status}`);
     }

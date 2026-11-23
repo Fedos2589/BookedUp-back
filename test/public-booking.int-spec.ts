@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
+import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createClient, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -390,5 +391,100 @@ describe('POST /public/businesses/:slug/bookings', () => {
         .send({ ...anyBody(12), oneOffSessionId: randomUUID() })
         .expect(400);
     });
+  });
+});
+
+describe('see and cancel by the link', () => {
+  const phoneOf = () => `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
+  const tokenOf = (link: string) => link.split('/').pop()!;
+  const bookOnline = async (t: Awaited<ReturnType<typeof withSchedules>>, hour: number) => {
+    const res = await http()
+      .post(`/public/businesses/${t.business.slug}/bookings`)
+      .send({
+        staffId: t.hours.id,
+        startsAt: at(hour).toISOString(),
+        endsAt: at(hour + 1).toISOString(),
+        name: 'Vera',
+        phone: phoneOf(),
+      })
+      .expect(201);
+    return { id: res.body.booking.id as string, token: tokenOf(res.body.manageLink) };
+  };
+  // A booking with a known token that started already (the slots are in 2030, so a past one is made by hand).
+  const startedBooking = async (t: Awaited<ReturnType<typeof withSchedules>>) => {
+    const token = newRandomToken();
+    const startsAt = new Date(Date.now() - 3600_000);
+    await prisma.appointment.create({
+      data: {
+        businessId: t.business.id,
+        clientId: await createClient(prisma, t.business.id),
+        staffId: t.hours.id,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 7200_000),
+        clientName: 'Vera',
+        clientPhone: phoneOf(),
+        manageTokenHash: hashRandomToken(token),
+      },
+    });
+    return token;
+  };
+
+  it('shows the booking, its business and whether it can still change, and nothing of clients', async () => {
+    const t = await withSchedules();
+    const { id, token } = await bookOnline(t, 7);
+
+    const res = await http().get(`/public/bookings/${token}`).expect(200);
+
+    expect(res.body).toEqual({
+      business: { name: t.business.name, slug: t.business.slug, timeZone: t.business.timeZone },
+      booking: {
+        staffId: t.hours.id,
+        staffName: 'Hana',
+        startsAt: at(7).toISOString(),
+        endsAt: at(8).toISOString(),
+        title: null,
+        status: 'BOOKED',
+        groupId: null,
+        oneOffSessionId: null,
+      },
+      canChange: true,
+    });
+    expect(JSON.stringify(res.body)).not.toMatch(new RegExp(`Vera|\\+7999|${id}`));
+  });
+
+  it('cancels: the cabinet sees CANCELLED, the hour is free in public slots again, a second cancel is 409', async () => {
+    const t = await withSchedules();
+    const { id, token } = await bookOnline(t, 7);
+
+    const res = await http().post(`/public/bookings/${token}/cancel`).expect(201);
+
+    expect(res.body).toMatchObject({ booking: { status: 'CANCELLED' }, canChange: false });
+    expect((await prisma.appointment.findFirstOrThrow({ where: { id } })).status).toBe('CANCELLED');
+    const slots = await http()
+      .get(`/public/businesses/${t.business.slug}/slots`)
+      .query({ from: tuesday, to: tuesday })
+      .expect(200);
+    expect(slots.body).toContainEqual(expect.objectContaining({ staffId: t.hours.id, startsAt: at(7).toISOString() }));
+    const again = await http().post(`/public/bookings/${token}/cancel`).expect(409);
+    expect(again.body.code).toBe('badTransition');
+  });
+
+  it('refuses to cancel a booking that has started, and shows canChange false', async () => {
+    const t = await withSchedules();
+    const token = await startedBooking(t);
+
+    expect((await http().get(`/public/bookings/${token}`).expect(200)).body.canChange).toBe(false);
+    const res = await http().post(`/public/bookings/${token}/cancel`).expect(409);
+    expect(res.body.code).toBe('badTransition');
+  });
+
+  it('cannot reach a cabinet booking, which has no token, or a bad token', async () => {
+    const t = await withSchedules();
+    const booking = await t.book(t.hours.id, at(7));
+    await http().get(`/public/bookings/${booking.id}`).expect(400);
+    await http().get(`/public/bookings/${newRandomToken()}`).expect(404);
+    await http().post(`/public/bookings/${newRandomToken()}/cancel`).expect(404);
+    await http().get('/public/bookings/short').expect(400);
+    expect((await prisma.appointment.findFirstOrThrow({ where: { id: booking.id } })).status).toBe('BOOKED');
   });
 });

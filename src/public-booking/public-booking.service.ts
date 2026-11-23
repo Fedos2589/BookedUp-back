@@ -12,7 +12,12 @@ import { ScheduleService } from '../schedule/schedule.service.js';
 import type { PublicSlotsQuery, SlotDto } from '../schedule/schedule.schema.js';
 import { orderMasters } from './pick-master.js';
 import { manageLink } from './manage-token.js';
-import type { PublicBookingInput, PublicBookingResult, PublicBusinessDto } from './public-booking.schema.js';
+import type {
+  ManagedBookingDto,
+  PublicBookingInput,
+  PublicBookingResult,
+  PublicBusinessDto,
+} from './public-booking.schema.js';
 
 // Bookings to come that hold time (not cancelled) that one phone may have at a business.
 const MAX_AHEAD = 3;
@@ -102,6 +107,59 @@ export class PublicBookingService {
       },
       manageLink: manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
     };
+  }
+
+  // The booking the token belongs to, with the business it is in; every later query carries that id.
+  private async managedBy(token: string, now: Date): Promise<ManagedBookingDto> {
+    const found = await this.prisma.appointment.findUnique({
+      where: { manageTokenHash: hashRandomToken(token) },
+      select: { id: true, businessId: true },
+    });
+    if (!found) throw new NotFoundException();
+    const row = await this.prisma.appointment.findFirstOrThrow({
+      where: { id: found.id, businessId: found.businessId },
+      select: {
+        startsAt: true,
+        endsAt: true,
+        status: true,
+        staffId: true,
+        groupId: true,
+        oneOffSessionId: true,
+        staff: { select: { name: true } },
+        group: { select: { title: true } },
+        oneOffSession: { select: { title: true } },
+        business: { select: { name: true, slug: true, timeZone: true } },
+      },
+    });
+    return {
+      business: row.business,
+      booking: {
+        staffId: row.staffId,
+        staffName: row.staff.name,
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+        title: row.group?.title ?? row.oneOffSession?.title ?? null,
+        status: row.status,
+        groupId: row.groupId,
+        oneOffSessionId: row.oneOffSessionId,
+      },
+      canChange: (row.status === 'BOOKED' || row.status === 'CONFIRMED') && row.startsAt > now,
+    };
+  }
+
+  async managed(token: string): Promise<ManagedBookingDto> {
+    return this.managedBy(token, new Date());
+  }
+
+  async cancel(token: string): Promise<ManagedBookingDto> {
+    const now = new Date();
+    const found = await this.prisma.appointment.findUnique({
+      where: { manageTokenHash: hashRandomToken(token) },
+      select: { id: true, businessId: true },
+    });
+    if (!found) throw new NotFoundException();
+    await this.appointments.cancelOnline(found.businessId, found.id, now);
+    return this.managedBy(token, now);
   }
 
   private bookWith(

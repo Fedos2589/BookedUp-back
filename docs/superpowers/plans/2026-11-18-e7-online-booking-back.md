@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P5 done).
+**Status:** in progress (P1–P6 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -137,7 +137,7 @@ bookings gets it; the first taken in between (book it directly first) → the se
 master's meeting at the same time is never picked; `staffId` absent with `groupId` → 400. Commit
 `feat(public-booking): any free master`.
 
-### - [ ] P6: see and cancel by the link
+### - [x] P6: see and cancel by the link
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `src/appointments/appointments.service.ts` (only if the status change needs a no-actor entry),
