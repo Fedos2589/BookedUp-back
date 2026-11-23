@@ -1,5 +1,5 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -26,6 +26,8 @@ import {
   type ManagedBookingDto,
   managedBookingConflictSchema,
   publicMoveConflictSchema,
+  type BusinessManifestDto,
+  businessManifestSchema,
   managedBookingSchema,
   manageTokenSchema,
   type PublicBusinessDto,
@@ -50,6 +52,19 @@ export class PublicBookingController {
   @ApiNotFoundResponse({ description: 'No business with this slug' })
   business(@Param('slug', { schema: slugSchema }) slug: string): Promise<PublicBusinessDto> {
     return this.service.business(slug);
+  }
+
+  @Get('businesses/:slug/manifest.webmanifest')
+  @Header('Content-Type', 'application/manifest+json')
+  @Header('Cache-Control', 'public, max-age=3600')
+  @ApiOkResponse({
+    description: "The business's web app manifest: installing /book/<slug> makes an app of its own",
+    schema: openApi(businessManifestSchema),
+  })
+  @ApiBadRequestResponse({ description: 'The slug is malformed', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No business with this slug' })
+  manifest(@Param('slug', { schema: slugSchema }) slug: string): Promise<BusinessManifestDto> {
+    return this.service.manifest(slug);
   }
 
   @Get('businesses/:slug/slots')

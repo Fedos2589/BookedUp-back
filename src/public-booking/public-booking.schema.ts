@@ -100,3 +100,17 @@ export const managedBookingConflictSchema = bookingConflictSchema.omit({ code: t
 export const publicMoveConflictSchema = bookingConflictSchema.omit({ code: true }).extend({
   code: z.enum(['notFree', 'full', 'badTransition']),
 });
+
+// The business's web app manifest: what makes /book/<slug> installable as its own app.
+export const businessManifestSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  short_name: z.string(),
+  start_url: z.string(),
+  scope: z.string(),
+  display: z.literal('standalone'),
+  background_color: z.string(),
+  theme_color: z.string(),
+  icons: z.array(z.object({ src: z.string(), sizes: z.string(), type: z.string(), purpose: z.string().optional() })),
+});
+export type BusinessManifestDto = z.infer<typeof businessManifestSchema>;

@@ -14,6 +14,7 @@ import type { PublicSlotsQuery, SlotDto } from '../schedule/schedule.schema.js';
 import { orderMasters } from './pick-master.js';
 import { manageLink } from './manage-token.js';
 import type {
+  BusinessManifestDto,
   ManagedBookingDto,
   PublicBookingInput,
   PublicBookingResult,
@@ -61,6 +62,30 @@ export class PublicBookingService {
     });
     if (!business) throw new NotFoundException();
     return { name: business.name, slug, timeZone: business.timeZone, masters: business.staff };
+  }
+
+  // Colors and icons are copied from BookedUp-front vite.config.ts (VitePWA manifest); the icons are
+  // absolute because this file is served under /api. Only the name, scope and start_url are the business's.
+  async manifest(slug: string): Promise<BusinessManifestDto> {
+    const { name } = await this.prisma.business
+      .findUnique({ where: { slug }, select: { name: true } })
+      .then((business) => business ?? Promise.reject(new NotFoundException()));
+    const page = `/book/${slug}`;
+    return {
+      id: page,
+      name,
+      short_name: Array.from(name).slice(0, 12).join(''),
+      start_url: page,
+      scope: page,
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#ffffff',
+      icons: [
+        { src: '/pwa-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/pwa-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    };
   }
 
   // What can still be booked, counts but no clients. A staffId of another business is filtered

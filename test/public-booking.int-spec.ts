@@ -552,3 +552,28 @@ describe('see and cancel by the link', () => {
     });
   });
 });
+
+describe('GET /public/businesses/:slug/manifest.webmanifest', () => {
+  it("is the business's own installable app: its name, scope and start_url of its page", async () => {
+    const { business } = await signUpOwner(app);
+    await prisma.business.update({ where: { id: business.id }, data: { name: 'Студия Огонёк и компания' } });
+
+    const res = await http().get(`/public/businesses/${business.slug}/manifest.webmanifest`).expect(200);
+
+    expect(res.headers['content-type']).toMatch(/^application\/manifest\+json/);
+    expect(res.headers['cache-control']).toBe('public, max-age=3600');
+    expect(JSON.parse(res.text)).toMatchObject({
+      id: `/book/${business.slug}`,
+      name: 'Студия Огонёк и компания',
+      short_name: 'Студия Огонё',
+      start_url: `/book/${business.slug}`,
+      scope: `/book/${business.slug}`,
+      display: 'standalone',
+      icons: expect.arrayContaining([expect.objectContaining({ src: '/pwa-192.png' })]),
+    });
+  });
+
+  it('is 404 for an unknown slug', async () => {
+    await http().get('/public/businesses/no-such-business-at-all/manifest.webmanifest').expect(404);
+  });
+});

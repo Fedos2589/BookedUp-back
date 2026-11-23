@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** in progress (P1–P7 done).
+**Status:** in progress (P1–P8 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -168,7 +168,7 @@ meeting → 409 `full`, booking unchanged; into a slot of another business's mas
 404 / 409, never moved; a started booking → 409. The cabinet's move tests stay green. Commit
 `feat(public-booking): move by link`.
 
-### - [ ] P8: the business's web manifest
+### - [x] P8: the business's web manifest
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,
 `test/public-booking.int-spec.ts`.
