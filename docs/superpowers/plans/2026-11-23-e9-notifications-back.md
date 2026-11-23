@@ -129,7 +129,7 @@ cabinet's `AuthUser.id`; online paths (`bookOnline`, `moveOnline`, `cancelOnline
 `null`; move → MOVED with the new start; cancel → CANCELLED; DONE / NO_SHOW → no new event; a 409
 (slot taken) → no event; a walk-in → no event. Commit `feat(notifications): an event with every booking change`.
 
-### - [ ] N3: message texts
+### - [x] N3: message texts
 
 **Files:** create `src/notifications/{messages.ts,messages.spec.ts}`.
 
@@ -146,7 +146,7 @@ with the business zone and the locale; plain text, no markup (Telegram is sent w
 parts); a time near the DST change in `Europe/Berlin` shows the wall clock; no `manageLink` in staff
 texts. Commit `feat(notifications): message texts`.
 
-### - [ ] N4: who gets an event
+### - [x] N4: who gets an event
 
 **Files:** create `src/notifications/{recipients.ts,recipients.spec.ts}`.
 
@@ -169,7 +169,7 @@ booking → the master; online → master + owner, admin with the switch off lef
 also the owner gets one set; email off → only their linked channels; two push devices → two; REMINDER → clients only; CHANNEL_ON → the one
 channel. Commit `feat(notifications): who gets an event`.
 
-### - [ ] N5: events into deliveries
+### - [x] N5: events into deliveries
 
 **Files:** create `src/notifications/{dispatcher.service.ts}`, `src/notifications/notifications.module.ts`,
 create `test/notification-dispatch.int-spec.ts`.
