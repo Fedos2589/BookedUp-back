@@ -81,6 +81,8 @@ model User {
   /// Always lowercase (a CHECK constraint enforces it), so uniqueness is case-insensitive.
   email     String   @unique
   name      String
+  /// Interface language: `en` or `ru` (a CHECK constraint enforces the list, see src/account/locale.ts).
+  locale    String   @default("en")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 

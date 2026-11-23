@@ -43,7 +43,7 @@ describe('sessions', () => {
     await me(sessionCookie(res))
       .expect(200)
       .expect({
-        user: { id: res.body.user.id, email: body.email, name: 'Lena' },
+        user: { id: res.body.user.id, email: body.email, name: 'Lena', locale: 'en' },
         businesses: [{ ...res.body.business, role: 'OWNER' }],
       });
   });

@@ -414,12 +414,26 @@ describe('the invitation link', () => {
         .expect(201);
 
       expect(res.body).toEqual({
-        user: { id: expect.any(String), email: input.email, name: 'Anna' },
+        user: { id: expect.any(String), email: input.email, name: 'Anna', locale: 'en' },
         business: { ...owner.business, role: 'ADMIN' },
       });
       const cookie = sessionCookie(res);
       expect(cookie).toBeDefined();
       await http().get(`/businesses/${owner.business.id}`).set('Cookie', cookie!).expect(200);
+    });
+
+    it('keeps the language the newcomer already uses, and sets the cookie', async () => {
+      const { token } = await inviteAs('MASTER');
+
+      const res = await http()
+        .post(`${linkUrl(token)}/sign-up`)
+        .send({ ...newcomer(), locale: 'ru' })
+        .expect(201);
+
+      expect(res.body.user.locale).toBe('ru');
+      expect(
+        ([] as string[]).concat(res.headers['set-cookie'] ?? []).find((c) => c.startsWith('lang=ru;')),
+      ).toBeDefined();
     });
 
     // One transaction: no account is left behind by a link that doesn't work.

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 import { businessSchema } from '../business/business.schema.js';
+import { localeSchema } from '../account/locale.js';
+import { userSchema } from '../account/user.schema.js';
 import { conflictErrorSchema } from '../common/api-errors.js';
 import { canonicalTimeZone } from '../common/time-zone.js';
 import { emailSchema, passwordSchema } from './credentials.schema.js';
@@ -15,6 +17,8 @@ export const signUpSchema = z.object({
   email: emailSchema,
   password: passwordSchema.min(8),
   name: z.string().trim().min(1).max(100),
+  // The language the visitor already uses; English when the front doesn't say.
+  locale: localeSchema.default('en'),
   business: z.object({
     name: z.string().trim().min(1).max(100),
     slug: z.string().trim().toLowerCase().max(63).regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens'),
@@ -33,7 +37,7 @@ export const signUpSchema = z.object({
 export type SignUpInput = z.infer<typeof signUpSchema>;
 
 export const signUpResultSchema = z.object({
-  user: z.object({ id: z.uuid(), email: z.email(), name: z.string() }),
+  user: userSchema,
   business: businessSchema,
 });
 
