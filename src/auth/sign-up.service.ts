@@ -1,6 +1,7 @@
 import { PasswordHasher } from '@nestjs/authentication';
 import { ConflictException, Injectable } from '@nestjs/common';
 
+import { localeSchema } from '../account/locale.js';
 import { businessSelect } from '../business/business.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { violatedUniqueConstraint } from '../prisma/unique-violation.js';
@@ -22,7 +23,7 @@ export class SignUpService {
   // One nested write, so one transaction: the user, their password, the business and the
   // OWNER membership exist together or not at all (the database refuses a business
   // without its owner anyway).
-  async signUp({ email, password, name, business }: SignUpInput): Promise<SignUpResult> {
+  async signUp({ email, password, name, locale, business }: SignUpInput): Promise<SignUpResult> {
     const passwordHash = await this.hasher.hash(password);
 
     try {
@@ -30,6 +31,7 @@ export class SignUpService {
         data: {
           email,
           name,
+          locale,
           passwordLogin: { create: { passwordHash } },
           memberships: { create: { role: 'OWNER', business: { create: business } } },
         },
@@ -37,11 +39,12 @@ export class SignUpService {
           id: true,
           email: true,
           name: true,
+          locale: true,
           memberships: { select: { business: { select: businessSelect } } },
         },
       });
       const { memberships, ...account } = user;
-      return { user: account, business: memberships[0].business };
+      return { user: { ...account, locale: localeSchema.parse(account.locale) }, business: memberships[0].business };
     } catch (error) {
       const constraint = violatedUniqueConstraint(error);
       const field = constraint ? TAKEN_FIELD[constraint] : undefined;

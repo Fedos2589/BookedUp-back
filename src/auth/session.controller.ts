@@ -1,5 +1,5 @@
 import { Public, SignInService } from '@nestjs/authentication';
-import { Body, Controller, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Res, UnauthorizedException } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiForbiddenResponse,
@@ -10,9 +10,11 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { minutes, Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 
 import { type Account, accountSchema } from '../account/account.schema.js';
 import { AccountService } from '../account/account.service.js';
+import { LocaleCookie } from '../account/locale.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { CountPerAccount } from './account-limits.js';
 import { type SignInInput, signInSchema } from './credentials.schema.js';
@@ -26,6 +28,7 @@ export class SessionController {
     private readonly credentials: CredentialsService,
     private readonly signInService: SignInService,
     private readonly accounts: AccountService,
+    private readonly localeCookie: LocaleCookie,
   ) {}
 
   // Sets the session cookie and answers what GET /me would.
@@ -41,11 +44,17 @@ export class SessionController {
   @ApiUnauthorizedResponse({ description: 'Invalid email or password' })
   @ApiForbiddenResponse({ description: "Posted from another site's page" })
   @ApiTooManyRequestsResponse({ description: 'Too many attempts; try again later' })
-  async signIn(@Body({ schema: signInSchema }) { email, password }: SignInInput): Promise<Account> {
+  async signIn(
+    @Body({ schema: signInSchema }) { email, password }: SignInInput,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Account> {
     const userId = await this.credentials.verify(email, password);
     if (!userId) throw new UnauthorizedException('Invalid email or password');
     await this.signInService.signIn(userId, { method: 'password' });
-    return this.accounts.describe(userId);
+    const account = await this.accounts.describe(userId);
+    // A new device starts in the language of the account.
+    this.localeCookie.set(res, account.user.locale);
+    return account;
   }
 
   // Ends this browser's session, if it has one, and clears its cookie. Idempotent: with

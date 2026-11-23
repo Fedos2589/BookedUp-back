@@ -32,7 +32,7 @@ describe('POST /auth/sign-up', () => {
     const res = await signUp(body).expect(201);
 
     expect(res.body).toEqual({
-      user: { id: expect.any(String), email: body.email, name: 'Lena' },
+      user: { id: expect.any(String), email: body.email, name: 'Lena', locale: 'en' },
       business: {
         id: expect.any(String),
         name: 'Studio Lena',

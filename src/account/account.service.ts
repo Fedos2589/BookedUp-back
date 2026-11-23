@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 import { businessSelect } from '../business/business.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { localeSchema, type Locale } from './locale.js';
 import type { Account } from './account.schema.js';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class AccountService {
         id: true,
         email: true,
         name: true,
+        locale: true,
         memberships: {
           orderBy: { createdAt: 'asc' },
           select: { role: true, business: { select: businessSelect } },
@@ -25,6 +27,13 @@ export class AccountService {
     // Deleted between the session check and here: the session is gone with it.
     if (!account) throw new UnauthorizedException();
     const { memberships, ...user } = account;
-    return { user, businesses: memberships.map(({ role, business }) => ({ ...business, role })) };
+    return {
+      user: { ...user, locale: localeSchema.parse(user.locale) },
+      businesses: memberships.map(({ role, business }) => ({ ...business, role })),
+    };
+  }
+
+  async setLocale(userId: string, locale: Locale): Promise<void> {
+    await this.prisma.user.update({ where: { id: userId }, data: { locale } });
   }
 }

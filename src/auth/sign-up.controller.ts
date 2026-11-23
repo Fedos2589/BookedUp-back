@@ -1,5 +1,5 @@
 import { Public, SignInService } from '@nestjs/authentication';
-import { Body, Controller, Logger, Post } from '@nestjs/common';
+import { Body, Controller, Logger, Post, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -9,6 +9,9 @@ import {
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import { hours, Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
+
+import { LocaleCookie } from '../account/locale.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
   signUpConflictSchema,
@@ -28,6 +31,7 @@ export class SignUpController {
   constructor(
     private readonly signUpService: SignUpService,
     private readonly signInService: SignInService,
+    private readonly localeCookie: LocaleCookie,
   ) {}
 
   // Registers an owner with their business and signs them in (sets the session cookie).
@@ -47,8 +51,12 @@ export class SignUpController {
   })
   @ApiForbiddenResponse({ description: "Posted from another site's page" })
   @ApiTooManyRequestsResponse({ description: 'Too many sign-ups from this address; try again later' })
-  async signUp(@Body({ schema: signUpSchema }) body: SignUpInput): Promise<SignUpResult> {
+  async signUp(
+    @Body({ schema: signUpSchema }) body: SignUpInput,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SignUpResult> {
     const result = await this.signUpService.signUp(body);
+    this.localeCookie.set(res, result.user.locale);
     // The account is committed by now. If the session fails, a 500 would make the owner
     // retry and meet "email already registered"; a 201 without a cookie lets the front
     // find no session (GET /me 401) and send them to sign in.
