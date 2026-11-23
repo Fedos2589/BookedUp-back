@@ -4,7 +4,7 @@ import { ApiBadRequestResponse, ApiNotFoundResponse, ApiOkResponse, ApiTags } fr
 
 import { z } from 'zod';
 
-import { slugSchema } from '../auth/sign-up.schema.js';
+import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { type PublicSlotsQuery, publicSlotsQuery, type SlotDto, slotSchema } from '../schedule/schedule.schema.js';
 import { type PublicBusinessDto, publicBusinessSchema } from './public-booking.schema.js';
@@ -20,7 +20,7 @@ export class PublicBookingController {
 
   @Get('businesses/:slug')
   @ApiOkResponse({
-    description: 'The business and the masters who take clients',
+    description: 'The business and its masters who are still on the team (a master with no schedule yet has no slots)',
     schema: openApi(publicBusinessSchema),
   })
   @ApiBadRequestResponse({ description: 'The slug is malformed', schema: openApi(validationErrorSchema) })

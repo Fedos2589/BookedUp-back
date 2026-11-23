@@ -2,6 +2,17 @@ import { z } from 'zod';
 
 import { MemberRole } from '../generated/prisma/enums.js';
 
+// The format the database enforces too (CHECK businesses_slug_format).
+export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// A business's address, as it comes in: sign-up, and the public pages found by it.
+export const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(63)
+  .regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens');
+
 // A business as the API answers it (sign-up, GET /me, GET /businesses/:businessId).
 export const businessSchema = z.object({
   id: z.uuid(),
