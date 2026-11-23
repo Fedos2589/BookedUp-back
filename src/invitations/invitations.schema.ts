@@ -1,3 +1,4 @@
+import { localeSchema } from '../account/locale.js';
 import { z } from 'zod';
 
 import { signUpSchema } from '../auth/sign-up.schema.js';
@@ -51,11 +52,11 @@ export const invitationPreviewSchema = z.object({
 export type InvitationPreview = z.infer<typeof invitationPreviewSchema>;
 
 // The account part of sign-up, under the same rules.
-export const invitationSignUpSchema = signUpSchema.pick({ email: true, password: true, name: true });
+export const invitationSignUpSchema = signUpSchema.pick({ email: true, password: true, name: true, locale: true });
 export type InvitationSignUpInput = z.infer<typeof invitationSignUpSchema>;
 
 export const invitationSignUpResultSchema = z.object({
-  user: z.object({ id: z.uuid(), email: z.email(), name: z.string() }),
+  user: z.object({ id: z.uuid(), email: z.email(), name: z.string(), locale: localeSchema }),
   business: memberBusinessSchema,
 });
 

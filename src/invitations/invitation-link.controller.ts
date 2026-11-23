@@ -1,6 +1,6 @@
 import { CurrentUser, Public, SignInService } from '@nestjs/authentication';
 import { Can } from '@nestjs/authorization';
-import { Body, Controller, Get, HttpCode, Logger, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -13,7 +13,9 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { hours, Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 
+import { LocaleCookie } from '../account/locale.js';
 import { type MemberBusiness, memberBusinessSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import {
@@ -41,6 +43,7 @@ export class InvitationLinkController {
   constructor(
     private readonly invitations: InvitationsService,
     private readonly signInService: SignInService,
+    private readonly localeCookie: LocaleCookie,
   ) {}
 
   @Get()
@@ -81,8 +84,10 @@ export class InvitationLinkController {
   async signUp(
     @Param('token', { schema: invitationTokenSchema }) token: string,
     @Body({ schema: invitationSignUpSchema }) body: InvitationSignUpInput,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<InvitationSignUpResult> {
     const result = await this.invitations.signUp(token, body);
+    this.localeCookie.set(res, result.user.locale);
     // As in sign-up: the account is committed, so a failed sign-in is a 201 without a cookie.
     await this.signInService
       .signIn(result.user.id, { method: 'password' })

@@ -1,3 +1,4 @@
+import { localeSchema } from '../account/locale.js';
 import { PasswordHasher } from '@nestjs/authentication';
 import { AuthorizationService } from '@nestjs/authorization';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -156,7 +157,10 @@ export class InvitationsService {
   // account behind, and a taken email leaves the link good. Signing in is the caller's, after.
   // A dead link is refused before the slow password hash, so made-up tokens cost one lookup.
   // That check is only for cost: the conditional update in join() still decides.
-  async signUp(token: string, { email, password, name }: InvitationSignUpInput): Promise<InvitationSignUpResult> {
+  async signUp(
+    token: string,
+    { email, password, name, locale }: InvitationSignUpInput,
+  ): Promise<InvitationSignUpResult> {
     const tokenHash = hashInvitationToken(token);
     const live = await this.prisma.invitation.count({ where: { tokenHash, ...pendingAt(new Date()) } });
     if (!live) throw new InvitationGone();
@@ -164,8 +168,8 @@ export class InvitationsService {
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user
         .create({
-          data: { email, name, passwordLogin: { create: { passwordHash } } },
-          select: { id: true, email: true, name: true },
+          data: { email, name, locale, passwordLogin: { create: { passwordHash } } },
+          select: { id: true, email: true, name: true, locale: true },
         })
         .catch((error: unknown) => {
           if (violatedUniqueConstraint(error) !== 'users_email_key') throw error;
@@ -177,7 +181,10 @@ export class InvitationsService {
           };
           throw new ConflictException(body);
         });
-      return { user, business: await this.join(tx, tokenHash, user.id) };
+      return {
+        user: { ...user, locale: localeSchema.parse(user.locale) },
+        business: await this.join(tx, tokenHash, user.id),
+      };
     });
   }
 

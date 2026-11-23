@@ -34,6 +34,7 @@ export class AccountService {
   }
 
   async setLocale(userId: string, locale: Locale): Promise<void> {
-    await this.prisma.user.update({ where: { id: userId }, data: { locale } });
+    // updateMany: a user deleted since the session check is nothing to update, not a 500 (P2025).
+    await this.prisma.user.updateMany({ where: { id: userId }, data: { locale } });
   }
 }
