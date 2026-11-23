@@ -210,7 +210,7 @@ once; two parallel `dispatch` → each sent once; the fake throws once → FAILE
 it; after 3 failures it stays FAILED; a row left `SENDING` is not sent again; `unreachable` sets `disabled_at` on
 the client channel (the row and its event stay). Commit `feat(notifications): send deliveries`.
 
-### - [ ] N7: reminders
+### - [x] N7: reminders
 
 **Files:** create `src/notifications/reminders.service.ts`, `src/notifications/notifications.module.ts`,
 create `test/reminders.int-spec.ts`.
