@@ -261,6 +261,26 @@ describe('sending deliveries', () => {
     expect(message?.text).toContain('Anna');
   });
 
+  it('sends more than one batch in one dispatch', async () => {
+    const t = await booked();
+    await drain();
+    const addresses = Array.from({ length: 60 }, () => randomUUID());
+    await prisma.notificationDelivery.createMany({
+      data: addresses.map((address) => ({
+        businessId: t.businessId,
+        eventId: t.event.id,
+        channel: 'LOG' as const,
+        address,
+        audience: 'client',
+        locale: 'ru',
+      })),
+    });
+
+    await dispatcher.dispatch(new Date());
+
+    expect(sentTo(addresses)).toEqual([...addresses].sort());
+  });
+
   it('two dispatches at once send each delivery once', async () => {
     const t = await booked();
 

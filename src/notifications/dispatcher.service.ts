@@ -9,6 +9,7 @@ import { type MessageLocale, messageFor } from './messages.js';
 import { type Member, recipientsOf, type RecipientsContext, STAFF_KINDS } from './recipients.js';
 
 const BATCH = 50;
+const DISPATCH_BUDGET_MS = 20_000;
 
 // The statuses of a booking that still expects its client (the same as the reminders').
 const LIVE: readonly AppointmentStatus[] = ['BOOKED', 'CONFIRMED'];
@@ -64,9 +65,12 @@ export class DispatcherService {
     private readonly channels: ChannelRegistry,
   ) {}
 
+  // Batch after batch until a short one or the time is up, so a busy hour drains in one tick, not in many.
+  // The budget keeps a tick shorter than the 30 s between ticks.
   async dispatch(now: Date): Promise<void> {
-    await this.expand(now);
-    await this.send(now);
+    const until = Date.now() + DISPATCH_BUDGET_MS;
+    while ((await this.expand(now)) === BATCH && Date.now() < until);
+    while ((await this.send(now)) === BATCH && Date.now() < until);
   }
 
   // Sends what is due, at most BATCH deliveries. A delivery is claimed (SENDING, attempts + 1) in a
