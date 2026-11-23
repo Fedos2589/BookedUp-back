@@ -19,10 +19,19 @@ const envSchema = z
     // Whether this process runs the notifications queue (reminders and sending). One process is enough;
     // tests turn it off.
     NOTIFICATIONS_WORKER: z.stringbool().default(true),
+    // Telegram: the bot's token and username (for the t.me link) go together; the webhook secret is
+    // checked on every update Telegram sends. Without the token the channel is off.
+    TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+    TELEGRAM_BOT_USERNAME: z.string().min(1).optional(),
+    TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],
     message: 'must stay true in production',
+  })
+  .refine((env) => (env.TELEGRAM_BOT_TOKEN === undefined) === (env.TELEGRAM_BOT_USERNAME === undefined), {
+    path: ['TELEGRAM_BOT_TOKEN'],
+    message: 'TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME go together',
   })
   // A deployment without it would hand out links to localhost without a word.
   .refine((env) => env.APP_URL !== undefined || env.NODE_ENV !== 'production', {

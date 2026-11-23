@@ -50,6 +50,14 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...valid, TRUST_PROXY: '-1' })).toThrow(/TRUST_PROXY/);
   });
 
+  it('takes the Telegram bot token and username together or not at all', () => {
+    expect(validateEnv(valid).TELEGRAM_BOT_TOKEN).toBeUndefined();
+    const both = { TELEGRAM_BOT_TOKEN: '123:abc', TELEGRAM_BOT_USERNAME: 'bookedup_bot' };
+    expect(validateEnv({ ...valid, ...both })).toMatchObject(both);
+    expect(() => validateEnv({ ...valid, TELEGRAM_BOT_TOKEN: '123:abc' })).toThrow(/TELEGRAM_BOT_USERNAME/);
+    expect(() => validateEnv({ ...valid, TELEGRAM_BOT_USERNAME: 'bookedup_bot' })).toThrow(/TELEGRAM_BOT_TOKEN/);
+  });
+
   it('names the missing variable', () => {
     expect(() => validateEnv({ REDIS_URL: valid.REDIS_URL })).toThrow(/DATABASE_URL/);
   });

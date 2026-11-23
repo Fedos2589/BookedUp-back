@@ -28,6 +28,7 @@ const ctx = (extra: Partial<RecipientsContext> = {}): RecipientsContext => ({
   members: [owner, admin, master],
   clientChannels: [],
   fallbackToLog: false,
+  isOn: () => true,
   ...extra,
 });
 
@@ -138,18 +139,26 @@ describe('recipientsOf: client', () => {
   });
 });
 
-describe('recipientsOf: fallbackToLog', () => {
-  it('turns every channel into LOG with the same address', () => {
-    const phone = member('master', 'MASTER', { channels: [{ kind: 'TELEGRAM', address: '555' }] });
-    const client = { id: 'c1', kind: 'EMAIL', address: 'c@example.com', locale: 'en' } as const;
-    const recipients = recipientsOf(
+describe('recipientsOf: a kind that is not on', () => {
+  const tgMember = member('master', 'MASTER', { channels: [{ kind: 'TELEGRAM', address: '555' }] });
+  const email = { id: 'c1', kind: 'EMAIL', address: 'c@example.com', locale: 'en' } as const;
+  const setup = (extra: Partial<RecipientsContext>) =>
+    recipientsOf(
       event({ actorUserId: 'admin' }),
-      ctx({ members: [admin, phone], clientChannels: [client], fallbackToLog: true }),
-    );
-    expect(recipients.map((r) => [r.channel, r.address, r.audience])).toEqual([
+      ctx({ members: [admin, tgMember], clientChannels: [email], ...extra }),
+    ).map((r) => [r.channel, r.address, r.audience]);
+
+  it('with the fallback, goes to the log with the same address; a kind that is on stays', () => {
+    expect(setup({ fallbackToLog: true, isOn: (kind) => kind === 'TELEGRAM' })).toEqual([
       ['LOG', 'master@example.com', 'staff'],
-      ['LOG', '555', 'staff'],
+      ['TELEGRAM', '555', 'staff'],
       ['LOG', 'c@example.com', 'client'],
+    ]);
+  });
+
+  it('without the fallback (production), is skipped; a kind that is on stays', () => {
+    expect(setup({ fallbackToLog: false, isOn: (kind) => kind === 'TELEGRAM' })).toEqual([
+      ['TELEGRAM', '555', 'staff'],
     ]);
   });
 });
