@@ -27,6 +27,8 @@ export async function createTestApp({
   process.env.DATABASE_URL = inject('databaseUrl');
   process.env.REDIS_URL ??= 'redis://localhost:6379';
   process.env.SESSION_COOKIE_SECURE = String(secureCookie);
+  // No queue worker in tests: they call the services directly.
+  process.env.NOTIFICATIONS_WORKER = 'false';
 
   const { AppModule } = await import('../src/app.module.js');
   let builder = Test.createTestingModule({ imports: [AppModule], controllers })

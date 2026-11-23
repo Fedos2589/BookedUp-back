@@ -39,7 +39,8 @@ import { StaffModule } from './staff/staff.module.js';
         };
       },
     }),
-    // Shared Redis connection for queues (reminders, notifications). No queue is registered yet.
+    // Shared Redis connection for the queues (`notifications`, see NotificationsModule). `ioredis` in package.json
+    // is not imported anywhere: BullMQ 6 loads it itself and fails to connect without it.
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => ({

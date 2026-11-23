@@ -9,6 +9,7 @@ describe('API (e2e)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL ??= 'postgresql://u:p@localhost:5432/db';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
+    process.env.NOTIFICATIONS_WORKER = 'false';
     // Imported only now: ConfigModule validates the environment when app.module is
     // loaded, so a static import would run before the defaults above (a fresh clone
     // without .env failed with "Invalid environment").

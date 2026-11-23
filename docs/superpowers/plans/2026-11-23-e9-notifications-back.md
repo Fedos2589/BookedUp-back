@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** not started.
+**Status:** step N done on branches `e9/notifications` … `e9/n6-sending` (N1–N5 merged, N6–N10 awaiting review); step M not started.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -186,7 +186,7 @@ constant `true`.
 expected delivery rows (channel LOG, audiences); a second `expand` adds nothing; two parallel `expand`
 → the same rows, no error. Commit `feat(notifications): events into deliveries`.
 
-### - [ ] N6: sending deliveries
+### - [x] N6: sending deliveries
 
 **Files:** create `src/notifications/channels/{channel.ts,log.channel.ts,channel-registry.ts}`,
 `src/notifications/dispatcher.service.ts`, `test/notification-dispatch.int-spec.ts`.
@@ -210,7 +210,7 @@ once; two parallel `dispatch` → each sent once; the fake throws once → FAILE
 it; after 3 failures it stays FAILED; a row left `SENDING` is not sent again; `unreachable` sets `disabled_at` on
 the client channel (the row and its event stay). Commit `feat(notifications): send deliveries`.
 
-### - [ ] N7: reminders
+### - [x] N7: reminders
 
 **Files:** create `src/notifications/reminders.service.ts`, `src/notifications/notifications.module.ts`,
 create `test/reminders.int-spec.ts`.
@@ -226,7 +226,7 @@ cancelled → none; moved after an event was written → the old key stays, the 
 event when due; booked after the reminder time → none; offsets `[1440, 60]` → two events at their
 times; `[]` → none. Commit `feat(notifications): reminders`.
 
-### - [ ] N8: the queue that runs it
+### - [x] N8: the queue that runs it
 
 **Files:** create `src/notifications/{notifications.processor.ts,notifications.processor.spec.ts}`,
 `src/notifications/notifications.module.ts`, `src/config/env.ts` (+ `env.spec.ts`), `.env.example`,
@@ -244,7 +244,7 @@ keeps the worker off in tests). `test/test-app.ts` sets it to `false`.
 30 s the log shows the master's LOG message. Note the hand check in the commit. Commit
 `feat(notifications): run every 30 seconds`.
 
-### - [ ] N9: reminder times in the business settings
+### - [x] N9: reminder times in the business settings
 
 **Files:** `src/business/{business.controller.ts,business.service.ts,business.schema.ts}`,
 `test/business-access.int-spec.ts` or a new `test/reminder-settings.int-spec.ts`.
@@ -257,7 +257,7 @@ anything else. Swagger: typed body and response, 400 / 403.
 **Check:** int test — owner sets `[1440, 60]` → GET shows `[60, 1440]`; admin can; master → 403;
 `[30]` → 400; `[1440, 1440]` → 400 (the CHECK lets repeats through; this schema is the only guard); 4 items → 400; another business's id → 403. Commit `feat(business): reminder times`.
 
-### - [ ] N10: my notification switches, docs, close N
+### - [x] N10: my notification switches, docs, close N
 
 **Files:** create `src/notifications/{my-notifications.controller.ts,my-notifications.schema.ts}`,
 `src/notifications/notifications.module.ts`, `test/my-notifications.int-spec.ts`, `AGENTS.md` (one line
@@ -275,6 +275,18 @@ user / membership; another business → 403. Tick N1–N10, set row N in the com
 the merge. Commit `feat(notifications): my switches; docs`.
 
 ---
+
+## Follow-ups from the review of PR #46 (for step M)
+
+- **Backoff:** a FAILED delivery is taken again on the next 30 s tick, so with a real provider three attempts
+  burn in a minute. Add `next_attempt_at` (claim: `AND (next_attempt_at IS NULL OR next_attempt_at <= now())`,
+  on error `now() + 1 min * 5^attempts`) with the first real channel (M1).
+- **`switchOff` finds the channel by address:** store `channelId` on the delivery (client channel) and delete the
+  member's channel by `(userId, kind, address)`, so two cards with one email don't switch each other off. Needs a
+  migration; with M1, when `unreachable` first becomes possible.
+- **Render per event, not per delivery:** group the claimed rows by `eventId` (one load of the event, booking and
+  master; one render per audience and locale; one `wipePayloadIfOut`). About 4× fewer queries for a BOOKED event
+  with ten recipients. Do it if the tick gets slow.
 
 ## Step M — real channels
 

@@ -38,6 +38,7 @@ describe('POST /auth/sign-up', () => {
         name: 'Studio Lena',
         slug: body.business.slug,
         timeZone: 'Europe/Moscow',
+        reminderOffsets: [1440],
       },
     });
     const membership = await prisma.membership.findUnique({

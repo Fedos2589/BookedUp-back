@@ -568,6 +568,8 @@ model NotificationDelivery {
   status     DeliveryStatus @default(PENDING)
   attempts   Int            @default(0)
   lastError  String?        @map("last_error")
+  /// A FAILED delivery is not tried again before this time.
+  retryAt    DateTime?      @map("retry_at") @db.Timestamptz(3)
   createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   sentAt     DateTime?      @map("sent_at") @db.Timestamptz(3)
 
