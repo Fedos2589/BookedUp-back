@@ -10,6 +10,14 @@ import { emailSchema, passwordSchema } from './credentials.schema.js';
 // The format the database enforces too (CHECK businesses_slug_format).
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+// A business's address, as it comes in: sign-up, and the public pages found by it.
+export const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(63)
+  .regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens');
+
 // Parsed once here; the service trusts it. Email and slug arrive lowercased and the time
 // zone canonical, so the database's CHECKs only ever back this up. Every string has a
 // length limit: a too long one is a 400 here, not a 500 from the unique index.
@@ -21,7 +29,7 @@ export const signUpSchema = z.object({
   locale: localeSchema.default('en'),
   business: z.object({
     name: z.string().trim().min(1).max(100),
-    slug: z.string().trim().toLowerCase().max(63).regex(SLUG_PATTERN, 'Use latin letters, digits and single hyphens'),
+    slug: slugSchema,
     timeZone: z
       .string()
       .max(64)

@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** not started.
+**Status:** in progress (P1 done).
 
 **Common plan** (goal, decisions, the kit's and the front's steps): `2026-11-18-e7-online-booking.md`
 next to this file. Open it only if a task leaves a question this file doesn't answer.
@@ -44,7 +44,7 @@ next to this file. Open it only if a task leaves a question this file doesn't an
 
 ---
 
-### - [ ] P1: public business page data
+### - [x] P1: public business page data
 
 **Files:** create `src/public-booking/{public-booking.module.ts,public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `src/app.module.ts` (import the module), create `test/public-booking.int-spec.ts`.
