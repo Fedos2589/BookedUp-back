@@ -146,7 +146,7 @@ with the business zone and the locale; plain text, no markup (Telegram is sent w
 parts); a time near the DST change in `Europe/Berlin` shows the wall clock; no `manageLink` in staff
 texts. Commit `feat(notifications): message texts`.
 
-### - [ ] N4: who gets an event
+### - [x] N4: who gets an event
 
 **Files:** create `src/notifications/{recipients.ts,recipients.spec.ts}`.
 
