@@ -113,7 +113,7 @@ TELEGRAM `user_channel` for one user is refused; the same reminder key twice is
 refused; the same `(event, channel, address)` twice is refused. `npx prisma migrate reset --force` on
 the dev DB is clean. Commit `feat(notifications): tables`.
 
-### - [ ] N2: an event with every booking change
+### - [x] N2: an event with every booking change
 
 **Files:** create `src/notifications/{notifications.module.ts,notification-events.ts}`,
 `src/appointments/{appointments.service.ts,appointments.module.ts}`, `src/public-booking/public-booking.service.ts`
