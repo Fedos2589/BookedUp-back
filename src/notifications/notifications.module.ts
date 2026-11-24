@@ -6,6 +6,8 @@ import { LogChannel } from './channels/log.channel.js';
 import { PushChannel } from './channels/push.channel.js';
 import { TelegramChannel } from './channels/telegram.channel.js';
 import { TelegramClient } from './channels/telegram.client.js';
+import { WhatsappChannel } from './channels/whatsapp.channel.js';
+import { WhatsappClient } from './channels/whatsapp.client.js';
 import { ClientPushService } from './client-push.service.js';
 import { LinkTokensService } from './link-tokens.service.js';
 import { DispatcherService } from './dispatcher.service.js';
@@ -39,6 +41,8 @@ import { RemindersService } from './reminders.service.js';
     TelegramClient,
     TelegramChannel,
     PushChannel,
+    WhatsappClient,
+    WhatsappChannel,
     ClientPushService,
   ],
   exports: [DispatcherService, RemindersService, LinkTokensService, ClientPushService],

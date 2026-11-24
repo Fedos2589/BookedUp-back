@@ -1,4 +1,4 @@
-import { messageFor, type MessageInput } from './messages.js';
+import { messageFor, type MessageInput, templateFor } from './messages.js';
 
 const base: MessageInput = {
   kind: 'BOOKED',
@@ -122,5 +122,46 @@ describe('messageFor: time zone', () => {
     const winter = has({ timeZone: 'Europe/Berlin', startsAt: new Date('2026-10-26T16:00:00Z') }, '17:00');
     expect(summer).toContain('Sat 24 Oct');
     expect(winter).toContain('Mon 26 Oct');
+  });
+});
+
+describe('templateFor', () => {
+  const template = (input: Partial<MessageInput>) => templateFor({ ...base, ...input } as MessageInput);
+
+  it('names the template by kind and audience, in the language of the client', () => {
+    expect(template({}).name).toBe('bookedup_booked_client');
+    expect(
+      template({ kind: 'CHANNEL_ON', locale: 'ru', manageLink: 'https://app.example.com/booking/x' }),
+    ).toMatchObject({
+      name: 'bookedup_channel_on_client',
+      language: 'ru',
+    });
+  });
+
+  it('a reminder in ru: the lead, when, the master and the business, in the order of the template', () => {
+    expect(template({ kind: 'REMINDER', locale: 'ru', offsetMinutes: 1440 }).params).toEqual([
+      'Завтра',
+      'пт 27 нояб., 17:00',
+      'Anna',
+      'Studio X',
+    ]);
+  });
+
+  it('puts the group or the session before the time', () => {
+    expect(template({ title: 'Morning yoga' }).params[0]).toBe('Morning yoga, Fri 27 Nov, 17:00');
+  });
+
+  it('CHANNEL_ON ends with the manage link', () => {
+    expect(template({ kind: 'CHANNEL_ON', manageLink: 'https://app.example.com/booking/x' }).params.at(-1)).toBe(
+      'https://app.example.com/booking/x',
+    );
+  });
+
+  it('CHANNEL_ON without the link is a bug, not an empty placeholder', () => {
+    expect(() => template({ kind: 'CHANNEL_ON' })).toThrow(/manage link/);
+  });
+
+  it('is for clients: staff reach WhatsApp nowhere', () => {
+    expect(() => template({ audience: 'staff' })).toThrow(/clients/);
   });
 });

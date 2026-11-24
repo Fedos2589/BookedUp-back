@@ -378,7 +378,7 @@ text channels call `messageFor`; the dispatcher's `render` becomes «load the in
 **Check:** the existing unit and int tests pass unchanged in meaning (specs now hand `send` an input);
 `npm run typecheck && npm run lint && npm test && npm run test:int`. Commit `refactor(notifications): channels render their own message`.
 
-#### - [ ] M5b: WhatsApp channel
+#### - [x] M5b: WhatsApp channel
 
 **Files:** `src/notifications/channels/{whatsapp.client.ts,whatsapp.channel.ts,whatsapp.channel.spec.ts,channel-registry.ts}`,
 `src/notifications/{messages.ts,messages.spec.ts,notifications.module.ts}`, `src/config/env.ts` (+ spec), `.env.example`.
