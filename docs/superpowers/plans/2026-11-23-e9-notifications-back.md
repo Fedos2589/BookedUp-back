@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1–M2 done).
+**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1–M3 done).
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -325,7 +325,7 @@ throttle.
 a token of business A's booking is stored with A's ids; a cancelled booking → 409; no bot token → 404.
 Commit `feat(notifications): Telegram link tokens`.
 
-### - [ ] M3: Telegram updates
+### - [x] M3: Telegram updates
 
 **Files:** create `src/notifications/{telegram-updates.service.ts,telegram-webhook.controller.ts,telegram-polling.ts}`,
 `src/notifications/notifications.module.ts`, `test/telegram-updates.int-spec.ts`.

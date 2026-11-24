@@ -5,6 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import type { MemberRole } from '../src/generated/prisma/enums.js';
+import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 // A valid sign-up body. Random, not a clock: test files run in parallel against one database.
@@ -73,3 +74,34 @@ export const createClient = async (prisma: PrismaClient, businessId: string, pho
       select: { id: true },
     })
   ).id;
+
+// A business with one master and one online booking written straight to the database; returns the booking's
+// manage token (what the booker's link carries) with the ids.
+export const onlineBooking = async (
+  app: INestApplication<App>,
+  { status = 'BOOKED' as 'BOOKED' | 'CANCELLED', startsAt = new Date(Date.now() + 86_400_000) } = {},
+) => {
+  const prisma = app.get(PrismaService);
+  const owner = await signUpOwner(app);
+  const businessId = owner.business.id;
+  const staff = await request(app.getHttpServer())
+    .post(`/businesses/${businessId}/staff`)
+    .set('Cookie', owner.cookie)
+    .send({ name: 'Hana' })
+    .expect(201);
+  const token = newRandomToken();
+  const created = await prisma.appointment.create({
+    data: {
+      businessId,
+      clientId: await createClient(prisma, businessId),
+      staffId: staff.body.id as string,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 3600_000),
+      clientName: 'Vera',
+      clientPhone: '+79991234567',
+      status,
+      manageTokenHash: hashRandomToken(token),
+    },
+  });
+  return { token, business: owner.business, appointmentId: created.id, clientId: created.clientId };
+};

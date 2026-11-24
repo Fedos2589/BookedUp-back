@@ -5,7 +5,7 @@ import type { App } from 'supertest/types.js';
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { createClient, signUpOwner } from './helpers.js';
+import { onlineBooking, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -28,31 +28,8 @@ afterAll(async () => {
 const http = () => request(app.getHttpServer());
 const TOKEN_IN_URL = /^https:\/\/t\.me\/bookedup_test_bot\?start=([\w-]{43})$/;
 
-// A business with one master and one online booking; returns the booking's manage token.
-const booking = async (status: 'BOOKED' | 'CANCELLED' = 'BOOKED', startsAt = new Date(Date.now() + 86_400_000)) => {
-  const owner = await signUpOwner(app);
-  const businessId = owner.business.id;
-  const staff = await http()
-    .post(`/businesses/${businessId}/staff`)
-    .set('Cookie', owner.cookie)
-    .send({ name: 'Hana' })
-    .expect(201);
-  const token = newRandomToken();
-  const created = await prisma.appointment.create({
-    data: {
-      businessId,
-      clientId: await createClient(prisma, businessId),
-      staffId: staff.body.id as string,
-      startsAt,
-      endsAt: new Date(startsAt.getTime() + 3600_000),
-      clientName: 'Vera',
-      clientPhone: '+79991234567',
-      status,
-      manageTokenHash: hashRandomToken(token),
-    },
-  });
-  return { token, business: owner.business, appointmentId: created.id };
-};
+const booking = (status: 'BOOKED' | 'CANCELLED' = 'BOOKED', startsAt?: Date) =>
+  onlineBooking(app, { status, ...(startsAt && { startsAt }) });
 
 describe('POST /me/telegram-link', () => {
   it('gives a t.me link; only the hash of its token is stored, for this user', async () => {
