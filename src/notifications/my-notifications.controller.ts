@@ -1,9 +1,11 @@
 import { CurrentUser } from '@nestjs/authentication';
 import { Can } from '@nestjs/authorization';
-import { Body, Controller, Get, Param, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Put } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
@@ -13,12 +15,19 @@ import { z } from 'zod';
 
 import { MemberOfBusiness } from '../business/business.policy.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
+import { MyChannelsService } from './my-channels.service.js';
+import { channelOffSchema } from './link.schema.js';
+import { type PushOffInput, pushOffInput } from './push.schema.js';
 import {
   type MyBusinessNotifications,
   myBusinessNotificationsSchema,
+  type MyPushInput,
+  myPushInput,
   type MyNotifications,
   myNotificationsSchema,
   type SetMyBusinessNotificationsInput,
+  type SetMyNotificationsInput,
+  setMyNotificationsSchema,
   setMyBusinessNotificationsSchema,
 } from './my-notifications.schema.js';
 import { MyNotificationsService } from './my-notifications.service.js';
@@ -28,14 +37,20 @@ import { MyNotificationsService } from './my-notifications.service.js';
 @Can.Anyone()
 @Controller('me/notifications')
 export class MyNotificationsController {
-  constructor(private readonly notifications: MyNotificationsService) {}
+  constructor(
+    private readonly notifications: MyNotificationsService,
+    private readonly channels: MyChannelsService,
+  ) {}
 
   @Get()
-  @ApiOkResponse({ description: 'My account-wide notification switches', schema: openApi(myNotificationsSchema) })
+  @ApiOkResponse({
+    description: 'My account-wide notifications: what the server offers and what is on',
+    schema: openApi(myNotificationsSchema),
+  })
   @ApiUnauthorizedResponse({ description: 'No live session' })
   @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   get(@CurrentUser('id') userId: string): Promise<MyNotifications> {
-    return this.notifications.email(userId);
+    return this.notifications.mine(userId);
   }
 
   @Put()
@@ -45,9 +60,47 @@ export class MyNotificationsController {
   @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   set(
     @CurrentUser('id') userId: string,
-    @Body({ schema: myNotificationsSchema }) { email }: MyNotifications,
+    @Body({ schema: setMyNotificationsSchema }) { email }: SetMyNotificationsInput,
   ): Promise<MyNotifications> {
     return this.notifications.setEmail(userId, email);
+  }
+
+  @Put('push')
+  @HttpCode(204)
+  @ApiNoContentResponse({
+    description: 'Web Push is on in this browser. The same endpoint again only refreshes its keys.',
+  })
+  @ApiBadRequestResponse({
+    description: 'A field is invalid, or the endpoint is not a known push service',
+    schema: openApi(validationErrorSchema),
+  })
+  @ApiUnauthorizedResponse({ description: 'No live session' })
+  @ApiNotFoundResponse({
+    description: 'Web Push is not turned on here (channelOff)',
+    schema: openApi(channelOffSchema),
+  })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
+  pushOn(@CurrentUser('id') userId: string, @Body({ schema: myPushInput }) { subscription }: MyPushInput) {
+    return this.channels.addPush(userId, subscription);
+  }
+
+  @Delete('push')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'This browser is off; my other devices stay (also when it was not on)' })
+  @ApiBadRequestResponse({ description: 'No endpoint, or too long', schema: openApi(validationErrorSchema) })
+  @ApiUnauthorizedResponse({ description: 'No live session' })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
+  pushOff(@CurrentUser('id') userId: string, @Body({ schema: pushOffInput }) { endpoint }: PushOffInput) {
+    return this.channels.removePush(userId, endpoint);
+  }
+
+  @Delete('telegram')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'No Telegram chat any more (also when there was none)' })
+  @ApiUnauthorizedResponse({ description: 'No live session' })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
+  telegramOff(@CurrentUser('id') userId: string) {
+    return this.channels.removeTelegram(userId);
   }
 }
 

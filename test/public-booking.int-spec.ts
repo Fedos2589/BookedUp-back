@@ -3,10 +3,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { generateVAPIDKeys } from 'web-push';
 
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { createClient, signUpOwner } from './helpers.js';
+import { createClient, onlineBooking, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -40,6 +41,8 @@ describe('GET /public/businesses/:slug', () => {
       name: business.name,
       slug: business.slug,
       timeZone: business.timeZone,
+      channels: { telegram: false, whatsapp: false, push: false, email: false },
+      pushKey: null,
       masters: [
         { id: adam!.id, name: 'Adam', scheduleMode: 'HOURS' },
         { id: zoe!.id, name: 'Zoe', scheduleMode: 'HOURS' },
@@ -448,6 +451,7 @@ describe('see and cancel by the link', () => {
         oneOffSessionId: null,
       },
       canChange: true,
+      notifications: { telegram: false, whatsapp: false, push: [], email: null },
     });
     expect(JSON.stringify(res.body)).not.toMatch(new RegExp(`Vera|\\+7999|${id}`));
   });
@@ -579,5 +583,115 @@ describe('GET /public/businesses/:slug/manifest.webmanifest', () => {
     // A 404 must not be cached for an hour: the business may be signed up a minute later.
     expect(res.headers['cache-control']).toBeUndefined();
     expect(res.headers['content-type']).not.toMatch(/manifest/);
+  });
+});
+
+describe('which channels are on', () => {
+  // The channels are read from the environment when the app is built: a second app has every key, the first none.
+  const vapid = generateVAPIDKeys();
+  const KEYS = {
+    TELEGRAM_BOT_TOKEN: '123:test-token',
+    TELEGRAM_BOT_USERNAME: 'bookedup_test_bot',
+    TELEGRAM_WEBHOOK_SECRET: 'secret',
+    VAPID_PUBLIC_KEY: vapid.publicKey,
+    VAPID_PRIVATE_KEY: vapid.privateKey,
+    VAPID_SUBJECT: 'mailto:ops@example.com',
+    WHATSAPP_TOKEN: 'wa-token',
+    WHATSAPP_PHONE_NUMBER_ID: '1234',
+    RESEND_API_KEY: 're_key',
+    MAIL_FROM: 'no-reply@example.com',
+  };
+  let keyed: INestApplication<App>;
+  beforeAll(async () => {
+    Object.assign(process.env, KEYS);
+    keyed = await createTestApp();
+    for (const key of Object.keys(KEYS)) delete process.env[key];
+  });
+  afterAll(async () => {
+    await keyed.close();
+  });
+
+  it('shows the business page which channels it can offer, and the key a browser subscribes with', async () => {
+    const { business } = await signUpOwner(app);
+
+    const on = await request(keyed.getHttpServer()).get(`/public/businesses/${business.slug}`).expect(200);
+    const off = await http().get(`/public/businesses/${business.slug}`).expect(200);
+
+    expect(on.body).toMatchObject({
+      channels: { telegram: true, whatsapp: true, push: true, email: true },
+      pushKey: vapid.publicKey,
+    });
+    expect(JSON.stringify(on.body)).not.toContain(vapid.privateKey);
+    expect(off.body).toMatchObject({
+      channels: { telegram: false, whatsapp: false, push: false, email: false },
+      pushKey: null,
+    });
+  });
+
+  const channel = (b: Awaited<ReturnType<typeof onlineBooking>>, data: object) =>
+    prisma.clientChannel.create({
+      data: { businessId: b.business.id, clientId: b.clientId, locale: 'en', kind: 'TELEGRAM', address: 'x', ...data },
+    });
+
+  it('shows a booking what is on for it: its own channels, the card’s WhatsApp, the email masked', async () => {
+    const b = await onlineBooking(app);
+    const appointmentId = b.appointmentId;
+    const keys = { p256dh: 'a', auth: 'b' };
+    await channel(b, { appointmentId, kind: 'TELEGRAM', address: '777' });
+    await channel(b, { appointmentId, kind: 'PUSH', address: 'https://push.example/on', keys });
+    await channel(b, {
+      appointmentId,
+      kind: 'PUSH',
+      address: 'https://push.example/off',
+      keys,
+      disabledAt: new Date(),
+    });
+    await channel(b, { appointmentId, kind: 'EMAIL', address: 'maria.k@example.com' });
+    await channel(b, { appointmentId: null, kind: 'WHATSAPP', address: '+79991234567' });
+
+    const res = await http().get(`/public/bookings/${b.token}`).expect(200);
+
+    expect(res.body.notifications).toEqual({
+      telegram: true,
+      whatsapp: true,
+      push: ['https://push.example/on'],
+      email: 'm***@example.com',
+    });
+    expect(JSON.stringify(res.body)).not.toContain('maria.k');
+  });
+
+  it('does not show the WhatsApp of another client of the business', async () => {
+    const b = await onlineBooking(app);
+    const stranger = await createClient(prisma, b.business.id, '+79990009999');
+    await channel(b, { clientId: stranger, appointmentId: null, kind: 'WHATSAPP', address: '+79990009999' });
+
+    const res = await http().get(`/public/bookings/${b.token}`).expect(200);
+
+    expect(res.body.notifications.whatsapp).toBe(false);
+  });
+
+  it('does not show another booking of the same phone its Telegram, push or email, only the card’s WhatsApp', async () => {
+    const b = await onlineBooking(app);
+    const first = await prisma.appointment.findUniqueOrThrow({ where: { id: b.appointmentId } });
+    await channel(b, { appointmentId: first.id, kind: 'TELEGRAM', address: '888' });
+    await channel(b, { appointmentId: first.id, kind: 'EMAIL', address: 'maria.k@example.com' });
+    await channel(b, { appointmentId: null, kind: 'WHATSAPP', address: first.clientPhone });
+    const token = newRandomToken();
+    await prisma.appointment.create({
+      data: {
+        businessId: first.businessId,
+        clientId: first.clientId,
+        staffId: first.staffId,
+        startsAt: new Date(first.startsAt.getTime() + 7200_000),
+        endsAt: new Date(first.endsAt.getTime() + 7200_000),
+        clientName: first.clientName,
+        clientPhone: first.clientPhone,
+        manageTokenHash: hashRandomToken(token),
+      },
+    });
+
+    const res = await http().get(`/public/bookings/${token}`).expect(200);
+
+    expect(res.body.notifications).toEqual({ telegram: false, whatsapp: true, push: [], email: null });
   });
 });

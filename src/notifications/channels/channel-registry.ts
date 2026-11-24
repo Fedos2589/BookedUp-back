@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '../../config/env.js';
 import type { ChannelKind } from '../../generated/prisma/client.js';
+import type { AvailableChannels, AvailableStaffChannels } from '../channels.schema.js';
 import type { Channel } from './channel.js';
 import { EmailChannel } from './email.channel.js';
 import { LogChannel } from './log.channel.js';
@@ -18,6 +19,8 @@ export class ChannelRegistry {
   // A kind that is not on goes to the log, except in production, where it is skipped (E9, decision 8).
   readonly fallbackToLog: boolean;
 
+  private readonly vapidPublicKey: string | undefined;
+
   constructor(
     config: ConfigService<Env, true>,
     log: LogChannel,
@@ -26,9 +29,10 @@ export class ChannelRegistry {
     whatsapp: WhatsappChannel,
     email: EmailChannel,
   ) {
+    this.vapidPublicKey = config.get('VAPID_PUBLIC_KEY', { infer: true });
     this.channels = new Map<ChannelKind, Channel>([[log.kind, log]]);
     if (config.get('TELEGRAM_BOT_TOKEN', { infer: true }) !== undefined) this.channels.set(telegram.kind, telegram);
-    if (config.get('VAPID_PUBLIC_KEY', { infer: true }) !== undefined) this.channels.set(push.kind, push);
+    if (this.vapidPublicKey !== undefined) this.channels.set(push.kind, push);
     if (config.get('WHATSAPP_TOKEN', { infer: true }) !== undefined) this.channels.set(whatsapp.kind, whatsapp);
     if (config.get('RESEND_API_KEY', { infer: true }) !== undefined) this.channels.set(email.kind, email);
     this.fallbackToLog = config.get('NODE_ENV', { infer: true }) !== 'production';
@@ -44,6 +48,27 @@ export class ChannelRegistry {
 
   isOn(kind: ChannelKind): boolean {
     return this.channels.has(kind);
+  }
+
+  // What the front offers: a channel that is not on here is not shown.
+  available(): AvailableChannels {
+    return {
+      telegram: this.isOn('TELEGRAM'),
+      whatsapp: this.isOn('WHATSAPP'),
+      push: this.isOn('PUSH'),
+      email: this.isOn('EMAIL'),
+    };
+  }
+
+  // The same for a member: WhatsApp sends client templates only, so it is not offered to them.
+  availableToStaff(): AvailableStaffChannels {
+    const { whatsapp: _, ...staff } = this.available();
+    return staff;
+  }
+
+  // The public half of the VAPID pair, which a browser subscribes with; null when push is off.
+  pushKey(): string | null {
+    return this.vapidPublicKey ?? null;
   }
 
   get(kind: ChannelKind): Channel {

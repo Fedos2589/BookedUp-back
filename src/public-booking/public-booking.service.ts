@@ -7,6 +7,8 @@ import { ClientsService } from '../clients/clients.service.js';
 import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import type { Locale } from '../account/locale.js';
+import { ChannelRegistry } from '../notifications/channels/channel-registry.js';
+import { ClientNotificationsService } from '../notifications/client-notifications.service.js';
 import { ClientEmailService } from '../notifications/client-email.service.js';
 import { ClientPushService } from '../notifications/client-push.service.js';
 import { ClientWhatsappService } from '../notifications/client-whatsapp.service.js';
@@ -46,6 +48,8 @@ export class PublicBookingService {
     private readonly push: ClientPushService,
     private readonly whatsapp: ClientWhatsappService,
     private readonly email: ClientEmailService,
+    private readonly notifications: ClientNotificationsService,
+    private readonly channels: ChannelRegistry,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -74,7 +78,14 @@ export class PublicBookingService {
       },
     });
     if (!business) throw new NotFoundException();
-    return { name: business.name, slug, timeZone: business.timeZone, masters: business.staff };
+    return {
+      name: business.name,
+      slug,
+      timeZone: business.timeZone,
+      channels: this.channels.available(),
+      pushKey: this.channels.pushKey(),
+      masters: business.staff,
+    };
   }
 
   // Colors and icons are copied from BookedUp-front vite.config.ts (VitePWA manifest); the icons are
@@ -160,6 +171,8 @@ export class PublicBookingService {
         startsAt: true,
         endsAt: true,
         status: true,
+        clientId: true,
+        client: { select: { guardianId: true } },
         staffId: true,
         groupId: true,
         oneOffSessionId: true,
@@ -182,6 +195,7 @@ export class PublicBookingService {
         oneOffSessionId: row.oneOffSessionId,
       },
       canChange: canChange(row, now),
+      notifications: await this.notifications.of({ ...found, ...row }),
     };
   }
 

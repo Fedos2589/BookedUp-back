@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress: M1–M5 merged (PR #47–#49), M6 on `e9/email`.
+**Status:** step N done and merged (PR #46); step M in progress: M1–M6 merged (PR #47–#50), M7 on `e9/member-channels`.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -454,14 +454,14 @@ EMAIL channel on that booking (D4) + CHANNEL_ON; a second PUT with another addre
 channel on the booking + event; another booking of the same phone has no email channel; `NOT-AN-EMAIL`
 → 400; off → 404. Commit `feat(notifications): email`.
 
-### - [ ] M7: a member's channels in the cabinet
+### - [x] M7: a member's channels in the cabinet
 
 **Files:** `src/notifications/{my-notifications.controller.ts,my-notifications.schema.ts}`,
 `src/notifications/telegram-link.controller.ts`, `test/my-notifications.int-spec.ts`.
 
-All under `/me/…`, the account's (D6), any signed-in user: `PUT /me/notifications/whatsapp` `{ phone }`
-(the E.164 schema from `src/clients/clients.schema.ts`) → the user's WHATSAPP channel (replaces the old
-one); `DELETE` the same. `PUT /me/notifications/push` `{ subscription }` (M4's schema) → a PUSH channel
+**Review of #51:** no member WhatsApp — WhatsApp sends client templates only, so the route would promise
+messages that never come; it returns with a template for staff. All under `/me/…`, the account's (D6),
+any signed-in user: `PUT /me/notifications/push` `{ subscription }` (M4's schema) → a PUSH channel
 for that device; `DELETE` `{ endpoint }` → removes only that one of the user's. `DELETE
 /me/notifications/telegram` → removes the chat. A channel off → 404 `channelOff`. No CHANNEL_ON for
 staff: nothing to confirm about a booking.
@@ -471,7 +471,7 @@ DELETE one leaves the other; user A can't delete user B's endpoint (nothing remo
 of a master with Telegram + WhatsApp + push + email → after `dispatch`, four deliveries to the master.
 Commit `feat(notifications): a member's channels`.
 
-### - [ ] M8: what is on, for the front
+### - [x] M8: what is on, for the front
 
 **Files:** `src/public-booking/{public-booking.service.ts,public-booking.schema.ts}`,
 `src/notifications/{my-notifications.controller.ts,my-notifications.schema.ts}`,
