@@ -12,9 +12,9 @@ crosses repos. **Tasks live in each repo's own plan** — an executor opens only
 
 - **E7a — booking without a code (this plan).** Name + phone, limits instead of a code, a private
   link to cancel or move the booking.
-- **E7b — sign-in by a one-time code through Telegram or WhatsApp (later, its own plan).** With a
-  confirmed phone: the account's people (book a child), «my bookings» without the link. Split after
-  E7a is merged; which channel first depends on the first market (open question in the epics doc).
+- **E7b — the phone confirmed through Telegram (its own plan:
+  `2026-11-23-e7b-client-sign-in.md`).** Telegram first (decided 2026-11-23); at the last step of the
+  booking; while the cookie lives, «my bookings» without the link. Dependents (book a child) come after.
 
 ## Steps of E7a and where their tasks are
 
