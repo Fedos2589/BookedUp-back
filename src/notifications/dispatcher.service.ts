@@ -6,6 +6,7 @@ import { appLink } from '../common/app-link.js';
 import type { Env } from '../config/env.js';
 import { type AppointmentStatus, type ChannelKind, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { cardsOf } from './booking-cards.js';
 import { ChannelRegistry } from './channels/channel-registry.js';
 import type { RenderInput, SendResult } from './channels/channel.js';
 import type { MessageLocale } from './messages.js';
@@ -340,10 +341,7 @@ export class DispatcherService {
     // The client's WhatsApp sits on their card, or on their guardian's when they have no phone;
     // every other channel belongs to this booking (E9, decision 4). A channel turned on after the event
     // wasn't there for it: it hears of itself through its own CHANNEL_ON.
-    const cards =
-      appointment.client.guardianId === null
-        ? [appointment.clientId]
-        : [appointment.clientId, appointment.client.guardianId];
+    const cards = cardsOf(appointment);
     const clientChannels = await tx.clientChannel.findMany({
       where: {
         businessId,

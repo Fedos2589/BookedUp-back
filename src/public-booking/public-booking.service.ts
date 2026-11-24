@@ -205,11 +205,7 @@ export class PublicBookingService {
   // is one channel; one that was switched off comes back on.
   async pushOn(token: string, { subscription, locale }: PushOnInput): Promise<void> {
     this.push.assertOn();
-    const { id, businessId } = await this.idsOf(token);
-    const { slug } = await this.prisma.business.findUniqueOrThrow({
-      where: { id: businessId },
-      select: { slug: true },
-    });
+    const { id, businessId, slug } = await this.idsOf(token);
     await this.push.turnOn(
       { id, businessId },
       subscription,
@@ -227,11 +223,7 @@ export class PublicBookingService {
   // The booker's WhatsApp takes messages for every booking of their phone, while this one can still change.
   async whatsappOn(token: string, locale: Locale): Promise<void> {
     this.whatsapp.assertOn();
-    const { id, businessId } = await this.idsOf(token);
-    const { slug } = await this.prisma.business.findUniqueOrThrow({
-      where: { id: businessId },
-      select: { slug: true },
-    });
+    const { id, businessId, slug } = await this.idsOf(token);
     await this.whatsapp.turnOn(
       { id, businessId },
       locale,
@@ -243,13 +235,14 @@ export class PublicBookingService {
     await this.whatsapp.turnOff(await this.idsOf(token), new Date());
   }
 
-  private async idsOf(token: string): Promise<{ id: string; businessId: string }> {
+  // The booking's ids, and its business's slug (the manage link needs it).
+  private async idsOf(token: string): Promise<{ id: string; businessId: string; slug: string }> {
     const found = await this.prisma.appointment.findUnique({
       where: { manageTokenHash: hashRandomToken(token) },
-      select: { id: true, businessId: true },
+      select: { id: true, businessId: true, business: { select: { slug: true } } },
     });
     if (!found) throw new NotFoundException();
-    return found;
+    return { id: found.id, businessId: found.businessId, slug: found.business.slug };
   }
 
   async cancel(token: string): Promise<ManagedBookingDto> {

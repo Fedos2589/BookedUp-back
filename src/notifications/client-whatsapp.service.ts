@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { statusConflict } from '../appointments/appointments.service.js';
 import { canChange } from '../public-booking/can-change.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { cardsOf } from './booking-cards.js';
 import { ChannelRegistry } from './channels/channel-registry.js';
 import { turnClientChannelOn } from './client-channels.js';
 import { channelOff } from './link-tokens.service.js';
@@ -65,9 +66,8 @@ export class ClientWhatsappService {
       where: { id, businessId },
       select: { clientId: true, client: { select: { guardianId: true } } },
     });
-    const cards = [appointment.clientId, ...(appointment.client.guardianId ? [appointment.client.guardianId] : [])];
     await this.prisma.clientChannel.updateMany({
-      where: { businessId, kind: 'WHATSAPP', clientId: { in: cards }, disabledAt: null },
+      where: { businessId, kind: 'WHATSAPP', clientId: { in: cardsOf(appointment) }, disabledAt: null },
       data: { disabledAt: now },
     });
   }
