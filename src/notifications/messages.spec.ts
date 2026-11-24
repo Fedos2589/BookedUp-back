@@ -161,6 +161,18 @@ describe('templateFor', () => {
     expect(() => template({ kind: 'CHANNEL_ON' })).toThrow(/manage link/);
   });
 
+  it('an empty name is named as itself, not as a missing link', () => {
+    expect(() => template({ masterName: '' })).toThrow(/parameter 2/);
+  });
+
+  it('WhatsApp refuses a line break or a run of spaces in a parameter: they are folded to one space', () => {
+    expect(template({ businessName: 'Studio\n  X   Y', title: 'Yoga\tfor  all' }).params).toEqual([
+      'Yoga for all, Fri 27 Nov, 17:00',
+      'Anna',
+      'Studio X Y',
+    ]);
+  });
+
   it('is for clients: staff reach WhatsApp nowhere', () => {
     expect(() => template({ audience: 'staff' })).toThrow(/clients/);
   });

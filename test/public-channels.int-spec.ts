@@ -5,6 +5,7 @@ import type { MockInstance } from 'vitest';
 import type { App } from 'supertest/types.js';
 import { generateVAPIDKeys } from 'web-push';
 
+import { ClientsService } from '../src/clients/clients.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
 import { PushChannel } from '../src/notifications/channels/push.channel.js';
@@ -343,6 +344,40 @@ describe('PUT /public/bookings/:token/whatsapp', () => {
     await whatsappOn(b.token, { locale: 'de' }).expect(400);
     await whatsappOn(cancelled.token).expect(409);
     expect(await whatsappOf(cancelled.business.id, cancelled.clientId)).toHaveLength(0);
+  });
+});
+
+describe('a WhatsApp number and the card it hangs on', () => {
+  it('stops sending to the old number once the card’s phone is changed', async () => {
+    const b = await booking();
+    await whatsappOn(b.token).expect(204);
+
+    await app.get(ClientsService).update(b.business.id, b.clientId, { phone: '+79990000777', note: undefined });
+
+    expect((await whatsappOf(b.business.id, b.clientId))[0]!.disabledAt).not.toBeNull();
+    // On again, from the booking: the new number, and the old row stays off.
+    await whatsappOn(b.token).expect(204);
+    const rows = await whatsappOf(b.business.id, b.clientId);
+    expect(rows.filter((r) => r.disabledAt === null).map((r) => r.address)).toEqual(['+79990000777']);
+  });
+
+  it('a switched-off number of another card stays off when someone else turns the same number on', async () => {
+    const b = await booking();
+    const other = await createClient(prisma, b.business.id, '+79990000555');
+    await prisma.clientChannel.create({
+      data: {
+        businessId: b.business.id,
+        clientId: other,
+        kind: 'WHATSAPP',
+        address: '+79991234567',
+        locale: 'en',
+        disabledAt: new Date(),
+      },
+    });
+
+    await whatsappOn(b.token).expect(204);
+
+    expect((await whatsappOf(b.business.id, other))[0]!.disabledAt).not.toBeNull();
   });
 });
 

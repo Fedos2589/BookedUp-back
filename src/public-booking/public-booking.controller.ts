@@ -15,6 +15,7 @@ import { hours, Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { z } from 'zod';
 
+import { type LocaleBody, localeBodySchema } from '../account/locale.js';
 import { type MoveInput, moveInput } from '../appointments/appointments.schema.js';
 import {
   telegramLinkInput,
@@ -226,7 +227,7 @@ export class PublicBookingController {
   @ApiTooManyRequestsResponse({ description: 'Too many requests from this address; try again later' })
   whatsappOn(
     @Param('token', { schema: manageTokenSchema }) token: string,
-    @Body({ schema: telegramLinkInput }) { locale }: TelegramLinkInput,
+    @Body({ schema: localeBodySchema }) { locale }: LocaleBody,
   ): Promise<void> {
     return this.service.whatsappOn(token, locale);
   }

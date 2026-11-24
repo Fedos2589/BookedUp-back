@@ -154,11 +154,22 @@ export class ClientsService {
     if (!client) throw new NotFoundException();
     if (phone && client.guardianId) throw conflict('notHolder', 'A dependent has no phone of their own');
     try {
-      const updated = await this.prisma.client.update({
-        // businessId again: the id alone must never reach another business's row.
-        where: { businessId_id: { businessId, id } },
-        data: { name, phone, note },
-        select: clientSelect,
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.client.update({
+          // businessId again: the id alone must never reach another business's row.
+          where: { businessId_id: { businessId, id } },
+          data: { name, phone, note },
+          select: clientSelect,
+        });
+        // The card's WhatsApp is its phone: messages about the card's bookings must not keep going to the number
+        // that is no longer theirs. The client turns the new one on from a booking.
+        if (phone) {
+          await tx.clientChannel.updateMany({
+            where: { businessId, clientId: id, kind: 'WHATSAPP', disabledAt: null, address: { not: phone } },
+            data: { disabledAt: new Date() },
+          });
+        }
+        return row;
       });
       return toDto(updated);
     } catch (error) {

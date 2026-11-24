@@ -184,12 +184,15 @@ export const messageFor = (input: MessageInput): Message => ({
 // What WhatsApp sends: a template approved in advance and the values for its placeholders (E9, decision 11).
 // Its parts are the text's: the lead of a reminder, the group or session and the time, the master, the business,
 // and the manage link for CHANNEL_ON. The client's cards only, so there is no staff template.
+// WhatsApp refuses a line break, a tab and four spaces in a row in a parameter.
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
 export type Template = { name: string; language: MessageLocale; params: string[] };
 
 export const templateFor = (input: MessageInput): Template => {
   if (input.audience !== 'client') throw new Error('WhatsApp is for clients only');
   const slot = [input.title, whenOf(input)].filter((part) => part !== null).join(', ');
-  const rest = [slot, input.masterName, input.businessName];
+  const rest = [slot, input.masterName, input.businessName].map(oneLine);
   const params = {
     BOOKED: rest,
     MOVED: rest,
@@ -197,8 +200,16 @@ export const templateFor = (input: MessageInput): Template => {
     REMINDER: [leadOf(input.offsetMinutes ?? MINUTES_IN_DAY, input.locale), ...rest],
     CHANNEL_ON: [...rest, input.manageLink],
   }[input.kind];
-  // The link is wiped from the event once sent (D5): a message without it is a bug, not a blank.
-  if (params.some((param) => !param)) throw new Error(`${input.kind} needs its manage link`);
+  // A blank parameter is refused by WhatsApp. The link is wiped from the event once sent (D5): a message without
+  // it is a bug, not a blank.
+  const blank = params.findIndex((param) => !param);
+  if (blank !== -1) {
+    throw new Error(
+      input.kind === 'CHANNEL_ON' && blank === params.length - 1
+        ? 'CHANNEL_ON needs its manage link'
+        : `${input.kind} has an empty template parameter ${blank + 1}`,
+    );
+  }
   return {
     name: `bookedup_${input.kind.toLowerCase()}_${input.audience}`,
     language: input.locale,

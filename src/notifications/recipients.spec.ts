@@ -79,6 +79,18 @@ describe('recipientsOf: staff', () => {
     expect(recipients).toEqual([{ channel: 'TELEGRAM', address: '555', audience: 'staff', locale: 'en' }]);
   });
 
+  it('a WhatsApp number on a member is skipped: its templates are for clients', () => {
+    const odd = member('master', 'MASTER', {
+      notifyEmail: false,
+      channels: [
+        { kind: 'WHATSAPP', address: '+79990000009' },
+        { kind: 'TELEGRAM', address: '555' },
+      ],
+    });
+    const recipients = recipientsOf(event({ actorUserId: 'admin' }), ctx({ members: [admin, odd] }));
+    expect(recipients.map((r) => r.channel)).toEqual(['TELEGRAM']);
+  });
+
   it('two push devices → two recipients, besides the email', () => {
     const phone = member('master', 'MASTER', {
       locale: 'ru',

@@ -4,7 +4,9 @@ import { templateFor } from '../messages.js';
 import type { Channel, RenderInput, SendResult } from './channel.js';
 import { WhatsappClient, WhatsappError } from './whatsapp.client.js';
 
-// «The recipient is not on WhatsApp»: the number will never work.
+// «The recipient is not on WhatsApp»: the number will never work. Meta mostly reports it later, in a webhook of
+// statuses, not in the answer to the send — we have no such webhook, so this branch is a safety net, and a number
+// without WhatsApp stays «SENT» (a follow-up).
 const NOT_ON_WHATSAPP = 131026;
 
 @Injectable()

@@ -61,12 +61,15 @@ const staffRecipients = (event: RecipientsEvent, ctx: RecipientsContext): Recipi
   return ctx.members
     .filter((m) => ids.has(m.userId))
     .flatMap((m) =>
-      [...(m.notifyEmail ? [{ kind: 'EMAIL' as const, address: m.email }] : []), ...m.channels].map((c) => ({
-        channel: c.kind,
-        address: c.address,
-        audience: 'staff' as const,
-        locale: m.locale,
-      })),
+      [...(m.notifyEmail ? [{ kind: 'EMAIL' as const, address: m.email }] : []), ...m.channels]
+        // WhatsApp sends client templates only: a member's number would fail every delivery.
+        .filter((c) => c.kind !== 'WHATSAPP')
+        .map((c) => ({
+          channel: c.kind,
+          address: c.address,
+          audience: 'staff' as const,
+          locale: m.locale,
+        })),
     );
 };
 

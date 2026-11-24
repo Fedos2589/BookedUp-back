@@ -39,9 +39,10 @@ export async function turnClientChannelOn(tx: Prisma.TransactionClient, on: Clie
     });
   }
   // A chat that never worked answers again: the other bookings of this business it was switched off for hear
-  // it too (the dispatcher switches off every channel with an address that never worked). Not a push: a
-  // gone endpoint never comes back, and a row the client switched off stays off.
-  if (kind !== 'PUSH') {
+  // it too (the dispatcher switches off every channel with an address that never worked). Telegram only: a
+  // gone push endpoint never comes back, and a WhatsApp number the client switched off (or whose card changed its
+  // phone) stays off, whoever turns the number on.
+  if (kind === 'TELEGRAM') {
     await tx.clientChannel.updateMany({
       where: { businessId, kind, address, disabledAt: { not: null } },
       data: { disabledAt: null },

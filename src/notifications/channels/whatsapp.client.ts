@@ -15,6 +15,9 @@ export class WhatsappError extends Error {
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
+// The Graph API version; Meta supports one for about two years, so look at it once in a while (last checked 2026-11).
+const GRAPH_VERSION = 'v21.0';
+
 type Reply = { error?: { code?: number; message?: string } };
 
 // The Cloud API over fetch. The token is in a header, but a network error can still carry it: none leaves here with its own text.
@@ -28,7 +31,7 @@ export class WhatsappClient {
     if (token === undefined || phoneId === undefined) throw new Error('WhatsApp is not configured');
     let response: Response;
     try {
-      response = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+      response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${phoneId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
