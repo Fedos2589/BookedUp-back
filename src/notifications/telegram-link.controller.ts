@@ -1,8 +1,9 @@
 import { CurrentUser } from '@nestjs/authentication';
 import { Can } from '@nestjs/authorization';
-import { Controller, Post } from '@nestjs/common';
+import { Controller, Delete, HttpCode, Post } from '@nestjs/common';
 import {
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/swagger';
 
 import { openApi } from '../common/api-errors.js';
+import { MyChannelsService } from './my-channels.service.js';
 import { LinkTokensService } from './link-tokens.service.js';
 import { channelOffSchema, type TelegramLinkDto, telegramLinkSchema } from './link.schema.js';
 
@@ -18,7 +20,10 @@ import { channelOffSchema, type TelegramLinkDto, telegramLinkSchema } from './li
 @Can.Anyone()
 @Controller('me')
 export class TelegramLinkController {
-  constructor(private readonly tokens: LinkTokensService) {}
+  constructor(
+    private readonly tokens: LinkTokensService,
+    private readonly channels: MyChannelsService,
+  ) {}
 
   @Post('telegram-link')
   @ApiCreatedResponse({
@@ -33,5 +38,14 @@ export class TelegramLinkController {
   @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   link(@CurrentUser('id') userId: string): Promise<TelegramLinkDto> {
     return this.tokens.forUser(userId);
+  }
+
+  @Delete('notifications/telegram')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'No Telegram chat any more (also when there was none)' })
+  @ApiUnauthorizedResponse({ description: 'No live session' })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
+  unlink(@CurrentUser('id') userId: string): Promise<void> {
+    return this.channels.removeTelegram(userId);
   }
 }

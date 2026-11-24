@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import { clientPhone } from '../clients/clients.schema.js';
+import { pushSubscriptionSchema } from './push.schema.js';
+
 // The account's own switches (GET and PUT /me/notifications). M7–M8 add the channels.
 export const myNotificationsSchema = z.object({
   // Staff messages to the address of the account.
@@ -19,3 +22,11 @@ export type MyBusinessNotifications = z.infer<typeof myBusinessNotificationsSche
 export const setMyBusinessNotificationsSchema = z.object({ allOnline: z.boolean() });
 
 export type SetMyBusinessNotificationsInput = z.infer<typeof setMyBusinessNotificationsSchema>;
+
+// The member's own WhatsApp number (PUT /me/notifications/whatsapp). One per account: a new one replaces the old.
+export const myWhatsappInput = z.object({ phone: clientPhone });
+export type MyWhatsappInput = z.infer<typeof myWhatsappInput>;
+
+// A browser the member turns Web Push on in (PUT /me/notifications/push). One row per device.
+export const myPushInput = z.object({ subscription: pushSubscriptionSchema });
+export type MyPushInput = z.infer<typeof myPushInput>;

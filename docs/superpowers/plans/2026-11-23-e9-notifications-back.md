@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress: M1–M5 merged (PR #47–#49), M6 on `e9/email`.
+**Status:** step N done and merged (PR #46); step M in progress: M1–M6 merged (PR #47–#50), M7 on `e9/member-channels`.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -454,7 +454,7 @@ EMAIL channel on that booking (D4) + CHANNEL_ON; a second PUT with another addre
 channel on the booking + event; another booking of the same phone has no email channel; `NOT-AN-EMAIL`
 → 400; off → 404. Commit `feat(notifications): email`.
 
-### - [ ] M7: a member's channels in the cabinet
+### - [x] M7: a member's channels in the cabinet
 
 **Files:** `src/notifications/{my-notifications.controller.ts,my-notifications.schema.ts}`,
 `src/notifications/telegram-link.controller.ts`, `test/my-notifications.int-spec.ts`.

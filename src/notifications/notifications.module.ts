@@ -19,6 +19,7 @@ import { TelegramUpdatesService } from './telegram-updates.service.js';
 import { TelegramWebhookController } from './telegram-webhook.controller.js';
 import { TelegramLinkController } from './telegram-link.controller.js';
 import { MyBusinessNotificationsController, MyNotificationsController } from './my-notifications.controller.js';
+import { MyChannelsService } from './my-channels.service.js';
 import { MyNotificationsService } from './my-notifications.service.js';
 import { NOTIFICATIONS_QUEUE, NotificationsProcessor } from './notifications.processor.js';
 import { RemindersService } from './reminders.service.js';
@@ -33,6 +34,7 @@ import { RemindersService } from './reminders.service.js';
   ],
   providers: [
     MyNotificationsService,
+    MyChannelsService,
     LinkTokensService,
     TelegramUpdatesService,
     TelegramPolling,
