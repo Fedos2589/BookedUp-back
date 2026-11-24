@@ -34,9 +34,16 @@ describe('EmailChannel', () => {
     expect(JSON.parse(init.body as string)).toEqual({ from: FROM, to: 'anna@example.com', subject, text });
   });
 
-  it('422 (the address is invalid) → unreachable', async () => {
-    vi.stubGlobal('fetch', reply(422, { name: 'validation_error', message: 'Invalid `to` field' }));
+  it('422 about the recipient → unreachable', async () => {
+    vi.stubGlobal('fetch', reply(422, { name: 'validation_error', message: 'Invalid `to` field.' }));
     expect(await channel().send('nobody@example.invalid', renderInput())).toBe('unreachable');
+  });
+
+  it('422 about anything else (our sender, our body) throws: it is ours to fix, not the client’s address to lose', async () => {
+    vi.stubGlobal('fetch', reply(422, { name: 'invalid_from_address', message: 'Invalid `from` field.' }));
+    await expect(channel().send('anna@example.com', renderInput())).rejects.toThrow(/422/);
+    vi.stubGlobal('fetch', reply(422, 'not json' as unknown as object));
+    await expect(channel().send('anna@example.com', renderInput())).rejects.toThrow(/422/);
   });
 
   it('429 and 5xx throw, to be tried again', async () => {

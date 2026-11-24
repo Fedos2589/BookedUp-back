@@ -89,6 +89,14 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...valid, MAIL_FROM: 'BookedUp <no-reply@example.com>' })).toThrow(/MAIL_FROM/);
   });
 
+  it('takes a sender as an address or as `Name <address>`, and refuses a typo at start', () => {
+    const key = { RESEND_API_KEY: 're_key' };
+    for (const MAIL_FROM of ['no-reply@example.com', 'BookedUp <no-reply@example.com>'])
+      expect(validateEnv({ ...valid, ...key, MAIL_FROM })).toMatchObject({ MAIL_FROM });
+    for (const MAIL_FROM of ['BookedUp no-reply@example.com', 'BookedUp <no-reply@example.com', 'BookedUp'])
+      expect(() => validateEnv({ ...valid, ...key, MAIL_FROM })).toThrow(/MAIL_FROM/);
+  });
+
   it('takes the two WhatsApp settings together or not at all', () => {
     const whatsapp = { WHATSAPP_TOKEN: 'token', WHATSAPP_PHONE_NUMBER_ID: '1234567890' };
     expect(validateEnv(valid).WHATSAPP_TOKEN).toBeUndefined();

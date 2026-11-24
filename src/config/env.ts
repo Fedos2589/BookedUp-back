@@ -37,7 +37,12 @@ const envSchema = z
     WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
     // Resend (email): the key and the sender go together; without them the channel is off.
     RESEND_API_KEY: z.string().min(1).optional(),
-    MAIL_FROM: z.string().min(1).max(320).optional(),
+    // `no-reply@example.com` or `BookedUp <no-reply@example.com>`: Resend answers 422 to anything else, so a typo stops the start.
+    MAIL_FROM: z
+      .string()
+      .max(320)
+      .regex(/^([^<>@\s][^<>]*<[^<>@\s]+@[^<>@\s]+>|[^<>@\s]+@[^<>@\s]+)$/)
+      .optional(),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],

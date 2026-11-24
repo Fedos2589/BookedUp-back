@@ -132,12 +132,26 @@ export class DispatcherService {
       const keys = delivery.channel === 'PUSH' ? await this.pushKeysOf(delivery) : undefined;
       // The client switched the subscription off after the message was queued: nothing to send, nothing to retry.
       if (keys === null) return 'stale';
+      // The same for every other channel of a client: switched off, or replaced by another address, after the message
+      // was queued. The manage link must not go to an address the client no longer wants (or mistyped).
+      if (!(await this.clientChannelIsOn(delivery))) return 'stale';
       return await this.channels.get(delivery.channel).send(delivery.address, input, keys);
     } catch (error) {
       if (error instanceof StaleReminder) return 'stale';
       this.logger.warn({ err: error, deliveryId: delivery.id }, 'Sending a notification failed');
       return { error: error instanceof Error ? error.message : 'unknown error' };
     }
+  }
+
+  // false when a client's delivery has no active channel row any more. A member's channel is deleted, not switched off,
+  // and the log stands for every kind: both are left alone. Push is checked by its keys.
+  private async clientChannelIsOn({ businessId, audience, channel, address }: Claimed): Promise<boolean> {
+    if (audience !== 'client' || channel === 'LOG' || channel === 'PUSH') return true;
+    const on = await this.prisma.clientChannel.findFirst({
+      where: { businessId, kind: channel, address, disabledAt: null },
+      select: { id: true },
+    });
+    return on !== null;
   }
 
   // A push subscription's keys sit with its channel row (a booking's, or a member's), not on the delivery; null when

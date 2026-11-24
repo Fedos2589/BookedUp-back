@@ -31,6 +31,8 @@ export class ClientEmailService {
   ): Promise<void> {
     const { businessId, id } = booking;
     await this.prisma.$transaction(async (tx) => {
+      // Two addresses at once: the second waits for the first to commit, then switches it off.
+      await tx.$executeRaw`SELECT 1 FROM appointments WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
       const appointment = await tx.appointment.findFirstOrThrow({
         where: { id, businessId },
         select: { id: true, clientId: true, startsAt: true, status: true },

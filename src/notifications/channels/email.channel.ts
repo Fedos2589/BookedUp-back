@@ -7,8 +7,9 @@ import type { Channel, RenderInput, SendResult } from './channel.js';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
-// Resend answers 422 for an address it will not take; that address will never work.
-const INVALID_ADDRESS = 422;
+// Resend answers 422 to any field it refuses: «Invalid `to` field» is the recipient, and that address will never work;
+// `from` or the body are ours, and must not cost a client their address.
+const REFUSED = 422;
 
 // Mail over Resend's HTTP API. The key is in a header, but a network error can still carry it: none leaves here
 // with its own text.
@@ -37,8 +38,15 @@ export class EmailChannel implements Channel {
       if (error instanceof DOMException && error.name === 'TimeoutError') return 'unknown';
       throw new Error('Email: no answer');
     }
-    if (response.ok) return 'sent';
-    if (response.status === INVALID_ADDRESS) return 'unreachable';
+    if (response.ok) {
+      // An unread body holds the socket until the garbage collector comes.
+      await response.body?.cancel();
+      return 'sent';
+    }
+    if (response.status === REFUSED) {
+      const reply = (await response.json().catch(() => null)) as { message?: unknown } | null;
+      if (typeof reply?.message === 'string' && reply.message.includes('`to`')) return 'unreachable';
+    }
     throw new Error(`Email: Resend answered ${response.status}`);
   }
 }

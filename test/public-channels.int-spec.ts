@@ -8,6 +8,7 @@ import { generateVAPIDKeys } from 'web-push';
 import { ClientsService } from '../src/clients/clients.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
+import { EmailChannel } from '../src/notifications/channels/email.channel.js';
 import { PushChannel } from '../src/notifications/channels/push.channel.js';
 import { DispatcherService } from '../src/notifications/dispatcher.service.js';
 import { messageFor } from '../src/notifications/messages.js';
@@ -470,6 +471,18 @@ describe('PUT /public/bookings/:token/email', () => {
     expect(await eventsOf(b.appointmentId)).toHaveLength(2);
   });
 
+  it('two requests at once with different addresses leave one of them on', async () => {
+    const b = await booking();
+
+    await Promise.all([
+      emailOn(b.token, { email: 'a@example.com', locale: 'en' }).expect(204),
+      emailOn(b.token, { email: 'b@example.com', locale: 'en' }).expect(204),
+    ]);
+
+    const on = (await emailsOf(b.appointmentId)).filter((channel) => channel.disabledAt === null);
+    expect(on).toHaveLength(1);
+  });
+
   it('is only this booking’s: another booking of the same phone has no email channel', async () => {
     const b = await booking();
     const other = await bookingFor(b, b.clientId);
@@ -541,6 +554,80 @@ describe('DELETE /public/bookings/:token/email', () => {
     await emailOff(mine.token).expect(204);
 
     expect((await emailsOf(elsewhere.appointmentId))[0]!.disabledAt).toBeNull();
+  });
+});
+
+describe('sending an email', () => {
+  // As in «sending a push»: this app takes emails only, and each test writes its event as processed and its delivery.
+  let emails: MockInstance<EmailChannel['send']>;
+  let kinds: MockInstance<ChannelRegistry['kinds']>;
+  beforeEach(() => {
+    kinds = vi.spyOn(app.get(ChannelRegistry), 'kinds').mockReturnValue(['EMAIL']);
+    emails = vi.spyOn(app.get(EmailChannel), 'send').mockResolvedValue('sent');
+  });
+  afterEach(() => {
+    kinds.mockRestore();
+    emails.mockRestore();
+  });
+
+  const dispatch = async () => {
+    const dispatcher = app.get(DispatcherService);
+    while ((await dispatcher.send(new Date())) === 50);
+  };
+  const emailsTo = (address: string) => emails.mock.calls.filter(([to]) => to === address);
+  const queued = async (b: Awaited<ReturnType<typeof booking>>, address: string) => {
+    const { id: eventId } = await prisma.notificationEvent.create({
+      data: {
+        businessId: b.business.id,
+        appointmentId: b.appointmentId,
+        kind: 'BOOKED',
+        startsAt: new Date(Date.now() + 86_400_000),
+        processedAt: new Date(),
+      },
+    });
+    await prisma.notificationDelivery.create({
+      data: { businessId: b.business.id, eventId, channel: 'EMAIL', address, audience: 'client', locale: 'en' },
+    });
+  };
+  const address = () => `${randomUUID()}@example.com`;
+
+  it('sends to the address that is on', async () => {
+    const b = await booking();
+    const to = address();
+    await emailOn(b.token, { email: to, locale: 'en' }).expect(204);
+    await queued(b, to);
+
+    await dispatch();
+
+    expect(emailsTo(to)).toHaveLength(1);
+  });
+
+  it('sends nothing to an address the client replaced after the message was queued', async () => {
+    const b = await booking();
+    const [old, current] = [address(), address()];
+    await emailOn(b.token, { email: old, locale: 'en' }).expect(204);
+    await queued(b, old);
+    await emailOn(b.token, { email: current, locale: 'en' }).expect(204);
+
+    await dispatch();
+
+    expect(emailsTo(old)).toHaveLength(0);
+    const delivery = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { businessId: b.business.id, channel: 'EMAIL', address: old },
+    });
+    expect(delivery).toMatchObject({ status: 'FAILED', lastError: 'booking changed' });
+  });
+
+  it('sends nothing to an address the client switched off after the message was queued', async () => {
+    const b = await booking();
+    const to = address();
+    await emailOn(b.token, { email: to, locale: 'en' }).expect(204);
+    await queued(b, to);
+    await emailOff(b.token).expect(204);
+
+    await dispatch();
+
+    expect(emailsTo(to)).toHaveLength(0);
   });
 });
 
