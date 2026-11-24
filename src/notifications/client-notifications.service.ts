@@ -18,17 +18,18 @@ export class ClientNotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   // The same rows the dispatcher reads for the booking: its own, and the WhatsApp of its cards (E9, decision 4).
-  async of(booking: { businessId: string; id: string }): Promise<ClientNotifications> {
+  async of(booking: {
+    businessId: string;
+    id: string;
+    clientId: string;
+    client: { guardianId: string | null };
+  }): Promise<ClientNotifications> {
     const { businessId, id } = booking;
-    const appointment = await this.prisma.appointment.findFirstOrThrow({
-      where: { id, businessId },
-      select: { clientId: true, client: { select: { guardianId: true } } },
-    });
     const rows = await this.prisma.clientChannel.findMany({
       where: {
         businessId,
         disabledAt: null,
-        OR: [{ appointmentId: id }, { kind: 'WHATSAPP', clientId: { in: cardsOf(appointment) } }],
+        OR: [{ appointmentId: id }, { kind: 'WHATSAPP', clientId: { in: cardsOf(booking) } }],
       },
       select: { kind: true, address: true },
       orderBy: { createdAt: 'asc' },

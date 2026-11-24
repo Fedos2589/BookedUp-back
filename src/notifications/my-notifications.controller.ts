@@ -23,8 +23,6 @@ import {
   myBusinessNotificationsSchema,
   type MyPushInput,
   myPushInput,
-  type MyWhatsappInput,
-  myWhatsappInput,
   type MyNotifications,
   myNotificationsSchema,
   type SetMyBusinessNotificationsInput,
@@ -67,29 +65,6 @@ export class MyNotificationsController {
     return this.notifications.setEmail(userId, email);
   }
 
-  @Put('whatsapp')
-  @HttpCode(204)
-  @ApiNoContentResponse({ description: 'This number is my WhatsApp now; the old one, if any, is gone' })
-  @ApiBadRequestResponse({ description: 'Not an E.164 number', schema: openApi(validationErrorSchema) })
-  @ApiUnauthorizedResponse({ description: 'No live session' })
-  @ApiNotFoundResponse({
-    description: 'WhatsApp is not turned on here (channelOff)',
-    schema: openApi(channelOffSchema),
-  })
-  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
-  whatsappOn(@CurrentUser('id') userId: string, @Body({ schema: myWhatsappInput }) { phone }: MyWhatsappInput) {
-    return this.channels.setWhatsapp(userId, phone);
-  }
-
-  @Delete('whatsapp')
-  @HttpCode(204)
-  @ApiNoContentResponse({ description: 'No WhatsApp number any more (also when there was none)' })
-  @ApiUnauthorizedResponse({ description: 'No live session' })
-  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
-  whatsappOff(@CurrentUser('id') userId: string) {
-    return this.channels.removeWhatsapp(userId);
-  }
-
   @Put('push')
   @HttpCode(204)
   @ApiNoContentResponse({
@@ -112,11 +87,20 @@ export class MyNotificationsController {
   @Delete('push')
   @HttpCode(204)
   @ApiNoContentResponse({ description: 'This browser is off; my other devices stay (also when it was not on)' })
-  @ApiBadRequestResponse({ schema: openApi(validationErrorSchema) })
+  @ApiBadRequestResponse({ description: 'No endpoint, or too long', schema: openApi(validationErrorSchema) })
   @ApiUnauthorizedResponse({ description: 'No live session' })
   @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   pushOff(@CurrentUser('id') userId: string, @Body({ schema: pushOffInput }) { endpoint }: PushOffInput) {
     return this.channels.removePush(userId, endpoint);
+  }
+
+  @Delete('telegram')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'No Telegram chat any more (also when there was none)' })
+  @ApiUnauthorizedResponse({ description: 'No live session' })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
+  telegramOff(@CurrentUser('id') userId: string) {
+    return this.channels.removeTelegram(userId);
   }
 }
 

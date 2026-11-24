@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import { availableChannelsSchema } from './channels.schema.js';
-import { clientPhone } from '../clients/clients.schema.js';
+import { availableStaffChannelsSchema } from './channels.schema.js';
 import { pushSubscriptionSchema } from './push.schema.js';
 
 // What may change in the account's own switches (PUT /me/notifications).
@@ -13,10 +12,9 @@ export type SetMyNotificationsInput = z.infer<typeof setMyNotificationsSchema>;
 
 // The account's own notifications (GET and PUT /me/notifications): what the server offers, and what is on.
 export const myNotificationsSchema = setMyNotificationsSchema.extend({
-  available: availableChannelsSchema,
+  available: availableStaffChannelsSchema,
   pushKey: z.string().nullable().describe('The VAPID public key a browser subscribes with; null when push is off'),
   telegram: z.boolean(),
-  whatsapp: z.string().nullable().describe('My number'),
   push: z.array(z.string()).describe('The endpoints of my devices, so a browser knows whether it is one of them'),
 });
 
@@ -33,10 +31,6 @@ export type MyBusinessNotifications = z.infer<typeof myBusinessNotificationsSche
 export const setMyBusinessNotificationsSchema = z.object({ allOnline: z.boolean() });
 
 export type SetMyBusinessNotificationsInput = z.infer<typeof setMyBusinessNotificationsSchema>;
-
-// The member's own WhatsApp number (PUT /me/notifications/whatsapp). One per account: a new one replaces the old.
-export const myWhatsappInput = z.object({ phone: clientPhone });
-export type MyWhatsappInput = z.infer<typeof myWhatsappInput>;
 
 // A browser the member turns Web Push on in (PUT /me/notifications/push). One row per device.
 export const myPushInput = z.object({ subscription: pushSubscriptionSchema });

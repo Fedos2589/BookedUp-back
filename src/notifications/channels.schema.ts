@@ -17,3 +17,7 @@ export const clientNotificationsSchema = z.object({
   email: z.string().nullable().describe('Masked: `m***@example.com`'),
 });
 export type ClientNotifications = z.infer<typeof clientNotificationsSchema>;
+
+// What a member can turn on for themselves: no WhatsApp, which sends client templates only.
+export const availableStaffChannelsSchema = availableChannelsSchema.omit({ whatsapp: true });
+export type AvailableStaffChannels = z.infer<typeof availableStaffChannelsSchema>;

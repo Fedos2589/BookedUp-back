@@ -171,6 +171,8 @@ export class PublicBookingService {
         startsAt: true,
         endsAt: true,
         status: true,
+        clientId: true,
+        client: { select: { guardianId: true } },
         staffId: true,
         groupId: true,
         oneOffSessionId: true,
@@ -193,7 +195,7 @@ export class PublicBookingService {
         oneOffSessionId: row.oneOffSessionId,
       },
       canChange: canChange(row, now),
-      notifications: await this.notifications.of(found),
+      notifications: await this.notifications.of({ ...found, ...row }),
     };
   }
 

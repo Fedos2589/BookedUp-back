@@ -18,10 +18,9 @@ export class MyNotificationsService {
     });
     return {
       email: user.notifyEmail,
-      available: this.channels.available(),
+      available: this.channels.availableToStaff(),
       pushKey: this.channels.pushKey(),
       telegram: user.channels.some((c) => c.kind === 'TELEGRAM'),
-      whatsapp: user.channels.find((c) => c.kind === 'WHATSAPP')?.address ?? null,
       push: user.channels.filter((c) => c.kind === 'PUSH').map((c) => c.address),
     };
   }

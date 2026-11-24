@@ -121,27 +121,6 @@ describe('my channels', () => {
   });
   afterEach(() => isOn.mockRestore());
 
-  it('keeps one WhatsApp number: the second PUT replaces the first', async () => {
-    const me = await signUpOwner(app);
-    const [first, second] = [phone(), phone()];
-
-    await http().put(`${mine}/whatsapp`).set('Cookie', me.cookie).send({ phone: first }).expect(204);
-    await http().put(`${mine}/whatsapp`).set('Cookie', me.cookie).send({ phone: second }).expect(204);
-    await http().put(`${mine}/whatsapp`).set('Cookie', me.cookie).send({ phone: second }).expect(204);
-
-    expect(await channels(await userIdOf(app, me.cookie))).toEqual([`WHATSAPP ${second}`]);
-    await http().delete(`${mine}/whatsapp`).set('Cookie', me.cookie).expect(204);
-    expect(await channels(await userIdOf(app, me.cookie))).toEqual([]);
-  });
-
-  it('wants an E.164 number for WhatsApp, and a session', async () => {
-    const me = await signUpOwner(app);
-
-    await http().put(`${mine}/whatsapp`).set('Cookie', me.cookie).send({ phone: '8 999 123' }).expect(400);
-    await http().put(`${mine}/whatsapp`).send({ phone: phone() }).expect(401);
-    await http().delete(`${mine}/whatsapp`).expect(401);
-  });
-
   it('keeps a row per push device; DELETE removes only the named one', async () => {
     const me = await signUpOwner(app);
     const [a, b] = [subscription(), subscription()];
@@ -184,6 +163,22 @@ describe('my channels', () => {
     expect(await channels(await userIdOf(app, b.cookie))).toEqual([`PUSH ${sub.endpoint}`]);
   });
 
+  it('gives a browser to the account that subscribed last: the one who signed out of it stops hearing', async () => {
+    const [a, b] = [await signUpOwner(app), await signUpOwner(app)];
+    const sub = subscription();
+    await http().put(`${mine}/push`).set('Cookie', a.cookie).send({ subscription: sub }).expect(204);
+    const keys = { p256dh: 'b-key', auth: 'b-auth' };
+
+    await http()
+      .put(`${mine}/push`)
+      .set('Cookie', b.cookie)
+      .send({ subscription: { ...sub, keys } })
+      .expect(204);
+
+    const rows = await prisma.userChannel.findMany({ where: { kind: 'PUSH', address: sub.endpoint } });
+    expect(rows.map((row) => [row.userId, row.keys])).toEqual([[await userIdOf(app, b.cookie), keys]]);
+  });
+
   it('refuses a push endpoint of a host that is not a push service', async () => {
     const me = await signUpOwner(app);
     const subscriptionOf = { ...subscription(), endpoint: 'https://evil.example/push' };
@@ -213,12 +208,9 @@ describe('my channels', () => {
     const me = await signUpOwner(app);
     isOn.mockReturnValue(false);
 
-    const whatsapp = await http().put(`${mine}/whatsapp`).set('Cookie', me.cookie).send({ phone: phone() });
     const push = await http().put(`${mine}/push`).set('Cookie', me.cookie).send({ subscription: subscription() });
 
-    expect([whatsapp.status, whatsapp.body.code]).toEqual([404, 'channelOff']);
     expect([push.status, push.body.code]).toEqual([404, 'channelOff']);
-    await http().delete(`${mine}/whatsapp`).set('Cookie', me.cookie).expect(204);
     await http()
       .delete(`${mine}/push`)
       .set('Cookie', me.cookie)
@@ -232,9 +224,8 @@ describe('my channels', () => {
     const master = await memberOf(app, businessId, 'MASTER');
     const staff = await prisma.staff.create({ data: { businessId, name: 'Anna', userId: master.userId } });
     const sub = subscription();
-    const [telegram, whatsapp] = [randomUUID(), phone()];
+    const telegram = randomUUID();
     await prisma.userChannel.create({ data: { userId: master.userId, kind: 'TELEGRAM', address: telegram } });
-    await http().put(`${mine}/whatsapp`).set('Cookie', master.cookie).send({ phone: whatsapp }).expect(204);
     await http().put(`${mine}/push`).set('Cookie', master.cookie).send({ subscription: sub }).expect(204);
     const startsAt = new Date('2030-01-07T07:00:00.000Z');
     const appointment = await prisma.appointment.create({
@@ -260,12 +251,10 @@ describe('my channels', () => {
       (d) => d.address,
     );
     // By address, not by channel: another test file's `expand` may have taken the event, with its own channels on.
-    // Email, Telegram and push. A member's WhatsApp number is stored but never messaged: WhatsApp sends client
-    // templates only (recipients.ts), so a delivery to it would fail every time.
+    // Email, Telegram and push; a member has no WhatsApp (it sends client templates only).
     expect(owned).toContain(masterEmail);
     expect(owned).toContain(sub.endpoint);
     expect(owned).toContain(telegram);
-    expect(owned).not.toContain(whatsapp);
     expect(owned).toHaveLength(4); // those three, and the owner's email
   });
 });
@@ -277,11 +266,10 @@ describe('GET /me/notifications: what is on', () => {
     const res = await http().get(mine).set('Cookie', me.cookie).expect(200);
 
     expect(res.body).toEqual({
-      available: { telegram: false, whatsapp: false, push: false, email: false },
+      available: { telegram: false, push: false, email: false },
       pushKey: null,
       email: true,
       telegram: false,
-      whatsapp: null,
       push: [],
     });
   });
@@ -294,7 +282,6 @@ describe('GET /me/notifications: what is on', () => {
     await prisma.userChannel.createMany({
       data: [
         { userId: meId, kind: 'TELEGRAM', address: randomUUID() },
-        { userId: meId, kind: 'WHATSAPP', address: '+79990001122' },
         { userId: meId, kind: 'PUSH', address: 'https://fcm.googleapis.com/fcm/send/1', keys },
         { userId: otherId, kind: 'PUSH', address: 'https://fcm.googleapis.com/fcm/send/2', keys },
       ],
@@ -306,11 +293,10 @@ describe('GET /me/notifications: what is on', () => {
       const res = await http().get(mine).set('Cookie', me.cookie).expect(200);
 
       expect(res.body).toEqual({
-        available: { telegram: true, whatsapp: true, push: true, email: true },
+        available: { telegram: true, push: true, email: true },
         pushKey: 'public-key',
         email: true,
         telegram: true,
-        whatsapp: '+79990001122',
         push: ['https://fcm.googleapis.com/fcm/send/1'],
       });
       expect(JSON.stringify(res.body)).not.toContain('fcm/send/2');
