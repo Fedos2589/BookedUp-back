@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
 
 import type { Env } from '../config/env.js';
+import { LinkTokensService } from './link-tokens.service.js';
 import { DispatcherService } from './dispatcher.service.js';
 import { RemindersService } from './reminders.service.js';
 
@@ -21,6 +22,7 @@ export class NotificationsProcessor extends WorkerHost implements OnApplicationB
   constructor(
     private readonly reminders: RemindersService,
     private readonly dispatcher: DispatcherService,
+    private readonly linkTokens: LinkTokensService,
     private readonly config: ConfigService<Env, true>,
     @InjectQueue(NOTIFICATIONS_QUEUE) private readonly queue: Queue,
   ) {
@@ -46,6 +48,11 @@ export class NotificationsProcessor extends WorkerHost implements OnApplicationB
       await this.reminders.scheduleReminders(now);
     } catch (err) {
       this.logger.error({ err }, 'Scheduling reminders failed');
+    }
+    try {
+      await this.linkTokens.purgeExpired(now);
+    } catch (err) {
+      this.logger.error({ err }, 'Deleting expired link tokens failed');
     }
     await this.dispatcher.dispatch(now);
   }

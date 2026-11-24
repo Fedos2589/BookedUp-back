@@ -337,6 +337,7 @@ export class DispatcherService {
       previousMasterUserId: previousMaster?.userId ?? null,
       members,
       clientChannels: clientChannels.map((c) => ({ ...c, locale: localeOf(c.locale) })),
+      isOn: (kind) => this.channels.isOn(kind),
       fallbackToLog: this.channels.fallbackToLog,
     };
   }

@@ -50,6 +50,23 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...valid, TRUST_PROXY: '-1' })).toThrow(/TRUST_PROXY/);
   });
 
+  it('takes the Telegram bot token and username together or not at all', () => {
+    expect(validateEnv(valid).TELEGRAM_BOT_TOKEN).toBeUndefined();
+    const both = { TELEGRAM_BOT_TOKEN: '123:abc', TELEGRAM_BOT_USERNAME: 'bookedup_bot' };
+    expect(validateEnv({ ...valid, ...both })).toMatchObject(both);
+    expect(() => validateEnv({ ...valid, TELEGRAM_BOT_TOKEN: '123:abc' })).toThrow(/TELEGRAM_BOT_USERNAME/);
+    expect(() => validateEnv({ ...valid, TELEGRAM_BOT_USERNAME: 'bookedup_bot' })).toThrow(/TELEGRAM_BOT_TOKEN/);
+  });
+
+  it('wants the Telegram webhook secret in production once the bot token is set', () => {
+    const prod = { ...valid, NODE_ENV: 'production', APP_URL: 'https://app.example.com' };
+    const bot = { TELEGRAM_BOT_TOKEN: '123:abc', TELEGRAM_BOT_USERNAME: 'bookedup_bot' };
+    expect(() => validateEnv({ ...prod, ...bot })).toThrow(/TELEGRAM_WEBHOOK_SECRET/);
+    expect(validateEnv({ ...prod, ...bot, TELEGRAM_WEBHOOK_SECRET: 's' }).TELEGRAM_WEBHOOK_SECRET).toBe('s');
+    expect(validateEnv(prod).TELEGRAM_BOT_TOKEN).toBeUndefined();
+    expect(validateEnv({ ...valid, ...bot }).TELEGRAM_WEBHOOK_SECRET).toBeUndefined();
+  });
+
   it('names the missing variable', () => {
     expect(() => validateEnv({ REDIS_URL: valid.REDIS_URL })).toThrow(/DATABASE_URL/);
   });

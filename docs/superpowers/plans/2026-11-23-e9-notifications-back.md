@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done on branches `e9/notifications` … `e9/n6-sending` (N1–N5 merged, N6–N10 awaiting review); step M not started.
+**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1–M3 done).
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -278,9 +278,7 @@ the merge. Commit `feat(notifications): my switches; docs`.
 
 ## Follow-ups from the review of PR #46 (for step M)
 
-- **Backoff:** a FAILED delivery is taken again on the next 30 s tick, so with a real provider three attempts
-  burn in a minute. Add `next_attempt_at` (claim: `AND (next_attempt_at IS NULL OR next_attempt_at <= now())`,
-  on error `now() + 1 min * 5^attempts`) with the first real channel (M1).
+- **Backoff:** done in N (`8a487ec`, migration `delivery_retry_at`): 1 min, then 10 min between tries.
 - **`switchOff` finds the channel by address:** store `channelId` on the delivery (client channel) and delete the
   member's channel by `(userId, kind, address)`, so two cards with one email don't switch each other off. Needs a
   migration; with M1, when `unreachable` first becomes possible.
@@ -292,7 +290,7 @@ the merge. Commit `feat(notifications): my switches; docs`.
 
 Branch `e9/channels` from `main` after N is merged.
 
-### - [ ] M1: Telegram channel
+### - [x] M1: Telegram channel
 
 **Files:** create `src/notifications/channels/{telegram.client.ts,telegram.channel.ts,telegram.channel.spec.ts}`,
 `src/notifications/channels/channel-registry.ts`, `src/config/env.ts` (+ spec), `.env.example`.
@@ -308,7 +306,7 @@ configured and NODE_ENV ≠ production» (D8); in production an unconfigured kin
 **Check:** unit test with a fake `fetch`: the URL and body; 403 → `unreachable`; 500 → throws; env:
 token without username → invalid. Commit `feat(notifications): Telegram channel`.
 
-### - [ ] M2: Telegram link tokens
+### - [x] M2: Telegram link tokens
 
 **Files:** `prisma/schema.prisma`, a migration `<ts>_channel_link_tokens`, create
 `src/notifications/{link-tokens.service.ts,telegram-link.controller.ts,link.schema.ts}`,
@@ -327,7 +325,7 @@ throttle.
 a token of business A's booking is stored with A's ids; a cancelled booking → 409; no bot token → 404.
 Commit `feat(notifications): Telegram link tokens`.
 
-### - [ ] M3: Telegram updates
+### - [x] M3: Telegram updates
 
 **Files:** create `src/notifications/{telegram-updates.service.ts,telegram-webhook.controller.ts,telegram-polling.ts}`,
 `src/notifications/notifications.module.ts`, `test/telegram-updates.int-spec.ts`.
@@ -335,8 +333,8 @@ Commit `feat(notifications): Telegram link tokens`.
 `handleUpdate(update)`: only `message.text` starting with `/start `. Find the link token by hash,
 unexpired; delete it (one use). User token → upsert the user's TELEGRAM `user_channel` (a new chat
 replaces the old one), reply «Connected: you'll get your bookings here» (in `User.locale`). Booking
-token → insert a TELEGRAM `client_channel` with that `appointmentId` and `locale` = the token's (or
-`language_code` when it is `en`/`ru`), and a CHANNEL_ON event with `payload: { manageLink }`, in one
+token → insert a TELEGRAM `client_channel` with that `appointmentId` and `locale` = the token's (the
+language chosen on the page; the chat's `language_code` only words an «expired» reply), and a CHANNEL_ON event with `payload: { manageLink }`, in one
 transaction. Unknown / expired → reply «This link has expired, open it again». Replies go straight
 through `TelegramClient`, not the outbox. `POST /telegram/webhook`: `@Public()`, compares
 `X-Telegram-Bot-Api-Secret-Token` with the env secret in constant time (401 otherwise), always 200 after

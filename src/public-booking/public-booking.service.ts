@@ -2,16 +2,20 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 
 import type { MoveInput } from '../appointments/appointments.schema.js';
-import { AppointmentsService, isNotFree, notFree } from '../appointments/appointments.service.js';
+import { AppointmentsService, isNotFree, notFree, statusConflict } from '../appointments/appointments.service.js';
 import { ClientsService } from '../clients/clients.service.js';
 import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
+import type { Locale } from '../account/locale.js';
+import { LinkTokensService } from '../notifications/link-tokens.service.js';
+import type { TelegramLinkDto } from '../notifications/link.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { addDays, dateOfWall, startOfDay, wallAt } from '../schedule/local-time.js';
 import { holdsTime } from '../schedule/live-bookings.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import type { PublicSlotsQuery, SlotDto } from '../schedule/schedule.schema.js';
 import { orderMasters } from './pick-master.js';
+import { canChange } from './can-change.js';
 import { manageLink } from './manage-token.js';
 import type {
   BusinessManifestDto,
@@ -33,6 +37,7 @@ export class PublicBookingService {
     private readonly schedule: ScheduleService,
     private readonly appointments: AppointmentsService,
     private readonly clients: ClientsService,
+    private readonly linkTokens: LinkTokensService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -137,7 +142,10 @@ export class PublicBookingService {
 
   // The booking the token belongs to, with the business it is in; every later query carries that id.
   private async managedBy(token: string, now: Date): Promise<ManagedBookingDto> {
-    const found = await this.idsOf(token);
+    return this.managedAt(await this.idsOf(token), now);
+  }
+
+  private async managedAt(found: { id: string; businessId: string }, now: Date): Promise<ManagedBookingDto> {
     const row = await this.prisma.appointment.findFirstOrThrow({
       where: { id: found.id, businessId: found.businessId },
       select: {
@@ -165,12 +173,27 @@ export class PublicBookingService {
         groupId: row.groupId,
         oneOffSessionId: row.oneOffSessionId,
       },
-      canChange: (row.status === 'BOOKED' || row.status === 'CONFIRMED') && row.startsAt > now,
+      canChange: canChange(row, now),
     };
   }
 
   async managed(token: string): Promise<ManagedBookingDto> {
     return this.managedBy(token, new Date());
+  }
+
+  // A link that connects the booker's Telegram to this booking, while the booking can still change.
+  async telegramLink(token: string, locale: Locale): Promise<TelegramLinkDto> {
+    const found = await this.idsOf(token);
+    const managed = await this.managedAt(found, new Date());
+    if (!managed.canChange) throw statusConflict('badTransition', 'The booking can no longer change');
+    return this.linkTokens.issue(
+      {
+        businessId: found.businessId,
+        appointmentId: found.id,
+        manageLink: manageLink(this.config.get('APP_URL', { infer: true }), managed.business.slug, token),
+      },
+      locale,
+    );
   }
 
   private async idsOf(token: string): Promise<{ id: string; businessId: string }> {

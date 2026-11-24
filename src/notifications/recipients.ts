@@ -34,7 +34,9 @@ export type RecipientsContext = {
   members: Member[];
   // The client channels that apply, already picked by the caller (not switched off; D4).
   clientChannels: { id: string; kind: ChannelKind; address: string; locale: MessageLocale }[];
-  // Before the real channels exist (and in development) every message goes to the log.
+  // Whether the kind has a real channel (it is configured).
+  isOn: (kind: ChannelKind) => boolean;
+  // A kind that is not on goes to the log (development, tests) or is skipped (production, D8).
   fallbackToLog: boolean;
 };
 
@@ -74,6 +76,8 @@ const clientRecipients = (event: RecipientsEvent, ctx: RecipientsContext): Recip
     .map((c) => ({ channel: c.kind, address: c.address, audience: 'client', locale: c.locale }));
 
 export const recipientsOf = (event: RecipientsEvent, ctx: RecipientsContext): Recipient[] => {
-  const all = [...staffRecipients(event, ctx), ...clientRecipients(event, ctx)];
-  return ctx.fallbackToLog ? all.map((r) => ({ ...r, channel: 'LOG' })) : all;
+  return [...staffRecipients(event, ctx), ...clientRecipients(event, ctx)].flatMap((r) => {
+    if (ctx.isOn(r.channel)) return [r];
+    return ctx.fallbackToLog ? [{ ...r, channel: 'LOG' as const }] : [];
+  });
 };
