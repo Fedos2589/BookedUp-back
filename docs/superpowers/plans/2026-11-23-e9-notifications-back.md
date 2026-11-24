@@ -369,7 +369,7 @@ switches it off, PUT again switches it on; another booking's token can't switch 
 > Do M5a, M5b, M5c in order, one session each, one commit each. The text below is the whole of M5;
 > each part says which of it is its own.
 
-#### - [ ] M5a: channels render for themselves (no new behaviour)
+#### - [x] M5a: channels render for themselves (no new behaviour)
 
 **Files:** `src/notifications/channels/{channel.ts,log.channel.ts,telegram.channel.ts,push.channel.ts}` (+ their specs),
 `src/notifications/dispatcher.service.ts`.

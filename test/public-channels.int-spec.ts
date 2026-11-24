@@ -9,6 +9,7 @@ import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
 import { PushChannel } from '../src/notifications/channels/push.channel.js';
 import { DispatcherService } from '../src/notifications/dispatcher.service.js';
+import { messageFor } from '../src/notifications/messages.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { memberOf, onlineBooking } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -293,7 +294,7 @@ describe('sending a push', () => {
     const [call] = pushesTo(sub.endpoint);
     expect(call![2]).toEqual(sub.keys);
     expect(call![1]).toMatchObject({ url: `http://localhost:5173/book/${b.business.slug}` });
-    expect(call![1].text).toContain(manageLink);
+    expect(messageFor(call![1]).text).toContain(manageLink);
   });
 
   it('sends nothing to a subscription the client switched off after the message was queued', async () => {

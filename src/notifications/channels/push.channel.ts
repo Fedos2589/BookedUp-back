@@ -4,8 +4,8 @@ import { sendNotification, setVapidDetails, WebPushError } from 'web-push';
 import { z } from 'zod';
 
 import type { Env } from '../../config/env.js';
-import type { Message } from '../messages.js';
-import type { Channel, SendResult } from './channel.js';
+import { messageFor } from '../messages.js';
+import type { Channel, RenderInput, SendResult } from './channel.js';
 
 const TTL_SECONDS = 24 * 60 * 60;
 
@@ -29,10 +29,11 @@ export class PushChannel implements Channel {
     }
   }
 
-  async send(address: string, message: Message, keys?: unknown): Promise<SendResult> {
+  async send(address: string, input: RenderInput, keys?: unknown): Promise<SendResult> {
     const parsed = pushKeys.safeParse(keys);
     if (!parsed.success) throw new Error('A push subscription needs its keys');
-    const payload = JSON.stringify({ title: message.subject, body: message.text, url: message.url });
+    const message = messageFor(input);
+    const payload = JSON.stringify({ title: message.subject, body: message.text, url: input.url });
     try {
       await sendNotification({ endpoint: address, keys: parsed.data }, payload, { TTL: TTL_SECONDS });
       return 'sent';
