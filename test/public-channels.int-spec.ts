@@ -27,6 +27,8 @@ beforeAll(async () => {
   process.env.VAPID_SUBJECT = 'mailto:ops@example.com';
   process.env.WHATSAPP_TOKEN = 'wa-token';
   process.env.WHATSAPP_PHONE_NUMBER_ID = '1234567890';
+  process.env.RESEND_API_KEY = 're_test-key';
+  process.env.MAIL_FROM = 'BookedUp <no-reply@example.com>';
   app = await createTestApp();
   prisma = app.get(PrismaService);
 });
@@ -45,6 +47,8 @@ afterAll(async () => {
     'VAPID_SUBJECT',
     'WHATSAPP_TOKEN',
     'WHATSAPP_PHONE_NUMBER_ID',
+    'RESEND_API_KEY',
+    'MAIL_FROM',
   ])
     delete process.env[name];
 });
@@ -412,6 +416,131 @@ describe('DELETE /public/bookings/:token/whatsapp', () => {
     await whatsappOff(mine.token).expect(204);
 
     expect((await whatsappOf(elsewhere.business.id, elsewhere.clientId))[0]!.disabledAt).toBeNull();
+  });
+});
+
+const emailOn = (token: string, body: object = { email: 'anna@example.com', locale: 'ru' }) =>
+  http().put(`/public/bookings/${token}/email`).send(body);
+const emailOff = (token: string) => http().delete(`/public/bookings/${token}/email`);
+const emailsOf = (appointmentId: string) =>
+  prisma.clientChannel.findMany({ where: { appointmentId, kind: 'EMAIL' }, orderBy: { createdAt: 'asc' } });
+
+describe('PUT /public/bookings/:token/email', () => {
+  it('puts the address on this booking, lowercased, with one CHANNEL_ON event and the manage link', async () => {
+    const b = await booking();
+
+    await emailOn(b.token, { email: 'Anna@Example.COM', locale: 'ru' }).expect(204);
+
+    const [channel] = await emailsOf(b.appointmentId);
+    expect(channel).toMatchObject({
+      businessId: b.business.id,
+      clientId: b.clientId,
+      kind: 'EMAIL',
+      address: 'anna@example.com',
+      locale: 'ru',
+      disabledAt: null,
+    });
+    const [event] = await eventsOf(b.appointmentId);
+    expect(event).toMatchObject({ channelId: channel!.id, businessId: b.business.id });
+    expect(event!.payload).toEqual({
+      manageLink: `http://localhost:5173/book/${b.business.slug}/manage/${b.token}`,
+    });
+  });
+
+  it('twice with the same address is one channel and one event', async () => {
+    const b = await booking();
+
+    await emailOn(b.token).expect(204);
+    await emailOn(b.token).expect(204);
+
+    expect(await emailsOf(b.appointmentId)).toHaveLength(1);
+    expect(await eventsOf(b.appointmentId)).toHaveLength(1);
+  });
+
+  it('another address replaces the old one: the old row is switched off, the new one is on', async () => {
+    const b = await booking();
+    await emailOn(b.token, { email: 'old@example.com', locale: 'en' }).expect(204);
+
+    await emailOn(b.token, { email: 'new@example.com', locale: 'en' }).expect(204);
+
+    const [old, current] = await emailsOf(b.appointmentId);
+    expect(old).toMatchObject({ address: 'old@example.com' });
+    expect(old!.disabledAt).not.toBeNull();
+    expect(current).toMatchObject({ address: 'new@example.com', disabledAt: null });
+    expect(await eventsOf(b.appointmentId)).toHaveLength(2);
+  });
+
+  it('is only this booking’s: another booking of the same phone has no email channel', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+
+    await emailOn(b.token).expect(204);
+
+    expect(await emailsOf(other.appointmentId)).toHaveLength(0);
+    expect(
+      await prisma.clientChannel.count({ where: { clientId: b.clientId, kind: 'EMAIL', appointmentId: null } }),
+    ).toBe(0);
+  });
+
+  it('is 400 for NOT-AN-EMAIL, a too long address or an unknown locale, and saves nothing', async () => {
+    const b = await booking();
+
+    await emailOn(b.token, { email: 'NOT-AN-EMAIL', locale: 'en' }).expect(400);
+    await emailOn(b.token, { email: `${'a'.repeat(250)}@example.com`, locale: 'en' }).expect(400);
+    await emailOn(b.token, { email: 'anna@example.com', locale: 'de' }).expect(400);
+
+    expect(await emailsOf(b.appointmentId)).toHaveLength(0);
+  });
+
+  it('is 404 channelOff when email is not turned on here, 404 for an unknown token, 409 for a cancelled booking', async () => {
+    const b = await booking();
+    const cancelled = await booking('CANCELLED');
+    const registry = vi.spyOn(app.get(ChannelRegistry), 'isOn').mockImplementation((kind) => kind !== 'EMAIL');
+
+    const res = await emailOn(b.token).expect(404);
+    registry.mockRestore();
+
+    expect(res.body).toMatchObject({ code: 'channelOff' });
+    expect(await emailsOf(b.appointmentId)).toHaveLength(0);
+    await emailOn(newRandomToken()).expect(404);
+    await emailOn(cancelled.token).expect(409);
+    expect(await emailsOf(cancelled.appointmentId)).toHaveLength(0);
+  });
+});
+
+describe('DELETE /public/bookings/:token/email', () => {
+  it('switches the address off without deleting it, and a PUT of it switches it on with a new event', async () => {
+    const b = await booking();
+    await emailOn(b.token).expect(204);
+
+    await emailOff(b.token).expect(204);
+    expect((await emailsOf(b.appointmentId))[0]!.disabledAt).not.toBeNull();
+
+    await emailOn(b.token).expect(204);
+    const channels = await emailsOf(b.appointmentId);
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.disabledAt).toBeNull();
+    expect(await eventsOf(b.appointmentId)).toHaveLength(2);
+  });
+
+  it('is 204 when it was not on, works with the channel off, and is 404 for an unknown token', async () => {
+    const b = await booking();
+    await emailOff(b.token).expect(204);
+    const registry = vi.spyOn(app.get(ChannelRegistry), 'isOn').mockReturnValue(false);
+    await emailOff(b.token).expect(204);
+    registry.mockRestore();
+    await emailOff(newRandomToken()).expect(404);
+  });
+
+  it("does not touch another booking's email", async () => {
+    const mine = await booking();
+    const elsewhere = await booking();
+    await emailOn(mine.token).expect(204);
+    await emailOn(elsewhere.token).expect(204);
+
+    await emailOff(mine.token).expect(204);
+
+    expect((await emailsOf(elsewhere.appointmentId))[0]!.disabledAt).toBeNull();
   });
 });
 

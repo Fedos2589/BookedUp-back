@@ -35,6 +35,9 @@ const envSchema = z
     // WhatsApp Cloud API: the access token and the sending number's id go together; without them the channel is off.
     WHATSAPP_TOKEN: z.string().min(1).optional(),
     WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
+    // Resend (email): the key and the sender go together; without them the channel is off.
+    RESEND_API_KEY: z.string().min(1).optional(),
+    MAIL_FROM: z.string().min(1).max(320).optional(),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],
@@ -52,6 +55,10 @@ const envSchema = z
   .refine((env) => (env.WHATSAPP_TOKEN === undefined) === (env.WHATSAPP_PHONE_NUMBER_ID === undefined), {
     path: ['WHATSAPP_TOKEN'],
     message: 'WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID go together',
+  })
+  .refine((env) => (env.RESEND_API_KEY === undefined) === (env.MAIL_FROM === undefined), {
+    path: ['RESEND_API_KEY'],
+    message: 'RESEND_API_KEY and MAIL_FROM go together',
   })
   // Without it the webhook refuses every update: links would be handed out and no chat ever connected.
   .refine(

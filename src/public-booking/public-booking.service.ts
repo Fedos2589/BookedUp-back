@@ -7,8 +7,10 @@ import { ClientsService } from '../clients/clients.service.js';
 import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import type { Locale } from '../account/locale.js';
+import { ClientEmailService } from '../notifications/client-email.service.js';
 import { ClientPushService } from '../notifications/client-push.service.js';
 import { ClientWhatsappService } from '../notifications/client-whatsapp.service.js';
+import type { EmailOnInput } from '../notifications/email.schema.js';
 import type { PushOnInput } from '../notifications/push.schema.js';
 import { LinkTokensService } from '../notifications/link-tokens.service.js';
 import type { TelegramLinkDto } from '../notifications/link.schema.js';
@@ -43,6 +45,7 @@ export class PublicBookingService {
     private readonly linkTokens: LinkTokensService,
     private readonly push: ClientPushService,
     private readonly whatsapp: ClientWhatsappService,
+    private readonly email: ClientEmailService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -233,6 +236,23 @@ export class PublicBookingService {
 
   async whatsappOff(token: string): Promise<void> {
     await this.whatsapp.turnOff(await this.idsOf(token), new Date());
+  }
+
+  // The booker's email takes this booking's messages only; a new address replaces the old one.
+  async emailOn(token: string, { email, locale }: EmailOnInput): Promise<void> {
+    this.email.assertOn();
+    const { id, businessId, slug } = await this.idsOf(token);
+    await this.email.turnOn(
+      { id, businessId },
+      email,
+      locale,
+      manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
+    );
+  }
+
+  async emailOff(token: string): Promise<void> {
+    const { id, businessId } = await this.idsOf(token);
+    await this.email.turnOff(businessId, id, new Date());
   }
 
   // The booking's ids, and its business's slug (the manage link needs it).

@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
 import { ChannelRegistry } from './channels/channel-registry.js';
+import { EmailChannel } from './channels/email.channel.js';
 import { LogChannel } from './channels/log.channel.js';
 import { PushChannel } from './channels/push.channel.js';
 import { TelegramChannel } from './channels/telegram.channel.js';
@@ -9,6 +10,7 @@ import { TelegramClient } from './channels/telegram.client.js';
 import { WhatsappChannel } from './channels/whatsapp.channel.js';
 import { WhatsappClient } from './channels/whatsapp.client.js';
 import { ClientWhatsappService } from './client-whatsapp.service.js';
+import { ClientEmailService } from './client-email.service.js';
 import { ClientPushService } from './client-push.service.js';
 import { LinkTokensService } from './link-tokens.service.js';
 import { DispatcherService } from './dispatcher.service.js';
@@ -44,9 +46,18 @@ import { RemindersService } from './reminders.service.js';
     PushChannel,
     WhatsappClient,
     WhatsappChannel,
+    EmailChannel,
     ClientPushService,
     ClientWhatsappService,
+    ClientEmailService,
   ],
-  exports: [DispatcherService, RemindersService, LinkTokensService, ClientPushService, ClientWhatsappService],
+  exports: [
+    DispatcherService,
+    RemindersService,
+    LinkTokensService,
+    ClientPushService,
+    ClientWhatsappService,
+    ClientEmailService,
+  ],
 })
 export class NotificationsModule {}
