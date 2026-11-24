@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress: M1–M3 merged (PR #47), M4 on `e9/web-push`.
+**Status:** step N done and merged (PR #46); step M in progress: M1–M5 merged (PR #47–#49), M6 on `e9/email`.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -437,7 +437,7 @@ sets `disabled_at`.
 card (no `appointmentId`); a dependent's booking → the guardian's card; another booking of the same
 phone gets the WhatsApp messages too; off → 404. Commit `feat(notifications): WhatsApp`.
 
-### - [ ] M6: email channel, the client's route
+### - [x] M6: email channel, the client's route
 
 **Files:** create `src/notifications/channels/{email.channel.ts,email.channel.spec.ts}`,
 `src/notifications/channels/channel-registry.ts`, `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,

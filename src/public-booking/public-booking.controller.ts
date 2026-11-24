@@ -24,6 +24,7 @@ import {
   type TelegramLinkDto,
   bookingOrChannelNotFoundSchema,
 } from '../notifications/link.schema.js';
+import { type EmailOnInput, emailOnInput } from '../notifications/email.schema.js';
 import { type PushOffInput, pushOffInput, type PushOnInput, pushOnInput } from '../notifications/push.schema.js';
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
@@ -241,6 +242,44 @@ export class PublicBookingController {
   @ApiNotFoundResponse({ description: 'No booking with this token' })
   whatsappOff(@Param('token', { schema: manageTokenSchema }) token: string): Promise<void> {
     return this.service.whatsappOff(token);
+  }
+
+  @Put('bookings/:token/email')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: hours(1) } })
+  @ApiNoContentResponse({
+    description:
+      'Email is on for this booking: its messages come to this address, in `locale`. Another address replaces the old one; the same again changes nothing; a switched-off one comes back on.',
+  })
+  @ApiBadRequestResponse({
+    description: 'The token or a field is invalid',
+    schema: openApi(validationErrorSchema),
+  })
+  @ApiNotFoundResponse({
+    description: 'No booking with this token, or email is not turned on here (channelOff)',
+    schema: openApi(bookingOrChannelNotFoundSchema),
+  })
+  @ApiConflictResponse({
+    description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
+    schema: openApi(managedBookingConflictSchema),
+  })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests from this address; try again later' })
+  emailOn(
+    @Param('token', { schema: manageTokenSchema }) token: string,
+    @Body({ schema: emailOnInput }) input: EmailOnInput,
+  ): Promise<void> {
+    return this.service.emailOn(token, input);
+  }
+
+  @Delete('bookings/:token/email')
+  @HttpCode(204)
+  @ApiNoContentResponse({
+    description: 'Email is off for this booking (also when it was not on, or is not turned on here)',
+  })
+  @ApiBadRequestResponse({ description: 'The token is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
+  emailOff(@Param('token', { schema: manageTokenSchema }) token: string): Promise<void> {
+    return this.service.emailOff(token);
   }
 
   @Delete('bookings/:token/push')
