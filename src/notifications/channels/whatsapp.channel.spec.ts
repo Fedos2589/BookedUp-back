@@ -68,6 +68,16 @@ describe('WhatsappChannel', () => {
     await expect(channel().send('+79991234567', renderInput())).rejects.toThrow(/Service down/);
   });
 
+  it('no answer in time → unknown: Meta may have taken it, and a template costs money, so it is not sent again', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('timed out', 'TimeoutError')));
+    expect(await channel().send('+79991234567', renderInput())).toBe('unknown');
+  });
+
+  it('a network failure before the message left throws, to be tried again', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    await expect(channel().send('+79991234567', renderInput())).rejects.toThrow(/no answer/);
+  });
+
   it('a network failure throws without the token', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError(`fetch failed ${TOKEN}`)));
     const error = await channel()

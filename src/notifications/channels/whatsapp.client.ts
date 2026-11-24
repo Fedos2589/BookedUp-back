@@ -13,6 +13,13 @@ export class WhatsappError extends Error {
   }
 }
 
+// The call was sent and got no answer in time: Meta may have taken the message.
+export class WhatsappTimeout extends Error {
+  constructor() {
+    super('WhatsApp: no answer in time');
+  }
+}
+
 const REQUEST_TIMEOUT_MS = 10_000;
 
 // The Graph API version; Meta supports one for about two years, so look at it once in a while (last checked 2026-11).
@@ -38,7 +45,9 @@ export class WhatsappClient {
         // No answer must not hold a tick for minutes.
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-    } catch {
+    } catch (error) {
+      // The timeout fires while the request may already be at Meta; any other failure left before it was taken.
+      if (error instanceof DOMException && error.name === 'TimeoutError') throw new WhatsappTimeout();
       throw new Error('WhatsApp: no answer');
     }
     if (response.ok) return;

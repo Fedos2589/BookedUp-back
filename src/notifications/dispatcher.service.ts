@@ -51,6 +51,9 @@ type Claimed = {
   attempts: number;
 };
 
+// Why a delivery that is not tried again stopped.
+const LAST_ERROR = { unreachable: 'unreachable', stale: 'booking changed', unknown: 'no answer' } as const;
+
 type Outcome = SendResult | 'stale' | { error: string };
 
 // A reminder whose booking was cancelled or moved after the event was written: not worth sending, not worth
@@ -157,12 +160,8 @@ export class DispatcherService {
       this.prisma.notificationDelivery.updateMany({ where: { id, businessId }, data });
     if (outcome === 'sent') {
       await write({ status: 'SENT', sentAt: new Date(), lastError: null });
-    } else if (outcome === 'unreachable' || outcome === 'stale') {
-      await write({
-        status: 'FAILED',
-        attempts: MAX_ATTEMPTS,
-        lastError: outcome === 'stale' ? 'booking changed' : outcome,
-      });
+    } else if (outcome === 'unreachable' || outcome === 'stale' || outcome === 'unknown') {
+      await write({ status: 'FAILED', attempts: MAX_ATTEMPTS, lastError: LAST_ERROR[outcome] });
     } else {
       await write({ status: 'FAILED', lastError: outcome.error, retryAt: retryAt(delivery.attempts, now) });
     }

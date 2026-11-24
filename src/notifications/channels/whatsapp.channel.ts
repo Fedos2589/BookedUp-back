@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { templateFor } from '../messages.js';
 import type { Channel, RenderInput, SendResult } from './channel.js';
-import { WhatsappClient, WhatsappError } from './whatsapp.client.js';
+import { WhatsappClient, WhatsappError, WhatsappTimeout } from './whatsapp.client.js';
 
 // «The recipient is not on WhatsApp»: the number will never work. Meta mostly reports it later, in a webhook of
 // statuses, not in the answer to the send — we have no such webhook, so this branch is a safety net, and a number
@@ -31,6 +31,8 @@ export class WhatsappChannel implements Channel {
       return 'sent';
     } catch (error) {
       if (error instanceof WhatsappError && error.code === NOT_ON_WHATSAPP) return 'unreachable';
+      // A template costs money and may already be out: not sent again.
+      if (error instanceof WhatsappTimeout) return 'unknown';
       throw error;
     }
   }

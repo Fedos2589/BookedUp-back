@@ -356,6 +356,22 @@ describe('sending deliveries', () => {
     expect(await statusesOf(t.businessId)).toEqual(['FAILED', 'SENT', 'SENT']);
   });
 
+  it('does not send again what got no answer, and keeps the channel on', async () => {
+    const t = await booked();
+    send.mockImplementation(async (address) => (address === t.address ? 'unknown' : 'sent'));
+
+    await dispatcher.dispatch(new Date(Date.now() + 3_600_000));
+    await dispatcher.dispatch(new Date(Date.now() + 7_200_000));
+
+    expect(send.mock.calls.filter(([address]) => address === t.address)).toHaveLength(1);
+    const channel = await prisma.clientChannel.findUniqueOrThrow({ where: { id: t.channel.id } });
+    expect(channel.disabledAt).toBeNull();
+    const delivery = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { businessId: t.businessId, address: t.address },
+    });
+    expect(delivery).toMatchObject({ status: 'FAILED', lastError: 'no answer' });
+  });
+
   it('deletes a member’s channel when the address is unreachable', async () => {
     const t = await booked();
     const address = randomUUID();
