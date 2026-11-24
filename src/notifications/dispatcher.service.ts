@@ -83,11 +83,15 @@ export class DispatcherService {
   // Two runs at once claim different rows (SKIP LOCKED).
   async send(now: Date): Promise<number> {
     // The scan crosses businesses by design: the outbox is one queue for all of them.
+    // Only the kinds this process has: a delivery of another kind (a channel configured elsewhere) is not its to
+    // fail and burn the tries of.
+    const kinds = this.channels.kinds();
     const claimed = await this.prisma.$queryRaw<Claimed[]>`
       UPDATE notification_deliveries SET status = 'SENDING', attempts = attempts + 1
       WHERE id IN (
         SELECT id FROM notification_deliveries
         WHERE status IN ('PENDING', 'FAILED') AND attempts < ${MAX_ATTEMPTS}
+          AND channel = ANY(${kinds}::"ChannelKind"[])
           AND (retry_at IS NULL OR retry_at <= ${now}::timestamptz)
         ORDER BY created_at, id LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
       RETURNING id, business_id AS "businessId", event_id AS "eventId", channel, address, audience, locale, attempts`;
@@ -122,6 +126,8 @@ export class DispatcherService {
     try {
       const message = await this.render(delivery);
       const keys = delivery.channel === 'PUSH' ? await this.pushKeysOf(delivery) : undefined;
+      // The client switched the subscription off after the message was queued: nothing to send, nothing to retry.
+      if (keys === null) return 'stale';
       return await this.channels.get(delivery.channel).send(delivery.address, message, keys);
     } catch (error) {
       if (error instanceof StaleReminder) return 'stale';
@@ -130,8 +136,10 @@ export class DispatcherService {
     }
   }
 
-  // A push subscription's keys sit with its channel row (a booking's, or a member's), not on the delivery.
-  private async pushKeysOf({ businessId, audience, address }: Claimed): Promise<Prisma.JsonValue> {
+  // A push subscription's keys sit with its channel row (a booking's, or a member's), not on the delivery; null when
+  // no active row has them any more. The row is found by its address: the keys belong to the subscription, which
+  // is the same under every row with that endpoint.
+  private async pushKeysOf({ businessId, audience, address }: Claimed): Promise<Prisma.JsonValue | null> {
     const channel =
       audience === 'client'
         ? await this.prisma.clientChannel.findFirst({
@@ -139,8 +147,7 @@ export class DispatcherService {
             select: { keys: true },
           })
         : await this.prisma.userChannel.findFirst({ where: { kind: 'PUSH', address }, select: { keys: true } });
-    if (channel?.keys == null) throw new Error('The push subscription is gone or has no keys');
-    return channel.keys;
+    return channel?.keys ?? null;
   }
 
   // The delivery's own row, found by its business too.

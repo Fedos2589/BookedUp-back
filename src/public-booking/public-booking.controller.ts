@@ -181,11 +181,16 @@ export class PublicBookingController {
   }
 
   @Put('bookings/:token/push')
-  @ApiOkResponse({
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: hours(1) } })
+  @ApiNoContentResponse({
     description:
       'Web Push is on for this booking: its messages come to this browser, in `locale`. The same subscription again changes nothing; one that was turned off comes back on.',
   })
-  @ApiBadRequestResponse({ description: 'The token or a field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiBadRequestResponse({
+    description: 'The token or a field is invalid, or the endpoint is not a known push service',
+    schema: openApi(validationErrorSchema),
+  })
   @ApiNotFoundResponse({
     description: 'No booking with this token, or Web Push is not turned on here (channelOff)',
     schema: openApi(bookingOrChannelNotFoundSchema),
@@ -194,6 +199,7 @@ export class PublicBookingController {
     description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
     schema: openApi(managedBookingConflictSchema),
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests from this address; try again later' })
   pushOn(
     @Param('token', { schema: manageTokenSchema }) token: string,
     @Body({ schema: pushOnInput }) input: PushOnInput,
@@ -203,15 +209,14 @@ export class PublicBookingController {
 
   @Delete('bookings/:token/push')
   @HttpCode(204)
-  @ApiNoContentResponse({ description: 'Web Push is off for this booking in that browser (also when it was not on)' })
+  @ApiNoContentResponse({
+    description: 'Web Push is off for this booking in that browser (also when it was not on, or is not turned on here)',
+  })
   @ApiBadRequestResponse({
     description: 'The token or the endpoint is invalid',
     schema: openApi(validationErrorSchema),
   })
-  @ApiNotFoundResponse({
-    description: 'No booking with this token, or Web Push is not turned on here (channelOff)',
-    schema: openApi(bookingOrChannelNotFoundSchema),
-  })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
   pushOff(
     @Param('token', { schema: manageTokenSchema }) token: string,
     @Body({ schema: pushOffInput }) { endpoint }: PushOffInput,

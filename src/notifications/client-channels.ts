@@ -26,12 +26,22 @@ export async function turnClientChannelOn(tx: Prisma.TransactionClient, on: Clie
     DO UPDATE SET disabled_at = NULL, locale = EXCLUDED.locale, keys = EXCLUDED.keys
     WHERE client_channels.disabled_at IS NOT NULL
     RETURNING id`;
-  // The address answers again: the other bookings of this business it was switched off for hear it too
-  // (the dispatcher switches off every channel with an address that never worked).
-  await tx.clientChannel.updateMany({
-    where: { businessId, kind, address, disabledAt: { not: null } },
-    data: { disabledAt: null },
-  });
+  // Already on: a push subscription may have a new key (the same endpoint, re-subscribed), no new event.
+  if (!channel && on.keys !== undefined) {
+    await tx.clientChannel.updateMany({
+      where: { businessId, appointmentId: appointment.id, kind, address },
+      data: { keys: on.keys },
+    });
+  }
+  // A chat that never worked answers again: the other bookings of this business it was switched off for hear
+  // it too (the dispatcher switches off every channel with an address that never worked). Not a push: a
+  // gone endpoint never comes back, and a row the client switched off stays off.
+  if (kind !== 'PUSH') {
+    await tx.clientChannel.updateMany({
+      where: { businessId, kind, address, disabledAt: { not: null } },
+      data: { disabledAt: null },
+    });
+  }
   if (!channel) return false;
   await tx.notificationEvent.create({
     data: {

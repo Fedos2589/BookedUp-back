@@ -23,6 +23,11 @@ export class ChannelRegistry {
     this.fallbackToLog = config.get('NODE_ENV', { infer: true }) !== 'production';
   }
 
+  // The kinds this process can send: it claims only their deliveries, and leaves the rest to one that can.
+  kinds(): ChannelKind[] {
+    return [...this.channels.keys()];
+  }
+
   isOn(kind: ChannelKind): boolean {
     return this.channels.has(kind);
   }

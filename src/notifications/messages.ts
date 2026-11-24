@@ -24,7 +24,7 @@ export type MessageInput = {
   manageLink?: string;
 };
 
-// `url`: where a tap on a push goes (the booking's page for a client, the calendar for staff); the dispatcher
+// `url`: where a tap on a push goes (the business's booking page for a client, the cabinet's calendar for staff); the dispatcher
 // adds it, `messageFor` doesn't know it.
 export type Message = { subject: string; text: string; url?: string };
 

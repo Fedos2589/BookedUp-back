@@ -51,7 +51,12 @@ const setUp = async (reminderOffsets?: number[]) => {
       select: { id: true },
     });
   const events = async () =>
-    (await prisma.notificationEvent.findMany({ where: { businessId }, orderBy: { startsAt: 'asc' } })).map((e) => ({
+    (
+      await prisma.notificationEvent.findMany({
+        where: { businessId },
+        orderBy: [{ startsAt: 'asc' }, { offsetMinutes: 'desc' }],
+      })
+    ).map((e) => ({
       kind: e.kind,
       offsetMinutes: e.offsetMinutes,
       startsAt: e.startsAt.toISOString(),

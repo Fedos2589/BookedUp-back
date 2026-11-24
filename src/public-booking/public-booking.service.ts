@@ -204,22 +204,20 @@ export class PublicBookingService {
   async pushOn(token: string, { subscription, locale }: PushOnInput): Promise<void> {
     this.push.assertOn();
     const { id, businessId } = await this.idsOf(token);
-    const row = await this.prisma.appointment.findFirstOrThrow({
-      where: { id, businessId },
-      select: { clientId: true, startsAt: true, status: true, business: { select: { slug: true } } },
+    const { slug } = await this.prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { slug: true },
     });
-    if (!canChange(row, new Date())) throw statusConflict('badTransition', 'The booking can no longer change');
     await this.push.turnOn(
-      { id, businessId, clientId: row.clientId, startsAt: row.startsAt },
+      { id, businessId },
       subscription,
       locale,
-      manageLink(this.config.get('APP_URL', { infer: true }), row.business.slug, token),
+      manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
     );
   }
 
   // Only this booking's subscription: another booking's, with the same endpoint, is not touched.
   async pushOff(token: string, endpoint: string): Promise<void> {
-    this.push.assertOn();
     const { id, businessId } = await this.idsOf(token);
     await this.push.turnOff(businessId, id, endpoint, new Date());
   }

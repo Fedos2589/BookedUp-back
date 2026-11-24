@@ -30,3 +30,21 @@ describe('POST /public/businesses/:slug/bookings limit', () => {
     await attempt().expect(429);
   });
 });
+
+describe('PUT /public/bookings/:token/push limit', () => {
+  // An unknown token is the cheapest attempt; every one counts.
+  const attempt = () =>
+    request(app.getHttpServer())
+      .put(`/public/bookings/${'A'.repeat(43)}/push`)
+      .send({
+        subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'p', auth: 'a' } },
+        locale: 'en',
+      });
+
+  it('lets 10 attempts an hour from one address through and stops the 11th with 429', async () => {
+    // Web Push is off in this app, so a token is answered 404 channelOff; the limit counts either way.
+    for (let i = 0; i < 10; i++) await attempt().expect(404);
+
+    await attempt().expect(429);
+  });
+});
