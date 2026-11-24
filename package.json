@@ -28,6 +28,7 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
     "test:int": "vitest run --config ./vitest.config.int.ts",
+    "whatsapp:templates": "esbuild scripts/whatsapp-templates.ts --bundle --platform=node --format=esm --log-level=error | node --input-type=module",
     "prepare": "husky"
   },
   "dependencies": {

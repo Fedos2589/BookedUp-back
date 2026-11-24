@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress: M1–M6 merged (PR #47–#50), M7 on `e9/member-channels`.
+**Status:** step N done and merged (PR #46); step M in progress: M1–M8 merged (PR #47–#51), M9 on `e9/docs`; after its merge set row M of the common plan to «done — PR #…».
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -488,7 +488,7 @@ email: boolean, telegram: boolean, whatsapp: string | null (the phone), push: st
 channels; another booking of the same phone shows `telegram: false`, `email: null`; the masked email
 never shows the full local part. Commit `feat(notifications): which channels are on`.
 
-### - [ ] M9: docs, close M
+### - [x] M9: docs, close M
 
 **Files:** create `docs/notifications.md`, `package.json` (a script), create `scripts/whatsapp-templates.ts`,
 `AGENTS.md` («Что где», the `src/notifications/` line), `.env.example` (every key has a comment), the
