@@ -11,7 +11,7 @@ import { PushChannel } from '../src/notifications/channels/push.channel.js';
 import { DispatcherService } from '../src/notifications/dispatcher.service.js';
 import { messageFor } from '../src/notifications/messages.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { memberOf, onlineBooking } from './helpers.js';
+import { createClient, memberOf, onlineBooking } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -24,6 +24,8 @@ beforeAll(async () => {
   process.env.VAPID_PUBLIC_KEY = keys.publicKey;
   process.env.VAPID_PRIVATE_KEY = keys.privateKey;
   process.env.VAPID_SUBJECT = 'mailto:ops@example.com';
+  process.env.WHATSAPP_TOKEN = 'wa-token';
+  process.env.WHATSAPP_PHONE_NUMBER_ID = '1234567890';
   app = await createTestApp();
   prisma = app.get(PrismaService);
 });
@@ -36,7 +38,14 @@ afterEach(() => send.mockRestore());
 
 afterAll(async () => {
   await app.close();
-  for (const name of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) delete process.env[name];
+  for (const name of [
+    'VAPID_PUBLIC_KEY',
+    'VAPID_PRIVATE_KEY',
+    'VAPID_SUBJECT',
+    'WHATSAPP_TOKEN',
+    'WHATSAPP_PHONE_NUMBER_ID',
+  ])
+    delete process.env[name];
 });
 
 const http = () => request(app.getHttpServer());
@@ -234,6 +243,140 @@ describe('DELETE /public/bookings/:token/push', () => {
 
     expect((await channelsOf(elsewhere.appointmentId))[0]!.disabledAt).toBeNull();
     expect((await channelsOf(sibling.id))[0]!.disabledAt).toBeNull();
+  });
+});
+
+const whatsappOn = (token: string, body: object = { locale: 'ru' }) =>
+  http().put(`/public/bookings/${token}/whatsapp`).send(body);
+const whatsappOff = (token: string) => http().delete(`/public/bookings/${token}/whatsapp`);
+const whatsappOf = (businessId: string, clientId: string) =>
+  prisma.clientChannel.findMany({ where: { businessId, clientId, kind: 'WHATSAPP' } });
+
+// Another booking of the same business, for the client given, with its own token.
+const bookingFor = async (b: Awaited<ReturnType<typeof booking>>, clientId: string, hoursLater = 2) => {
+  const {
+    id: _id,
+    createdAt: _created,
+    updatedAt: _updated,
+    ...row
+  } = await prisma.appointment.findUniqueOrThrow({ where: { id: b.appointmentId } });
+  const token = newRandomToken();
+  const created = await prisma.appointment.create({
+    data: {
+      ...row,
+      clientId,
+      startsAt: new Date(row.startsAt.getTime() + hoursLater * 3600_000),
+      endsAt: new Date(row.endsAt.getTime() + hoursLater * 3600_000),
+      manageTokenHash: hashRandomToken(token),
+    },
+  });
+  return { token, appointmentId: created.id };
+};
+
+describe('PUT /public/bookings/:token/whatsapp', () => {
+  it("puts the client's phone on their card, not on the booking, with one CHANNEL_ON event and the manage link", async () => {
+    const b = await booking();
+
+    await whatsappOn(b.token).expect(204);
+
+    const [channel] = await whatsappOf(b.business.id, b.clientId);
+    expect(channel).toMatchObject({
+      kind: 'WHATSAPP',
+      address: '+79991234567',
+      appointmentId: null,
+      locale: 'ru',
+      disabledAt: null,
+    });
+    const [event] = await eventsOf(b.appointmentId);
+    expect(event).toMatchObject({ channelId: channel!.id, businessId: b.business.id });
+    expect(event!.payload).toEqual({
+      manageLink: `http://localhost:5173/book/${b.business.slug}/manage/${b.token}`,
+    });
+  });
+
+  it('twice, or from another booking of the same phone, is one channel and one event', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+
+    await whatsappOn(b.token).expect(204);
+    await whatsappOn(b.token).expect(204);
+    await whatsappOn(other.token).expect(204);
+
+    expect(await whatsappOf(b.business.id, b.clientId)).toHaveLength(1);
+    expect(await eventsOf(b.appointmentId)).toHaveLength(1);
+    expect(await eventsOf(other.appointmentId)).toHaveLength(0);
+  });
+
+  it("puts a dependent's WhatsApp on the guardian's card, with the guardian's phone", async () => {
+    const b = await booking();
+    const guardianId = await createClient(prisma, b.business.id, '+79990000001');
+    const dependent = await prisma.client.create({
+      data: { businessId: b.business.id, name: 'Kid', guardianId },
+      select: { id: true },
+    });
+    const kid = await bookingFor(b, dependent.id);
+
+    await whatsappOn(kid.token).expect(204);
+
+    expect(await whatsappOf(b.business.id, dependent.id)).toHaveLength(0);
+    const [channel] = await whatsappOf(b.business.id, guardianId);
+    expect(channel).toMatchObject({ address: '+79990000001', appointmentId: null });
+    expect(await eventsOf(kid.appointmentId)).toHaveLength(1);
+  });
+
+  it('is 404 channelOff when WhatsApp is not turned on here, and writes nothing', async () => {
+    const b = await booking();
+    const registry = vi.spyOn(app.get(ChannelRegistry), 'isOn').mockImplementation((kind) => kind !== 'WHATSAPP');
+
+    const res = await whatsappOn(b.token).expect(404);
+    registry.mockRestore();
+
+    expect(res.body).toMatchObject({ code: 'channelOff' });
+    expect(await whatsappOf(b.business.id, b.clientId)).toHaveLength(0);
+  });
+
+  it('is 404 for an unknown token, 400 for a bad locale, 409 for a cancelled booking', async () => {
+    const b = await booking();
+    const cancelled = await booking('CANCELLED');
+
+    await whatsappOn(newRandomToken()).expect(404);
+    await whatsappOn(b.token, { locale: 'de' }).expect(400);
+    await whatsappOn(cancelled.token).expect(409);
+    expect(await whatsappOf(cancelled.business.id, cancelled.clientId)).toHaveLength(0);
+  });
+});
+
+describe('DELETE /public/bookings/:token/whatsapp', () => {
+  it('switches the card’s WhatsApp off without deleting it, and a PUT switches it on with a new event', async () => {
+    const b = await booking();
+    await whatsappOn(b.token).expect(204);
+
+    await whatsappOff(b.token).expect(204);
+    expect((await whatsappOf(b.business.id, b.clientId))[0]!.disabledAt).not.toBeNull();
+
+    await whatsappOn(b.token).expect(204);
+    expect((await whatsappOf(b.business.id, b.clientId))[0]!.disabledAt).toBeNull();
+    expect(await eventsOf(b.appointmentId)).toHaveLength(2);
+  });
+
+  it('is 204 when it was not on, and works with the channel off, and 404 for an unknown token', async () => {
+    const b = await booking();
+    await whatsappOff(b.token).expect(204);
+    const registry = vi.spyOn(app.get(ChannelRegistry), 'isOn').mockReturnValue(false);
+    await whatsappOff(b.token).expect(204);
+    registry.mockRestore();
+    await whatsappOff(newRandomToken()).expect(404);
+  });
+
+  it("does not touch another business's card, nor another client's of this one", async () => {
+    const mine = await booking();
+    const elsewhere = await booking();
+    await whatsappOn(mine.token).expect(204);
+    await whatsappOn(elsewhere.token).expect(204);
+
+    await whatsappOff(mine.token).expect(204);
+
+    expect((await whatsappOf(elsewhere.business.id, elsewhere.clientId))[0]!.disabledAt).toBeNull();
   });
 });
 

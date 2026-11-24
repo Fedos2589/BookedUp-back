@@ -8,6 +8,7 @@ import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import type { Locale } from '../account/locale.js';
 import { ClientPushService } from '../notifications/client-push.service.js';
+import { ClientWhatsappService } from '../notifications/client-whatsapp.service.js';
 import type { PushOnInput } from '../notifications/push.schema.js';
 import { LinkTokensService } from '../notifications/link-tokens.service.js';
 import type { TelegramLinkDto } from '../notifications/link.schema.js';
@@ -41,6 +42,7 @@ export class PublicBookingService {
     private readonly clients: ClientsService,
     private readonly linkTokens: LinkTokensService,
     private readonly push: ClientPushService,
+    private readonly whatsapp: ClientWhatsappService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -220,6 +222,25 @@ export class PublicBookingService {
   async pushOff(token: string, endpoint: string): Promise<void> {
     const { id, businessId } = await this.idsOf(token);
     await this.push.turnOff(businessId, id, endpoint, new Date());
+  }
+
+  // The booker's WhatsApp takes messages for every booking of their phone, while this one can still change.
+  async whatsappOn(token: string, locale: Locale): Promise<void> {
+    this.whatsapp.assertOn();
+    const { id, businessId } = await this.idsOf(token);
+    const { slug } = await this.prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { slug: true },
+    });
+    await this.whatsapp.turnOn(
+      { id, businessId },
+      locale,
+      manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
+    );
+  }
+
+  async whatsappOff(token: string): Promise<void> {
+    await this.whatsapp.turnOff(await this.idsOf(token), new Date());
   }
 
   private async idsOf(token: string): Promise<{ id: string; businessId: string }> {

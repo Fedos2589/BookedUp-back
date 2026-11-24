@@ -207,6 +207,41 @@ export class PublicBookingController {
     return this.service.pushOn(token, input);
   }
 
+  @Put('bookings/:token/whatsapp')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: hours(1) } })
+  @ApiNoContentResponse({
+    description:
+      'WhatsApp is on for this client: the messages of every booking of their phone (their guardian’s, for a dependent) come there, in `locale`. Again changes nothing; a switched-off one comes back on.',
+  })
+  @ApiBadRequestResponse({ description: 'The token or the locale is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({
+    description: 'No booking with this token, or WhatsApp is not turned on here (channelOff)',
+    schema: openApi(bookingOrChannelNotFoundSchema),
+  })
+  @ApiConflictResponse({
+    description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
+    schema: openApi(managedBookingConflictSchema),
+  })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests from this address; try again later' })
+  whatsappOn(
+    @Param('token', { schema: manageTokenSchema }) token: string,
+    @Body({ schema: telegramLinkInput }) { locale }: TelegramLinkInput,
+  ): Promise<void> {
+    return this.service.whatsappOn(token, locale);
+  }
+
+  @Delete('bookings/:token/whatsapp')
+  @HttpCode(204)
+  @ApiNoContentResponse({
+    description: 'WhatsApp is off for this client (also when it was not on, or is not turned on here)',
+  })
+  @ApiBadRequestResponse({ description: 'The token is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
+  whatsappOff(@Param('token', { schema: manageTokenSchema }) token: string): Promise<void> {
+    return this.service.whatsappOff(token);
+  }
+
   @Delete('bookings/:token/push')
   @HttpCode(204)
   @ApiNoContentResponse({
