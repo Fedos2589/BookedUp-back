@@ -24,7 +24,9 @@ export type MessageInput = {
   manageLink?: string;
 };
 
-export type Message = { subject: string; text: string };
+// `url`: where a tap on a push goes (the business's booking page for a client, the cabinet's calendar for staff); the dispatcher
+// adds it, `messageFor` doesn't know it.
+export type Message = { subject: string; text: string; url?: string };
 
 const LOCALE_TAG: Record<MessageLocale, string> = { en: 'en-GB', ru: 'ru-RU' };
 

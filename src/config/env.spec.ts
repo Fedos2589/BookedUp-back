@@ -67,6 +67,20 @@ describe('validateEnv', () => {
     expect(validateEnv({ ...valid, ...bot }).TELEGRAM_WEBHOOK_SECRET).toBeUndefined();
   });
 
+  it('takes the three VAPID settings together or not at all, the subject a mailto: or https URL', () => {
+    const vapid = { VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv', VAPID_SUBJECT: 'mailto:ops@example.com' };
+    expect(validateEnv(valid).VAPID_PUBLIC_KEY).toBeUndefined();
+    expect(validateEnv({ ...valid, ...vapid })).toMatchObject(vapid);
+    expect(validateEnv({ ...valid, ...vapid, VAPID_SUBJECT: 'https://example.com' }).VAPID_SUBJECT).toBe(
+      'https://example.com',
+    );
+    for (const gone of Object.keys(vapid)) {
+      const rest = Object.fromEntries(Object.entries(vapid).filter(([key]) => key !== gone));
+      expect(() => validateEnv({ ...valid, ...rest })).toThrow(/VAPID/);
+    }
+    expect(() => validateEnv({ ...valid, ...vapid, VAPID_SUBJECT: 'ops@example.com' })).toThrow(/VAPID_SUBJECT/);
+  });
+
   it('names the missing variable', () => {
     expect(() => validateEnv({ REDIS_URL: valid.REDIS_URL })).toThrow(/DATABASE_URL/);
   });

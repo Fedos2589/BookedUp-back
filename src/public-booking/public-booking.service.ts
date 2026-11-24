@@ -7,6 +7,8 @@ import { ClientsService } from '../clients/clients.service.js';
 import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import type { Locale } from '../account/locale.js';
+import { ClientPushService } from '../notifications/client-push.service.js';
+import type { PushOnInput } from '../notifications/push.schema.js';
 import { LinkTokensService } from '../notifications/link-tokens.service.js';
 import type { TelegramLinkDto } from '../notifications/link.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -38,6 +40,7 @@ export class PublicBookingService {
     private readonly appointments: AppointmentsService,
     private readonly clients: ClientsService,
     private readonly linkTokens: LinkTokensService,
+    private readonly push: ClientPushService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -194,6 +197,29 @@ export class PublicBookingService {
       },
       locale,
     );
+  }
+
+  // The booker's browser takes pushes for this booking, while it can still change. The same subscription twice
+  // is one channel; one that was switched off comes back on.
+  async pushOn(token: string, { subscription, locale }: PushOnInput): Promise<void> {
+    this.push.assertOn();
+    const { id, businessId } = await this.idsOf(token);
+    const { slug } = await this.prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { slug: true },
+    });
+    await this.push.turnOn(
+      { id, businessId },
+      subscription,
+      locale,
+      manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
+    );
+  }
+
+  // Only this booking's subscription: another booking's, with the same endpoint, is not touched.
+  async pushOff(token: string, endpoint: string): Promise<void> {
+    const { id, businessId } = await this.idsOf(token);
+    await this.push.turnOff(businessId, id, endpoint, new Date());
   }
 
   private async idsOf(token: string): Promise<{ id: string; businessId: string }> {

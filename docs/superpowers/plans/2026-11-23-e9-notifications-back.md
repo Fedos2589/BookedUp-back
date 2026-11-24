@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1–M3 done).
+**Status:** step N done and merged (PR #46); step M in progress: M1–M3 merged (PR #47), M4 on `e9/web-push`.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -345,7 +345,7 @@ a loop on `getUpdates` (long poll 25 s, offset in memory), stopped on module des
 channel + event, the token is gone; the same token again → «expired» reply; webhook without the header
 → 401, with it → 200. Commit `feat(notifications): link a Telegram chat`.
 
-### - [ ] M4: Web Push channel, the client's route
+### - [x] M4: Web Push channel, the client's route
 
 **Files:** `package.json` (`web-push`), create `src/notifications/channels/{push.channel.ts,push.channel.spec.ts}`,
 `src/notifications/push.schema.ts`, `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,
@@ -364,6 +364,56 @@ CHANNEL_ON (only when new); `DELETE /public/bookings/:token/push` `{ endpoint }`
 switches it off, PUT again switches it on; another booking's token can't switch it off; off → 404. Commit `feat(notifications): Web Push`.
 
 ### - [ ] M5: WhatsApp channel, the client's route
+
+> **Split (too big for one session: an interface change across every channel, a new channel, a route).**
+> Do M5a, M5b, M5c in order, one session each, one commit each. The text below is the whole of M5;
+> each part says which of it is its own.
+
+#### - [ ] M5a: channels render for themselves (no new behaviour)
+
+**Files:** `src/notifications/channels/{channel.ts,log.channel.ts,telegram.channel.ts,push.channel.ts}` (+ their specs),
+`src/notifications/dispatcher.service.ts`.
+`Channel.send(address, input, keys?)` takes the render input (`MessageInput` + `url`) and renders inside:
+text channels call `messageFor`; the dispatcher's `render` becomes «load the input». One path, not two.
+**Check:** the existing unit and int tests pass unchanged in meaning (specs now hand `send` an input);
+`npm run typecheck && npm run lint && npm test && npm run test:int`. Commit `refactor(notifications): channels render their own message`.
+
+#### - [ ] M5b: WhatsApp channel
+
+**Files:** `src/notifications/channels/{whatsapp.client.ts,whatsapp.channel.ts,whatsapp.channel.spec.ts,channel-registry.ts}`,
+`src/notifications/{messages.ts,messages.spec.ts,notifications.module.ts}`, `src/config/env.ts` (+ spec), `.env.example`.
+Env, `templateFor`, client, channel, registry — as in the text below.
+**Check:** unit — the body for a reminder in ru; 131026 → `unreachable`; env all-or-none. Commit `feat(notifications): WhatsApp channel`.
+
+#### - [ ] M5c: WhatsApp route
+
+**Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`, `src/notifications/` (a service
+like `client-push.service.ts`), `test/public-channels.int-spec.ts`. The route part below.
+**Check:** the int checks below. Commit `feat(notifications): WhatsApp route`.
+
+---
+
+**Whole M5, for reference.** **Files:** create `src/notifications/channels/{whatsapp.client.ts,whatsapp.channel.ts,whatsapp.channel.spec.ts}`,
+`src/notifications/messages.ts` (+ spec), `src/notifications/channels/channel.ts`, `src/notifications/dispatcher.service.ts`,
+`src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`, `src/config/env.ts` (+ spec),
+`.env.example`, `test/public-channels.int-spec.ts`.
+
+A WhatsApp row has `appointment_id` NULL, and Prisma's composite unique (`upsert`) refuses NULL parts: attach it with `INSERT … ON CONFLICT` in raw SQL (the unique index is `NULLS NOT DISTINCT`).
+
+Env (all or none): `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`. WhatsApp sends templates only (D11):
+`templateFor(input) → { name: 'bookedup_<kind>_<audience>', language: 'en'|'ru', params: string[] }` in
+`messages.ts`, the same parts as the text. Change `Channel.send` to take the render input (and render
+inside the channel: text channels call `messageFor`, WhatsApp `templateFor`) — one path, not two. The
+channel sends `POST https://graph.facebook.com/v21.0/<phone id>/messages { messaging_product: 'whatsapp',
+to, type: 'template', template: { name, language: { code }, components: [{ type: 'body', parameters }] } }`.
+Error 131026 (not on WhatsApp) → `unreachable`; others → throw. Route `PUT
+/public/bookings/:token/whatsapp` `{ locale }` → a WHATSAPP channel on the booking's client — or their
+guardian when the client has no phone — with `address` = that phone (D4), + CHANNEL_ON (a switched-off row is switched on again); `DELETE` →
+sets `disabled_at`.
+
+**Check:** unit — the body for a reminder in ru; 131026 → `unreachable`; int — PUT → channel on the
+card (no `appointmentId`); a dependent's booking → the guardian's card; another booking of the same
+phone gets the WhatsApp messages too; off → 404. Commit `feat(notifications): WhatsApp`.
 
 **Files:** create `src/notifications/channels/{whatsapp.client.ts,whatsapp.channel.ts,whatsapp.channel.spec.ts}`,
 `src/notifications/messages.ts` (+ spec), `src/notifications/channels/channel.ts`, `src/notifications/dispatcher.service.ts`,

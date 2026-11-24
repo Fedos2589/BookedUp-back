@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { localeSchema } from '../account/locale.js';
+import { appLink } from '../common/app-link.js';
+import type { Env } from '../config/env.js';
 import { type AppointmentStatus, type ChannelKind, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ChannelRegistry } from './channels/channel-registry.js';
@@ -63,6 +66,7 @@ export class DispatcherService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly channels: ChannelRegistry,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   // Batch after batch until a short one or the time is up, so a busy hour drains in one tick, not in many.
@@ -79,11 +83,15 @@ export class DispatcherService {
   // Two runs at once claim different rows (SKIP LOCKED).
   async send(now: Date): Promise<number> {
     // The scan crosses businesses by design: the outbox is one queue for all of them.
+    // Only the kinds this process has: a delivery of another kind (a channel configured elsewhere) is not its to
+    // fail and burn the tries of.
+    const kinds = this.channels.kinds();
     const claimed = await this.prisma.$queryRaw<Claimed[]>`
       UPDATE notification_deliveries SET status = 'SENDING', attempts = attempts + 1
       WHERE id IN (
         SELECT id FROM notification_deliveries
         WHERE status IN ('PENDING', 'FAILED') AND attempts < ${MAX_ATTEMPTS}
+          AND channel = ANY(${kinds}::"ChannelKind"[])
           AND (retry_at IS NULL OR retry_at <= ${now}::timestamptz)
         ORDER BY created_at, id LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
       RETURNING id, business_id AS "businessId", event_id AS "eventId", channel, address, audience, locale, attempts`;
@@ -117,12 +125,29 @@ export class DispatcherService {
   private async trySending(delivery: Claimed): Promise<Outcome> {
     try {
       const message = await this.render(delivery);
-      return await this.channels.get(delivery.channel).send(delivery.address, message);
+      const keys = delivery.channel === 'PUSH' ? await this.pushKeysOf(delivery) : undefined;
+      // The client switched the subscription off after the message was queued: nothing to send, nothing to retry.
+      if (keys === null) return 'stale';
+      return await this.channels.get(delivery.channel).send(delivery.address, message, keys);
     } catch (error) {
       if (error instanceof StaleReminder) return 'stale';
       this.logger.warn({ err: error, deliveryId: delivery.id }, 'Sending a notification failed');
       return { error: error instanceof Error ? error.message : 'unknown error' };
     }
+  }
+
+  // A push subscription's keys sit with its channel row (a booking's, or a member's), not on the delivery; null when
+  // no active row has them any more. The row is found by its address: the keys belong to the subscription, which
+  // is the same under every row with that endpoint.
+  private async pushKeysOf({ businessId, audience, address }: Claimed): Promise<Prisma.JsonValue | null> {
+    const channel =
+      audience === 'client'
+        ? await this.prisma.clientChannel.findFirst({
+            where: { businessId, kind: 'PUSH', address, disabledAt: null },
+            select: { keys: true },
+          })
+        : await this.prisma.userChannel.findFirst({ where: { kind: 'PUSH', address }, select: { keys: true } });
+    return channel?.keys ?? null;
   }
 
   // The delivery's own row, found by its business too.
@@ -188,7 +213,7 @@ export class DispatcherService {
             staff: { select: { name: true } },
             group: { select: { title: true } },
             oneOffSession: { select: { title: true } },
-            business: { select: { name: true, timeZone: true } },
+            business: { select: { name: true, slug: true, timeZone: true } },
           },
         },
       },
@@ -207,7 +232,12 @@ export class DispatcherService {
       fromStaffId === null || fromStaffId === appointment.staffId
         ? null
         : await this.prisma.staff.findFirst({ where: { businessId, id: fromStaffId }, select: { name: true } });
-    return messageFor({
+    // Where a tap on a push goes: a client to the business's page, staff to the calendar.
+    const url = appLink(
+      this.config.get('APP_URL', { infer: true }),
+      audience === 'client' ? `book/${appointment.business.slug}` : 'calendar',
+    );
+    const message = messageFor({
       kind: event.kind,
       audience: audience === 'client' ? 'client' : 'staff',
       locale: localeOf(locale),
@@ -222,6 +252,7 @@ export class DispatcherService {
       ...(event.offsetMinutes === null ? {} : { offsetMinutes: event.offsetMinutes }),
       ...(manageLink === null ? {} : { manageLink }),
     });
+    return { ...message, url };
   }
 
   // Turns the events nobody has looked at yet into one delivery per recipient and marks them processed.
