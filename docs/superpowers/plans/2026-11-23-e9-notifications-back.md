@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1–M3 done).
+**Status:** step N done and merged (PR #46); step M in progress: M1–M3 merged (PR #47), M4 on `e9/web-push`.
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -345,7 +345,7 @@ a loop on `getUpdates` (long poll 25 s, offset in memory), stopped on module des
 channel + event, the token is gone; the same token again → «expired» reply; webhook without the header
 → 401, with it → 200. Commit `feat(notifications): link a Telegram chat`.
 
-### - [ ] M4: Web Push channel, the client's route
+### - [x] M4: Web Push channel, the client's route
 
 **Files:** `package.json` (`web-push`), create `src/notifications/channels/{push.channel.ts,push.channel.spec.ts}`,
 `src/notifications/push.schema.ts`, `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,

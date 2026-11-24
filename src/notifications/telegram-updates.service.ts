@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { hashRandomToken } from '../common/random-token.js';
 import { canChange } from '../public-booking/can-change.js';
 import { TelegramClient } from './channels/telegram.client.js';
+import { turnClientChannelOn } from './client-channels.js';
 
 // The part of an update we read: a text message from a private chat. Anything else is not for us.
 const startUpdate = z.object({
@@ -81,35 +82,16 @@ export class TelegramUpdatesService {
       });
       // The link was good when it was given; the booking may have been cancelled or started since.
       if (!appointment || !canChange(appointment, new Date())) return texts.expired;
-      // New, or switched off and now on again; an active one is left alone (no row back). One statement, so two
-      // Start presses at once are one channel.
-      const [channel] = await tx.$queryRaw<{ id: string }[]>`
-        INSERT INTO client_channels (business_id, client_id, appointment_id, kind, address, locale)
-        VALUES (${businessId}::uuid, ${appointment.clientId}::uuid, ${appointment.id}::uuid,
-                'TELEGRAM'::"ChannelKind", ${address}, ${link.locale})
-        ON CONFLICT (business_id, client_id, kind, address, appointment_id)
-        DO UPDATE SET disabled_at = NULL, locale = EXCLUDED.locale
-        WHERE client_channels.disabled_at IS NOT NULL
-        RETURNING id`;
-      // The chat answers again: the other bookings of this business it was switched off for hear it too
-      // (the dispatcher switches off every channel with an address that never worked).
-      await tx.clientChannel.updateMany({
-        where: { businessId, kind: 'TELEGRAM', address, disabledAt: { not: null } },
-        data: { disabledAt: null },
-      });
       // Already on: not news, but the person pressed Start and waits for a word.
-      if (!channel) return texts.connected;
-      await tx.notificationEvent.create({
-        data: {
-          businessId,
-          appointmentId: appointment.id,
-          kind: 'CHANNEL_ON',
-          actorUserId: null,
-          startsAt: appointment.startsAt,
-          channelId: channel.id,
-          payload: { manageLink: link.manage_link },
-        },
+      const isNew = await turnClientChannelOn(tx, {
+        businessId,
+        appointment,
+        kind: 'TELEGRAM',
+        address,
+        locale: link.locale,
+        manageLink: link.manage_link!,
       });
+      if (!isNew) return texts.connected;
       return null;
     });
   }

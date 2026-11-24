@@ -1,9 +1,10 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiTags,
@@ -22,6 +23,7 @@ import {
   type TelegramLinkDto,
   bookingOrChannelNotFoundSchema,
 } from '../notifications/link.schema.js';
+import { type PushOffInput, pushOffInput, type PushOnInput, pushOnInput } from '../notifications/push.schema.js';
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { type PublicSlotsQuery, publicSlotsQuery, type SlotDto, slotSchema } from '../schedule/schedule.schema.js';
@@ -176,5 +178,44 @@ export class PublicBookingController {
     @Body({ schema: telegramLinkInput }) { locale }: TelegramLinkInput,
   ): Promise<TelegramLinkDto> {
     return this.service.telegramLink(token, locale);
+  }
+
+  @Put('bookings/:token/push')
+  @ApiOkResponse({
+    description:
+      'Web Push is on for this booking: its messages come to this browser, in `locale`. The same subscription again changes nothing; one that was turned off comes back on.',
+  })
+  @ApiBadRequestResponse({ description: 'The token or a field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({
+    description: 'No booking with this token, or Web Push is not turned on here (channelOff)',
+    schema: openApi(bookingOrChannelNotFoundSchema),
+  })
+  @ApiConflictResponse({
+    description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
+    schema: openApi(managedBookingConflictSchema),
+  })
+  pushOn(
+    @Param('token', { schema: manageTokenSchema }) token: string,
+    @Body({ schema: pushOnInput }) input: PushOnInput,
+  ): Promise<void> {
+    return this.service.pushOn(token, input);
+  }
+
+  @Delete('bookings/:token/push')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Web Push is off for this booking in that browser (also when it was not on)' })
+  @ApiBadRequestResponse({
+    description: 'The token or the endpoint is invalid',
+    schema: openApi(validationErrorSchema),
+  })
+  @ApiNotFoundResponse({
+    description: 'No booking with this token, or Web Push is not turned on here (channelOff)',
+    schema: openApi(bookingOrChannelNotFoundSchema),
+  })
+  pushOff(
+    @Param('token', { schema: manageTokenSchema }) token: string,
+    @Body({ schema: pushOffInput }) { endpoint }: PushOffInput,
+  ): Promise<void> {
+    return this.service.pushOff(token, endpoint);
   }
 }

@@ -24,6 +24,14 @@ const envSchema = z
     TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
     TELEGRAM_BOT_USERNAME: z.string().min(1).optional(),
     TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Web Push: the three go together (`npx web-push generate-vapid-keys`); without them the channel is off.
+    // The subject tells push services whom to contact: a mailto: or https URL.
+    VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+    VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+    VAPID_SUBJECT: z
+      .string()
+      .regex(/^(mailto:\S+|https:\/\/\S+)$/)
+      .optional(),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],
@@ -33,6 +41,11 @@ const envSchema = z
     path: ['TELEGRAM_BOT_TOKEN'],
     message: 'TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME go together',
   })
+  .refine(
+    (env) =>
+      [env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, env.VAPID_SUBJECT].filter((v) => v === undefined).length % 3 === 0,
+    { path: ['VAPID_PUBLIC_KEY'], message: 'VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT go together' },
+  )
   // Without it the webhook refuses every update: links would be handed out and no chat ever connected.
   .refine(
     (env) =>

@@ -3,8 +3,10 @@ import { Module } from '@nestjs/common';
 
 import { ChannelRegistry } from './channels/channel-registry.js';
 import { LogChannel } from './channels/log.channel.js';
+import { PushChannel } from './channels/push.channel.js';
 import { TelegramChannel } from './channels/telegram.channel.js';
 import { TelegramClient } from './channels/telegram.client.js';
+import { ClientPushService } from './client-push.service.js';
 import { LinkTokensService } from './link-tokens.service.js';
 import { DispatcherService } from './dispatcher.service.js';
 import { TelegramPolling } from './telegram-polling.js';
@@ -36,7 +38,9 @@ import { RemindersService } from './reminders.service.js';
     LogChannel,
     TelegramClient,
     TelegramChannel,
+    PushChannel,
+    ClientPushService,
   ],
-  exports: [DispatcherService, RemindersService, LinkTokensService],
+  exports: [DispatcherService, RemindersService, LinkTokensService, ClientPushService],
 })
 export class NotificationsModule {}
