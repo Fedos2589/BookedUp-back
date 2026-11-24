@@ -13,3 +13,9 @@ export const channelOffSchema = z.object({
   message: z.string(),
   code: z.literal('channelOff'),
 });
+
+// 404 of a public route that also looks a booking up: no such booking (Nest's plain body) or the channel is off.
+export const bookingOrChannelNotFoundSchema = z.union([
+  channelOffSchema,
+  z.object({ statusCode: z.literal(404), message: z.string(), error: z.string().optional() }),
+]);

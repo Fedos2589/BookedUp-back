@@ -13,6 +13,8 @@ export class TelegramError extends Error {
   }
 }
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 type Reply = { ok: true; result: unknown } | { ok: false; error_code: number; description: string };
 
 // The Bot API over fetch. The token is in the URL, so no error leaves here with the URL in it.
@@ -20,7 +22,11 @@ type Reply = { ok: true; result: unknown } | { ok: false; error_code: number; de
 export class TelegramClient {
   constructor(private readonly config: ConfigService<Env, true>) {}
 
-  async call(method: string, body: object, signal?: AbortSignal): Promise<unknown> {
+  async call(
+    method: string,
+    body: object,
+    { signal, timeoutMs = REQUEST_TIMEOUT_MS }: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ): Promise<unknown> {
     const token = this.config.get('TELEGRAM_BOT_TOKEN', { infer: true });
     if (token === undefined) throw new Error('Telegram is not configured');
     let response: Response;
@@ -29,7 +35,8 @@ export class TelegramClient {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        signal,
+        // No answer must not hold a tick (or a webhook reply) for minutes.
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]),
       });
     } catch {
       // The network error's message and cause can carry the URL, and the URL carries the token.

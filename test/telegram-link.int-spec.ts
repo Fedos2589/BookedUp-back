@@ -4,6 +4,7 @@ import type { App } from 'supertest/types.js';
 
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
+import { LinkTokensService } from '../src/notifications/link-tokens.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { onlineBooking, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -26,6 +27,7 @@ afterAll(async () => {
 });
 
 const http = () => request(app.getHttpServer());
+const tokenOfUrl = (url: string) => url.split('start=')[1] ?? '';
 const TOKEN_IN_URL = /^https:\/\/t\.me\/bookedup_test_bot\?start=([\w-]{43})$/;
 
 const booking = (status: 'BOOKED' | 'CANCELLED' = 'BOOKED', startsAt?: Date) =>
@@ -113,6 +115,27 @@ describe('POST /public/bookings/:token/telegram-link', () => {
     } finally {
       off.mockRestore();
     }
+  });
+});
+
+describe('LinkTokensService.purgeExpired', () => {
+  it('deletes the links whose hour is out, with the manage link in them, and keeps the others', async () => {
+    const b = await booking();
+    const fresh = tokenOfUrl(
+      (await http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'en' }).expect(201)).body.url,
+    );
+    const stale = tokenOfUrl(
+      (await http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'en' }).expect(201)).body.url,
+    );
+    await prisma.channelLinkToken.update({
+      where: { tokenHash: hashRandomToken(stale) },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    await app.get(LinkTokensService).purgeExpired(new Date());
+
+    const left = await prisma.channelLinkToken.findMany({ where: { appointmentId: b.appointmentId } });
+    expect(left.map((t) => t.tokenHash)).toEqual([hashRandomToken(fresh)]);
   });
 });
 

@@ -58,6 +58,15 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...valid, TELEGRAM_BOT_USERNAME: 'bookedup_bot' })).toThrow(/TELEGRAM_BOT_TOKEN/);
   });
 
+  it('wants the Telegram webhook secret in production once the bot token is set', () => {
+    const prod = { ...valid, NODE_ENV: 'production', APP_URL: 'https://app.example.com' };
+    const bot = { TELEGRAM_BOT_TOKEN: '123:abc', TELEGRAM_BOT_USERNAME: 'bookedup_bot' };
+    expect(() => validateEnv({ ...prod, ...bot })).toThrow(/TELEGRAM_WEBHOOK_SECRET/);
+    expect(validateEnv({ ...prod, ...bot, TELEGRAM_WEBHOOK_SECRET: 's' }).TELEGRAM_WEBHOOK_SECRET).toBe('s');
+    expect(validateEnv(prod).TELEGRAM_BOT_TOKEN).toBeUndefined();
+    expect(validateEnv({ ...valid, ...bot }).TELEGRAM_WEBHOOK_SECRET).toBeUndefined();
+  });
+
   it('names the missing variable', () => {
     expect(() => validateEnv({ REDIS_URL: valid.REDIS_URL })).toThrow(/DATABASE_URL/);
   });

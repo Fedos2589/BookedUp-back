@@ -33,6 +33,14 @@ const envSchema = z
     path: ['TELEGRAM_BOT_TOKEN'],
     message: 'TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME go together',
   })
+  // Without it the webhook refuses every update: links would be handed out and no chat ever connected.
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      env.TELEGRAM_BOT_TOKEN === undefined ||
+      env.TELEGRAM_WEBHOOK_SECRET !== undefined,
+    { path: ['TELEGRAM_WEBHOOK_SECRET'], message: 'must be set in production when TELEGRAM_BOT_TOKEN is set' },
+  )
   // A deployment without it would hand out links to localhost without a word.
   .refine((env) => env.APP_URL !== undefined || env.NODE_ENV !== 'production', {
     path: ['APP_URL'],

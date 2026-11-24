@@ -333,8 +333,8 @@ Commit `feat(notifications): Telegram link tokens`.
 `handleUpdate(update)`: only `message.text` starting with `/start `. Find the link token by hash,
 unexpired; delete it (one use). User token → upsert the user's TELEGRAM `user_channel` (a new chat
 replaces the old one), reply «Connected: you'll get your bookings here» (in `User.locale`). Booking
-token → insert a TELEGRAM `client_channel` with that `appointmentId` and `locale` = the token's (or
-`language_code` when it is `en`/`ru`), and a CHANNEL_ON event with `payload: { manageLink }`, in one
+token → insert a TELEGRAM `client_channel` with that `appointmentId` and `locale` = the token's (the
+language chosen on the page; the chat's `language_code` only words an «expired» reply), and a CHANNEL_ON event with `payload: { manageLink }`, in one
 transaction. Unknown / expired → reply «This link has expired, open it again». Replies go straight
 through `TelegramClient`, not the outbox. `POST /telegram/webhook`: `@Public()`, compares
 `X-Telegram-Bot-Api-Secret-Token` with the env secret in constant time (401 otherwise), always 200 after

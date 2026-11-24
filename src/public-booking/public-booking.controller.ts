@@ -20,7 +20,7 @@ import {
   type TelegramLinkInput,
   telegramLinkSchema,
   type TelegramLinkDto,
-  channelOffSchema,
+  bookingOrChannelNotFoundSchema,
 } from '../notifications/link.schema.js';
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
@@ -165,7 +165,7 @@ export class PublicBookingController {
   @ApiBadRequestResponse({ description: 'The token or the locale is invalid', schema: openApi(validationErrorSchema) })
   @ApiNotFoundResponse({
     description: 'No booking with this token, or Telegram is not turned on here (channelOff)',
-    schema: openApi(channelOffSchema),
+    schema: openApi(bookingOrChannelNotFoundSchema),
   })
   @ApiConflictResponse({
     description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',

@@ -8,10 +8,13 @@ const TOKEN = '123:secret-token';
 const channel = () => new TelegramChannel(new TelegramClient(new ConfigService({ TELEGRAM_BOT_TOKEN: TOKEN })));
 
 const reply = (status: number, body: object) =>
-  vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }));
+  vi.fn().mockImplementation(async () => new Response(JSON.stringify(body), { status }));
 
 describe('TelegramChannel', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it('sends the text to the chat through the bot', async () => {
     const fetch = reply(200, { ok: true, result: { message_id: 1 } });
@@ -58,5 +61,29 @@ describe('TelegramChannel', () => {
       .catch((e: unknown) => e as Error);
     expect((error as Error).message).not.toContain(TOKEN);
     expect((error as Error).cause).toBeUndefined();
+  });
+
+  it('gives up on a call that gets no answer, after 10 seconds; a long poll waits longer', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    vi.stubGlobal('fetch', reply(200, { ok: true, result: {} }));
+    const client = new TelegramClient(new ConfigService({ TELEGRAM_BOT_TOKEN: TOKEN }));
+
+    await client.call('sendMessage', {});
+    await client.call('getUpdates', {}, { timeoutMs: 35_000 });
+
+    expect(timeout.mock.calls).toEqual([[10_000], [35_000]]);
+  });
+
+  it('a call that is never answered ends with an error, not a hang', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_, reject) => init.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
+      ),
+    );
+    const client = new TelegramClient(new ConfigService({ TELEGRAM_BOT_TOKEN: TOKEN }));
+
+    await expect(client.call('sendMessage', {}, { timeoutMs: 20 })).rejects.toThrow(/no answer/);
   });
 });

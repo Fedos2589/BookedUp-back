@@ -2,6 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
 
 import type { Env } from '../config/env.js';
+import type { LinkTokensService } from './link-tokens.service.js';
 import type { DispatcherService } from './dispatcher.service.js';
 import { NotificationsProcessor } from './notifications.processor.js';
 import type { RemindersService } from './reminders.service.js';
@@ -22,17 +23,24 @@ const setUp = (workerOn: boolean) => {
       nows.push(now);
     }),
   };
+  const linkTokens = {
+    purgeExpired: vi.fn(async () => {
+      calls.push('purge');
+      return 0;
+    }),
+  };
   const queue = { upsertJobScheduler: vi.fn().mockResolvedValue(undefined) };
   const run = vi.fn().mockResolvedValue(undefined);
   const config = { get: vi.fn(() => workerOn) };
   const processor = new NotificationsProcessor(
     reminders as unknown as RemindersService,
     dispatcher as unknown as DispatcherService,
+    linkTokens as unknown as LinkTokensService,
     config as unknown as ConfigService<Env, true>,
     queue as unknown as Queue,
   );
   Object.defineProperty(processor, 'worker', { get: () => ({ run }) });
-  return { processor, calls, nows, queue, run, reminders };
+  return { processor, calls, nows, queue, run, reminders, linkTokens };
 };
 
 describe('NotificationsProcessor', () => {
@@ -41,7 +49,7 @@ describe('NotificationsProcessor', () => {
 
     await processor.process();
 
-    expect(calls).toEqual(['reminders', 'dispatch']);
+    expect(calls).toEqual(['reminders', 'purge', 'dispatch']);
     expect(nows[0]).toBe(nows[1]);
   });
 
@@ -51,7 +59,16 @@ describe('NotificationsProcessor', () => {
 
     await processor.process();
 
-    expect(calls).toEqual(['dispatch']);
+    expect(calls).toEqual(['purge', 'dispatch']);
+  });
+
+  it('still dispatches when deleting expired link tokens fails', async () => {
+    const { processor, calls, linkTokens } = setUp(true);
+    linkTokens.purgeExpired.mockRejectedValueOnce(new Error('connection lost'));
+
+    await processor.process();
+
+    expect(calls).toEqual(['reminders', 'dispatch']);
   });
 
   it('puts the 30-second schedule in and starts the worker when it is on', async () => {

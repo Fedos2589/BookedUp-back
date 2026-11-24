@@ -15,6 +15,7 @@ import { holdsTime } from '../schedule/live-bookings.js';
 import { ScheduleService } from '../schedule/schedule.service.js';
 import type { PublicSlotsQuery, SlotDto } from '../schedule/schedule.schema.js';
 import { orderMasters } from './pick-master.js';
+import { canChange } from './can-change.js';
 import { manageLink } from './manage-token.js';
 import type {
   BusinessManifestDto,
@@ -141,7 +142,10 @@ export class PublicBookingService {
 
   // The booking the token belongs to, with the business it is in; every later query carries that id.
   private async managedBy(token: string, now: Date): Promise<ManagedBookingDto> {
-    const found = await this.idsOf(token);
+    return this.managedAt(await this.idsOf(token), now);
+  }
+
+  private async managedAt(found: { id: string; businessId: string }, now: Date): Promise<ManagedBookingDto> {
     const row = await this.prisma.appointment.findFirstOrThrow({
       where: { id: found.id, businessId: found.businessId },
       select: {
@@ -169,7 +173,7 @@ export class PublicBookingService {
         groupId: row.groupId,
         oneOffSessionId: row.oneOffSessionId,
       },
-      canChange: (row.status === 'BOOKED' || row.status === 'CONFIRMED') && row.startsAt > now,
+      canChange: canChange(row, now),
     };
   }
 
@@ -179,13 +183,13 @@ export class PublicBookingService {
 
   // A link that connects the booker's Telegram to this booking, while the booking can still change.
   async telegramLink(token: string, locale: Locale): Promise<TelegramLinkDto> {
-    const { id, businessId } = await this.idsOf(token);
-    const managed = await this.managedBy(token, new Date());
+    const found = await this.idsOf(token);
+    const managed = await this.managedAt(found, new Date());
     if (!managed.canChange) throw statusConflict('badTransition', 'The booking can no longer change');
     return this.linkTokens.issue(
       {
-        businessId,
-        appointmentId: id,
+        businessId: found.businessId,
+        appointmentId: found.id,
         manageLink: manageLink(this.config.get('APP_URL', { infer: true }), managed.business.slug, token),
       },
       locale,

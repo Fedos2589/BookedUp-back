@@ -112,18 +112,18 @@ describe('a Start press with a link token', () => {
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("takes the chat's language when it is one we have texts for", async () => {
+  it("keeps the language chosen on the booking's page, whatever the chat speaks", async () => {
     const b = await onlineBooking(app);
-    const link = await http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'en' }).expect(201);
+    const link = await http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'ru' }).expect(201);
 
-    await webhook(start(tokenOf(link), chatId(), 'ru')).expect(200);
+    await webhook(start(tokenOf(link), chatId(), 'en')).expect(200);
 
     expect((await prisma.clientChannel.findFirstOrThrow({ where: { appointmentId: b.appointmentId } })).locale).toBe(
       'ru',
     );
   });
 
-  it('the same chat opening a second link for one booking is one channel, one event', async () => {
+  it('the same chat opening a second link for one booking is one channel, one event, and an answer', async () => {
     const b = await onlineBooking(app);
     const chat = chatId();
     for (const _ of [1, 2]) {
@@ -131,6 +131,8 @@ describe('a Start press with a link token', () => {
       await webhook(start(tokenOf(link), chat)).expect(200);
     }
 
+    // The first press is answered by the CHANNEL_ON message, the second one by the bot itself.
+    expect(replies()).toEqual([{ method: 'sendMessage', chat_id: chat, text: expect.stringContaining('Connected') }]);
     expect(await prisma.clientChannel.count({ where: { appointmentId: b.appointmentId } })).toBe(1);
     expect(
       await prisma.notificationEvent.count({ where: { appointmentId: b.appointmentId, kind: 'CHANNEL_ON' } }),
@@ -174,6 +176,80 @@ describe('a Start press with a link token', () => {
     await webhook(start('x'.repeat(43), chatId())).expect(200);
     expect(replies()).toHaveLength(1);
     expect(replies()[0]?.text).toContain('expired');
+  });
+});
+
+describe('a link token whose booking has changed or whose chat comes back', () => {
+  it('is not used for a booking cancelled after the link was given', async () => {
+    const b = await onlineBooking(app);
+    const link = await http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'en' }).expect(201);
+    await prisma.appointment.update({ where: { id: b.appointmentId }, data: { status: 'CANCELLED' } });
+
+    const chat = chatId();
+    await webhook(start(tokenOf(link), chat)).expect(200);
+
+    expect(replies()).toEqual([{ method: 'sendMessage', chat_id: chat, text: expect.stringContaining('expired') }]);
+    expect(await prisma.clientChannel.count({ where: { appointmentId: b.appointmentId } })).toBe(0);
+    expect(await prisma.notificationEvent.count({ where: { appointmentId: b.appointmentId } })).toBe(0);
+  });
+
+  it('two Start presses at once for one booking and chat are one channel and one event', async () => {
+    const b = await onlineBooking(app);
+    const chat = chatId();
+    const links = await Promise.all(
+      [1, 2].map(() => http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'en' }).expect(201)),
+    );
+
+    await Promise.all(links.map((link) => webhook(start(tokenOf(link), chat)).expect(200)));
+
+    expect(await prisma.clientChannel.count({ where: { appointmentId: b.appointmentId } })).toBe(1);
+    expect(
+      await prisma.notificationEvent.count({ where: { appointmentId: b.appointmentId, kind: 'CHANNEL_ON' } }),
+    ).toBe(1);
+  });
+
+  it("switches the chat's other bookings in this business on again, and no other business's", async () => {
+    const a = await onlineBooking(app);
+    const other = await onlineBooking(app);
+    const chat = chatId();
+    const connect = async (b: typeof a) => {
+      const link = await http().post(`/public/bookings/${b.token}/telegram-link`).send({ locale: 'en' }).expect(201);
+      await webhook(start(tokenOf(link), chat)).expect(200);
+    };
+    // The same chat on a booking of another business too; `a` has a second booking of the same client.
+    const second = await prisma.appointment.create({
+      data: {
+        businessId: a.business.id,
+        clientId: a.clientId,
+        staffId: (await prisma.appointment.findFirstOrThrow({ where: { id: a.appointmentId } })).staffId,
+        startsAt: new Date(Date.now() + 2 * 86_400_000),
+        endsAt: new Date(Date.now() + 2 * 86_400_000 + 3600_000),
+        clientName: 'Vera',
+        clientPhone: '+79991234567',
+        manageTokenHash: hashRandomToken('second-booking-token'),
+      },
+    });
+    await prisma.clientChannel.create({
+      data: {
+        businessId: a.business.id,
+        clientId: a.clientId,
+        appointmentId: second.id,
+        kind: 'TELEGRAM',
+        address: String(chat),
+        locale: 'en',
+        disabledAt: new Date(),
+      },
+    });
+    await connect(other);
+    await prisma.clientChannel.updateMany({ where: { address: String(chat) }, data: { disabledAt: new Date() } });
+
+    await connect(a);
+
+    const state = async (appointmentId: string) =>
+      (await prisma.clientChannel.findFirstOrThrow({ where: { appointmentId } })).disabledAt === null;
+    expect(await state(a.appointmentId)).toBe(true);
+    expect(await state(second.id)).toBe(true);
+    expect(await state(other.appointmentId)).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import type { Locale } from '../account/locale.js';
+import { type Locale, localeSchema } from '../account/locale.js';
 import { hashRandomToken, newRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -34,7 +34,7 @@ export class LinkTokensService {
 
   async forUser(userId: string): Promise<TelegramLinkDto> {
     const { locale } = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { locale: true } });
-    return this.issue({ userId }, locale as Locale);
+    return this.issue({ userId }, localeSchema.parse(locale));
   }
 
   async issue(owner: LinkOwner, locale: Locale): Promise<TelegramLinkDto> {
@@ -45,5 +45,11 @@ export class LinkTokensService {
       data: { ...owner, tokenHash: hashRandomToken(token), locale, expiresAt: new Date(Date.now() + LINK_TTL_MS) },
     });
     return { url: `https://t.me/${username}?start=${token}` };
+  }
+
+  // An unopened link is useless after its hour, and a booking's holds that booking's manage link in the open.
+  async purgeExpired(now: Date): Promise<number> {
+    const { count } = await this.prisma.channelLinkToken.deleteMany({ where: { expiresAt: { lte: now } } });
+    return count;
   }
 }

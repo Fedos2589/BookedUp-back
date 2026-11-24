@@ -50,7 +50,7 @@ export class TelegramPolling implements OnApplicationBootstrap, OnModuleDestroy 
         const result = await this.telegram.call(
           'getUpdates',
           { offset, timeout: POLL_SECONDS, allowed_updates: ['message'] },
-          this.stop.signal,
+          { signal: this.stop.signal, timeoutMs: (POLL_SECONDS + 10) * 1000 },
         );
         for (const update of updatesSchema.parse(result)) {
           offset = update.update_id + 1;

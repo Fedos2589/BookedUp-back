@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type Locale, localeSchema } from '../account/locale.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { hashRandomToken } from '../common/random-token.js';
+import { canChange } from '../public-booking/can-change.js';
 import { TelegramClient } from './channels/telegram.client.js';
 
 // The part of an update we read: a text message from a private chat. Anything else is not for us.
@@ -46,56 +47,58 @@ export class TelegramUpdatesService {
     const { text, chat, from } = parsed.data.message;
     const spoken = localeSchema.safeParse(from?.language_code);
     try {
-      const reply = await this.connect(text.slice('/start '.length), chat.id, spoken.success ? spoken.data : null);
+      const reply = await this.connect(text.slice('/start '.length), chat.id, spoken.success ? spoken.data : 'en');
       if (reply !== null) await this.reply(chat.id, reply);
     } catch (err) {
       this.logger.warn({ err }, 'Handling a Telegram update failed');
     }
   }
 
-  // The reply to send, or null when the CHANNEL_ON message will do.
-  private async connect(token: string, chatId: number, spoken: Locale | null): Promise<string | null> {
+  // The reply to send, or null when the CHANNEL_ON message will do. `spoken`: the chat's language, for a link
+  // that is no longer known (its own language went with it).
+  private async connect(token: string, chatId: number, spoken: Locale): Promise<string | null> {
     const hash = hashRandomToken(token);
     return this.prisma.$transaction(async (tx) => {
       const [link] = await tx.$queryRaw<Link[]>`
         DELETE FROM channel_link_tokens WHERE token_hash = ${hash} AND expires_at > now()
         RETURNING user_id, business_id, appointment_id, locale, manage_link`;
-      if (!link) return TEXTS[spoken ?? 'en'].expired;
+      if (!link) return TEXTS[spoken].expired;
+      // The language the person chose where they asked for the link.
+      const texts = TEXTS[localeSchema.parse(link.locale)];
+      const address = String(chatId);
 
       if (link.user_id !== null) {
-        const user = await tx.user.findUniqueOrThrow({ where: { id: link.user_id }, select: { locale: true } });
         // One chat per account: a new one replaces the old.
         await tx.userChannel.deleteMany({ where: { userId: link.user_id, kind: 'TELEGRAM' } });
-        await tx.userChannel.create({ data: { userId: link.user_id, kind: 'TELEGRAM', address: String(chatId) } });
-        return TEXTS[localeSchema.parse(user.locale)].connected;
+        await tx.userChannel.create({ data: { userId: link.user_id, kind: 'TELEGRAM', address } });
+        return texts.connected;
       }
 
       const businessId = link.business_id!;
       const appointment = await tx.appointment.findFirst({
         where: { id: link.appointment_id!, businessId },
-        select: { id: true, clientId: true, startsAt: true },
+        select: { id: true, clientId: true, startsAt: true, status: true },
       });
-      if (!appointment) return TEXTS[spoken ?? localeSchema.parse(link.locale)].expired;
-      const locale = spoken ?? localeSchema.parse(link.locale);
-      const address = String(chatId);
-      const existing = await tx.clientChannel.findFirst({
-        where: { businessId, clientId: appointment.clientId, kind: 'TELEGRAM', address, appointmentId: appointment.id },
-        select: { id: true, disabledAt: true },
+      // The link was good when it was given; the booking may have been cancelled or started since.
+      if (!appointment || !canChange(appointment, new Date())) return texts.expired;
+      // New, or switched off and now on again; an active one is left alone (no row back). One statement, so two
+      // Start presses at once are one channel.
+      const [channel] = await tx.$queryRaw<{ id: string }[]>`
+        INSERT INTO client_channels (business_id, client_id, appointment_id, kind, address, locale)
+        VALUES (${businessId}::uuid, ${appointment.clientId}::uuid, ${appointment.id}::uuid,
+                'TELEGRAM'::"ChannelKind", ${address}, ${link.locale})
+        ON CONFLICT (business_id, client_id, kind, address, appointment_id)
+        DO UPDATE SET disabled_at = NULL, locale = EXCLUDED.locale
+        WHERE client_channels.disabled_at IS NOT NULL
+        RETURNING id`;
+      // The chat answers again: the other bookings of this business it was switched off for hear it too
+      // (the dispatcher switches off every channel with an address that never worked).
+      await tx.clientChannel.updateMany({
+        where: { businessId, kind: 'TELEGRAM', address, disabledAt: { not: null } },
+        data: { disabledAt: null },
       });
-      // The same chat again is not news, unless it had been switched off.
-      if (existing && existing.disabledAt === null) return null;
-      const channel = existing
-        ? await tx.clientChannel.update({ where: { id: existing.id }, data: { disabledAt: null, locale } })
-        : await tx.clientChannel.create({
-            data: {
-              businessId,
-              clientId: appointment.clientId,
-              appointmentId: appointment.id,
-              kind: 'TELEGRAM',
-              address,
-              locale,
-            },
-          });
+      // Already on: not news, but the person pressed Start and waits for a word.
+      if (!channel) return texts.connected;
       await tx.notificationEvent.create({
         data: {
           businessId,
