@@ -7,7 +7,7 @@
 >
 > **When a step is merged:** its last task updates the step's row in the common plan.
 
-**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1 done).
+**Status:** step N done and merged (PR #46); step M in progress on `e9/channels` (M1–M2 done).
 
 **Common plan** (goal, decisions 1–11, the front's step): `2026-11-23-e9-notifications.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — the decisions are referred to
@@ -306,7 +306,7 @@ configured and NODE_ENV ≠ production» (D8); in production an unconfigured kin
 **Check:** unit test with a fake `fetch`: the URL and body; 403 → `unreachable`; 500 → throws; env:
 token without username → invalid. Commit `feat(notifications): Telegram channel`.
 
-### - [ ] M2: Telegram link tokens
+### - [x] M2: Telegram link tokens
 
 **Files:** `prisma/schema.prisma`, a migration `<ts>_channel_link_tokens`, create
 `src/notifications/{link-tokens.service.ts,telegram-link.controller.ts,link.schema.ts}`,

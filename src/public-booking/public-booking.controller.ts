@@ -15,6 +15,13 @@ import type { Response } from 'express';
 import { z } from 'zod';
 
 import { type MoveInput, moveInput } from '../appointments/appointments.schema.js';
+import {
+  telegramLinkInput,
+  type TelegramLinkInput,
+  telegramLinkSchema,
+  type TelegramLinkDto,
+  channelOffSchema,
+} from '../notifications/link.schema.js';
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { type PublicSlotsQuery, publicSlotsQuery, type SlotDto, slotSchema } from '../schedule/schedule.schema.js';
@@ -147,5 +154,27 @@ export class PublicBookingController {
     @Body({ schema: moveInput }) input: MoveInput,
   ): Promise<ManagedBookingDto> {
     return this.service.move(token, input);
+  }
+
+  @Post('bookings/:token/telegram-link')
+  @ApiCreatedResponse({
+    description:
+      'Open the link in Telegram and press Start: this booking gets its messages there. Valid for an hour. `locale` is the language of those messages.',
+    schema: openApi(telegramLinkSchema),
+  })
+  @ApiBadRequestResponse({ description: 'The token or the locale is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({
+    description: 'No booking with this token, or Telegram is not turned on here (channelOff)',
+    schema: openApi(channelOffSchema),
+  })
+  @ApiConflictResponse({
+    description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
+    schema: openApi(managedBookingConflictSchema),
+  })
+  telegramLink(
+    @Param('token', { schema: manageTokenSchema }) token: string,
+    @Body({ schema: telegramLinkInput }) { locale }: TelegramLinkInput,
+  ): Promise<TelegramLinkDto> {
+    return this.service.telegramLink(token, locale);
   }
 }

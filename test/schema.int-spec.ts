@@ -11,8 +11,17 @@ const prisma = new PrismaClient({
 });
 
 // Not a business's data: tenants themselves, people, how people sign in, and where a person is
-// reachable (a staff account's channels serve every business it is a member of).
-const GLOBAL_TABLES = ['businesses', 'users', 'password_logins', 'sessions', 'user_channels', '_prisma_migrations'];
+// reachable (a staff account's channels serve every business it is a member of), and one-time links
+// found by the hash of their token: an account's link has no business (a booking's carries it, CHECK).
+const GLOBAL_TABLES = [
+  'businesses',
+  'users',
+  'password_logins',
+  'sessions',
+  'user_channels',
+  'channel_link_tokens',
+  '_prisma_migrations',
+];
 
 // Random, not a clock: test files run in parallel against one database.
 const unique = () => randomUUID();

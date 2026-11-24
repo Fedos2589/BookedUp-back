@@ -57,6 +57,7 @@ model Business {
   appointments           Appointment[]
   clients                Client[]
   clientChannels         ClientChannel[]
+  linkTokens             ChannelLinkToken[]
   notificationEvents     NotificationEvent[]
   notificationDeliveries NotificationDelivery[]
 
@@ -99,6 +100,7 @@ model User {
   sessions        Session[]
   invitationsSent Invitation[]
   channels        UserChannel[]
+  linkTokens      ChannelLinkToken[]
 
   @@map("users")
 }
@@ -406,6 +408,7 @@ model Appointment {
   staff              Staff               @relation(fields: [businessId, staffId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
   client             Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction)
   channels           ClientChannel[]
+  linkTokens         ChannelLinkToken[]
   notificationEvents NotificationEvent[]
   group              Group?              @relation(fields: [businessId, staffId, groupId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
   oneOffSession      OneOffSession?      @relation(fields: [businessId, staffId, oneOffSessionId], references: [businessId, staffId, id], onDelete: NoAction, onUpdate: NoAction)
@@ -489,6 +492,29 @@ model UserChannel {
 
   @@unique([userId, kind, address])
   @@map("user_channels")
+}
+
+/// A one-time link that turns a Telegram chat on (`t.me/<bot>?start=<token>`): for a member's account
+/// (`userId`) or for an online booking (`appointmentId`, with its business) — exactly one of them (CHECK).
+/// Only the hash is stored. `manageLink` is the booking's own link, for the CHANNEL_ON message.
+model ChannelLinkToken {
+  id            String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tokenHash     String   @unique @map("token_hash")
+  businessId    String?  @map("business_id") @db.Uuid
+  appointmentId String?  @map("appointment_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  /// `en` or `ru` (CHECK).
+  locale        String
+  manageLink    String?  @map("manage_link")
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business    Business?    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("channel_link_tokens")
 }
 
 /// A channel of a client. WHATSAPP sits on the client card (the phone), the others on the booking

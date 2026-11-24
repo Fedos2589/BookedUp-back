@@ -58,7 +58,7 @@ export type Person = (
   tx: Prisma.TransactionClient,
 ) => Promise<{ clientId: string; clientName: string; clientPhone: string }>;
 
-const statusConflict = (code: 'badTransition' | 'notStarted', message: string) =>
+export const statusConflict = (code: 'badTransition' | 'notStarted', message: string) =>
   new ConflictException({ statusCode: 409, error: 'Conflict', message, code });
 
 @Injectable()
