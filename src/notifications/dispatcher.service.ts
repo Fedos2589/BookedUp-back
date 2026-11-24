@@ -6,9 +6,10 @@ import { appLink } from '../common/app-link.js';
 import type { Env } from '../config/env.js';
 import { type AppointmentStatus, type ChannelKind, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { cardsOf } from './booking-cards.js';
 import { ChannelRegistry } from './channels/channel-registry.js';
-import type { SendResult } from './channels/channel.js';
-import { type MessageLocale, messageFor } from './messages.js';
+import type { RenderInput, SendResult } from './channels/channel.js';
+import type { MessageLocale } from './messages.js';
 import { type Member, recipientsOf, type RecipientsContext, STAFF_KINDS } from './recipients.js';
 
 const BATCH = 50;
@@ -50,6 +51,9 @@ type Claimed = {
   // Tries so far, this one included.
   attempts: number;
 };
+
+// Why a delivery that is not tried again stopped.
+const LAST_ERROR = { unreachable: 'unreachable', stale: 'booking changed', unknown: 'no answer' } as const;
 
 type Outcome = SendResult | 'stale' | { error: string };
 
@@ -124,11 +128,11 @@ export class DispatcherService {
 
   private async trySending(delivery: Claimed): Promise<Outcome> {
     try {
-      const message = await this.render(delivery);
+      const input = await this.inputOf(delivery);
       const keys = delivery.channel === 'PUSH' ? await this.pushKeysOf(delivery) : undefined;
       // The client switched the subscription off after the message was queued: nothing to send, nothing to retry.
       if (keys === null) return 'stale';
-      return await this.channels.get(delivery.channel).send(delivery.address, message, keys);
+      return await this.channels.get(delivery.channel).send(delivery.address, input, keys);
     } catch (error) {
       if (error instanceof StaleReminder) return 'stale';
       this.logger.warn({ err: error, deliveryId: delivery.id }, 'Sending a notification failed');
@@ -157,12 +161,8 @@ export class DispatcherService {
       this.prisma.notificationDelivery.updateMany({ where: { id, businessId }, data });
     if (outcome === 'sent') {
       await write({ status: 'SENT', sentAt: new Date(), lastError: null });
-    } else if (outcome === 'unreachable' || outcome === 'stale') {
-      await write({
-        status: 'FAILED',
-        attempts: MAX_ATTEMPTS,
-        lastError: outcome === 'stale' ? 'booking changed' : outcome,
-      });
+    } else if (outcome === 'unreachable' || outcome === 'stale' || outcome === 'unknown') {
+      await write({ status: 'FAILED', attempts: MAX_ATTEMPTS, lastError: LAST_ERROR[outcome] });
     } else {
       await write({ status: 'FAILED', lastError: outcome.error, retryAt: retryAt(delivery.attempts, now) });
     }
@@ -200,7 +200,8 @@ export class DispatcherService {
     });
   }
 
-  private async render({ businessId, eventId, audience, locale }: Claimed) {
+  // What the channel renders its message from.
+  private async inputOf({ businessId, eventId, audience, locale }: Claimed): Promise<RenderInput> {
     const event = await this.prisma.notificationEvent.findFirstOrThrow({
       where: { businessId, id: eventId },
       include: {
@@ -237,7 +238,8 @@ export class DispatcherService {
       this.config.get('APP_URL', { infer: true }),
       audience === 'client' ? `book/${appointment.business.slug}` : 'calendar',
     );
-    const message = messageFor({
+    return {
+      url,
       kind: event.kind,
       audience: audience === 'client' ? 'client' : 'staff',
       locale: localeOf(locale),
@@ -251,8 +253,7 @@ export class DispatcherService {
       clientName: appointment.clientName,
       ...(event.offsetMinutes === null ? {} : { offsetMinutes: event.offsetMinutes }),
       ...(manageLink === null ? {} : { manageLink }),
-    });
-    return { ...message, url };
+    };
   }
 
   // Turns the events nobody has looked at yet into one delivery per recipient and marks them processed.
@@ -340,10 +341,7 @@ export class DispatcherService {
     // The client's WhatsApp sits on their card, or on their guardian's when they have no phone;
     // every other channel belongs to this booking (E9, decision 4). A channel turned on after the event
     // wasn't there for it: it hears of itself through its own CHANNEL_ON.
-    const cards =
-      appointment.client.guardianId === null
-        ? [appointment.clientId]
-        : [appointment.clientId, appointment.client.guardianId];
+    const cards = cardsOf(appointment);
     const clientChannels = await tx.clientChannel.findMany({
       where: {
         businessId,

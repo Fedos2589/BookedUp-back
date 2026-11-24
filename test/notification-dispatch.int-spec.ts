@@ -5,6 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import { LogChannel } from '../src/notifications/channels/log.channel.js';
 import { DispatcherService } from '../src/notifications/dispatcher.service.js';
+import { messageFor } from '../src/notifications/messages.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createClient, memberOf, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -257,8 +258,8 @@ describe('sending deliveries', () => {
 
     expect(sentTo(t.addresses)).toEqual([...t.addresses].sort());
     expect(await statusesOf(t.businessId)).toEqual(['SENT', 'SENT', 'SENT']);
-    const [, message] = send.mock.calls.find(([address]) => address === t.address) ?? [];
-    expect(message?.text).toContain('Anna');
+    const [, input] = send.mock.calls.find(([address]) => address === t.address) ?? [];
+    expect(input && messageFor(input).text).toContain('Anna');
   });
 
   it('sends more than one batch in one dispatch', async () => {
@@ -355,6 +356,22 @@ describe('sending deliveries', () => {
     expect(await statusesOf(t.businessId)).toEqual(['FAILED', 'SENT', 'SENT']);
   });
 
+  it('does not send again what got no answer, and keeps the channel on', async () => {
+    const t = await booked();
+    send.mockImplementation(async (address) => (address === t.address ? 'unknown' : 'sent'));
+
+    await dispatcher.dispatch(new Date(Date.now() + 3_600_000));
+    await dispatcher.dispatch(new Date(Date.now() + 7_200_000));
+
+    expect(send.mock.calls.filter(([address]) => address === t.address)).toHaveLength(1);
+    const channel = await prisma.clientChannel.findUniqueOrThrow({ where: { id: t.channel.id } });
+    expect(channel.disabledAt).toBeNull();
+    const delivery = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { businessId: t.businessId, address: t.address },
+    });
+    expect(delivery).toMatchObject({ status: 'FAILED', lastError: 'no answer' });
+  });
+
   it('deletes a member’s channel when the address is unreachable', async () => {
     const t = await booked();
     const address = randomUUID();
@@ -384,7 +401,9 @@ describe('sending deliveries', () => {
 
     await dispatcher.dispatch(new Date());
 
-    const texts = send.mock.calls.filter(([address]) => address === t.address).map(([, message]) => message.text);
+    const texts = send.mock.calls
+      .filter(([address]) => address === t.address)
+      .map(([, input]) => messageFor(input).text);
     expect(texts.filter((text) => text.includes(link))).toHaveLength(1);
     expect((await prisma.notificationEvent.findUniqueOrThrow({ where: { id: event.id } })).payload).toBeNull();
   });

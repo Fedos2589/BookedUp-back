@@ -363,13 +363,13 @@ CHANNEL_ON (only when new); `DELETE /public/bookings/:token/push` `{ endpoint }`
 **Check:** unit — 410 → `unreachable`, 500 → throws; int — PUT twice → one channel, one event; DELETE
 switches it off, PUT again switches it on; another booking's token can't switch it off; off → 404. Commit `feat(notifications): Web Push`.
 
-### - [ ] M5: WhatsApp channel, the client's route
+### - [x] M5: WhatsApp channel, the client's route
 
 > **Split (too big for one session: an interface change across every channel, a new channel, a route).**
 > Do M5a, M5b, M5c in order, one session each, one commit each. The text below is the whole of M5;
 > each part says which of it is its own.
 
-#### - [ ] M5a: channels render for themselves (no new behaviour)
+#### - [x] M5a: channels render for themselves (no new behaviour)
 
 **Files:** `src/notifications/channels/{channel.ts,log.channel.ts,telegram.channel.ts,push.channel.ts}` (+ their specs),
 `src/notifications/dispatcher.service.ts`.
@@ -378,14 +378,14 @@ text channels call `messageFor`; the dispatcher's `render` becomes «load the in
 **Check:** the existing unit and int tests pass unchanged in meaning (specs now hand `send` an input);
 `npm run typecheck && npm run lint && npm test && npm run test:int`. Commit `refactor(notifications): channels render their own message`.
 
-#### - [ ] M5b: WhatsApp channel
+#### - [x] M5b: WhatsApp channel
 
 **Files:** `src/notifications/channels/{whatsapp.client.ts,whatsapp.channel.ts,whatsapp.channel.spec.ts,channel-registry.ts}`,
 `src/notifications/{messages.ts,messages.spec.ts,notifications.module.ts}`, `src/config/env.ts` (+ spec), `.env.example`.
 Env, `templateFor`, client, channel, registry — as in the text below.
 **Check:** unit — the body for a reminder in ru; 131026 → `unreachable`; env all-or-none. Commit `feat(notifications): WhatsApp channel`.
 
-#### - [ ] M5c: WhatsApp route
+#### - [x] M5c: WhatsApp route
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`, `src/notifications/` (a service
 like `client-push.service.ts`), `test/public-channels.int-spec.ts`. The route part below.

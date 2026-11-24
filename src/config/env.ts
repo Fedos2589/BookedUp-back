@@ -32,6 +32,9 @@ const envSchema = z
       .string()
       .regex(/^(mailto:\S+|https:\/\/\S+)$/)
       .optional(),
+    // WhatsApp Cloud API: the access token and the sending number's id go together; without them the channel is off.
+    WHATSAPP_TOKEN: z.string().min(1).optional(),
+    WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
   })
   .refine((env) => env.SESSION_COOKIE_SECURE || env.NODE_ENV !== 'production', {
     path: ['SESSION_COOKIE_SECURE'],
@@ -46,6 +49,10 @@ const envSchema = z
       [env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, env.VAPID_SUBJECT].filter((v) => v === undefined).length % 3 === 0,
     { path: ['VAPID_PUBLIC_KEY'], message: 'VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT go together' },
   )
+  .refine((env) => (env.WHATSAPP_TOKEN === undefined) === (env.WHATSAPP_PHONE_NUMBER_ID === undefined), {
+    path: ['WHATSAPP_TOKEN'],
+    message: 'WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID go together',
+  })
   // Without it the webhook refuses every update: links would be handed out and no chat ever connected.
   .refine(
     (env) =>

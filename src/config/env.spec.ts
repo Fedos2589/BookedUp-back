@@ -81,6 +81,14 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...valid, ...vapid, VAPID_SUBJECT: 'ops@example.com' })).toThrow(/VAPID_SUBJECT/);
   });
 
+  it('takes the two WhatsApp settings together or not at all', () => {
+    const whatsapp = { WHATSAPP_TOKEN: 'token', WHATSAPP_PHONE_NUMBER_ID: '1234567890' };
+    expect(validateEnv(valid).WHATSAPP_TOKEN).toBeUndefined();
+    expect(validateEnv({ ...valid, ...whatsapp })).toMatchObject(whatsapp);
+    expect(() => validateEnv({ ...valid, WHATSAPP_TOKEN: 'token' })).toThrow(/WHATSAPP/);
+    expect(() => validateEnv({ ...valid, WHATSAPP_PHONE_NUMBER_ID: '1234567890' })).toThrow(/WHATSAPP/);
+  });
+
   it('names the missing variable', () => {
     expect(() => validateEnv({ REDIS_URL: valid.REDIS_URL })).toThrow(/DATABASE_URL/);
   });

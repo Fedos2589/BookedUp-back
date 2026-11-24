@@ -1,12 +1,18 @@
 import type { ChannelKind } from '../../generated/prisma/client.js';
-import type { Message } from '../messages.js';
+import type { MessageInput } from '../messages.js';
 
 // `unreachable`: the address will never work (the chat was left, the push subscription expired), so the
-// caller switches it off. A retryable error is thrown instead.
-export type SendResult = 'sent' | 'unreachable';
+// caller switches it off. `unknown`: the call got no answer in time, so the message may be out; it is not sent
+// again (a message twice is worse than one lost), and the address stays on. A retryable error is thrown instead.
+export type SendResult = 'sent' | 'unreachable' | 'unknown';
+
+// What a channel renders its message from. `url`: where a tap on a push goes (the business's booking page for a
+// client, the cabinet's calendar for staff).
+export type RenderInput = MessageInput & { url: string };
 
 export interface Channel {
   readonly kind: ChannelKind;
   // `keys`: what the address needs besides itself (a push subscription's `p256dh` and `auth`).
-  send(address: string, message: Message, keys?: unknown): Promise<SendResult>;
+  // The channel renders `input` itself: a text channel with `messageFor`, a template one with its own.
+  send(address: string, input: RenderInput, keys?: unknown): Promise<SendResult>;
 }

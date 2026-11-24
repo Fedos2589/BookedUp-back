@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import type { Message } from '../messages.js';
-import type { Channel, SendResult } from './channel.js';
+import { messageFor } from '../messages.js';
+import type { Channel, RenderInput, SendResult } from './channel.js';
 
 const VISIBLE = 4;
 
@@ -17,7 +17,8 @@ export class LogChannel implements Channel {
   readonly kind = 'LOG';
   private readonly logger = new Logger(LogChannel.name);
 
-  async send(address: string, message: Message): Promise<SendResult> {
+  async send(address: string, input: RenderInput): Promise<SendResult> {
+    const message = messageFor(input);
     this.logger.log({
       channel: this.kind,
       to: masked(address),
