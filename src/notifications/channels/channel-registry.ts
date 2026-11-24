@@ -18,6 +18,8 @@ export class ChannelRegistry {
   // A kind that is not on goes to the log, except in production, where it is skipped (E9, decision 8).
   readonly fallbackToLog: boolean;
 
+  private readonly vapidPublicKey: string | undefined;
+
   constructor(
     config: ConfigService<Env, true>,
     log: LogChannel,
@@ -26,6 +28,7 @@ export class ChannelRegistry {
     whatsapp: WhatsappChannel,
     email: EmailChannel,
   ) {
+    this.vapidPublicKey = config.get('VAPID_PUBLIC_KEY', { infer: true });
     this.channels = new Map<ChannelKind, Channel>([[log.kind, log]]);
     if (config.get('TELEGRAM_BOT_TOKEN', { infer: true }) !== undefined) this.channels.set(telegram.kind, telegram);
     if (config.get('VAPID_PUBLIC_KEY', { infer: true }) !== undefined) this.channels.set(push.kind, push);
@@ -44,6 +47,21 @@ export class ChannelRegistry {
 
   isOn(kind: ChannelKind): boolean {
     return this.channels.has(kind);
+  }
+
+  // What the front offers: a channel that is not on here is not shown.
+  available(): { telegram: boolean; whatsapp: boolean; push: boolean; email: boolean } {
+    return {
+      telegram: this.isOn('TELEGRAM'),
+      whatsapp: this.isOn('WHATSAPP'),
+      push: this.isOn('PUSH'),
+      email: this.isOn('EMAIL'),
+    };
+  }
+
+  // The public half of the VAPID pair, which a browser subscribes with; null when push is off.
+  pushKey(): string | null {
+    return this.isOn('PUSH') ? (this.vapidPublicKey ?? null) : null;
   }
 
   get(kind: ChannelKind): Channel {

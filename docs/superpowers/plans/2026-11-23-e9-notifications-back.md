@@ -471,7 +471,7 @@ DELETE one leaves the other; user A can't delete user B's endpoint (nothing remo
 of a master with Telegram + WhatsApp + push + email → after `dispatch`, four deliveries to the master.
 Commit `feat(notifications): a member's channels`.
 
-### - [ ] M8: what is on, for the front
+### - [x] M8: what is on, for the front
 
 **Files:** `src/public-booking/{public-booking.service.ts,public-booking.schema.ts}`,
 `src/notifications/{my-notifications.controller.ts,my-notifications.schema.ts}`,

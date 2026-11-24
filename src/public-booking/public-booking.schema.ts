@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { availableChannelsSchema, clientNotificationsSchema } from '../notifications/channels.schema.js';
 import { bookingConflictSchema } from '../appointments/appointments.schema.js';
 import { blankIsNone, clientName, clientPhone } from '../clients/clients.schema.js';
 import { instant, whenFieldsValid } from '../schedule/schedule.schema.js';
@@ -11,6 +12,8 @@ export const publicBusinessSchema = z.object({
   name: z.string(),
   slug: z.string(),
   timeZone: z.string(),
+  channels: availableChannelsSchema.describe('Which channels the booker may turn on for a booking'),
+  pushKey: z.string().nullable().describe('The VAPID public key a browser subscribes with; null when push is off'),
   masters: z.array(z.object({ id: z.uuid(), name: z.string(), scheduleMode: z.enum(ScheduleMode) })),
 });
 export type PublicBusinessDto = z.infer<typeof publicBusinessSchema>;
@@ -90,6 +93,7 @@ export const managedBookingSchema = z.object({
     oneOffSessionId: z.uuid().nullable(),
   }),
   canChange: z.boolean().describe('BOOKED or CONFIRMED and not started: it can be cancelled or moved'),
+  notifications: clientNotificationsSchema,
 });
 export type ManagedBookingDto = z.infer<typeof managedBookingSchema>;
 

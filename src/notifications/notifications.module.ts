@@ -11,6 +11,7 @@ import { WhatsappChannel } from './channels/whatsapp.channel.js';
 import { WhatsappClient } from './channels/whatsapp.client.js';
 import { ClientWhatsappService } from './client-whatsapp.service.js';
 import { ClientEmailService } from './client-email.service.js';
+import { ClientNotificationsService } from './client-notifications.service.js';
 import { ClientPushService } from './client-push.service.js';
 import { LinkTokensService } from './link-tokens.service.js';
 import { DispatcherService } from './dispatcher.service.js';
@@ -52,14 +53,17 @@ import { RemindersService } from './reminders.service.js';
     ClientPushService,
     ClientWhatsappService,
     ClientEmailService,
+    ClientNotificationsService,
   ],
   exports: [
+    ChannelRegistry,
     DispatcherService,
     RemindersService,
     LinkTokensService,
     ClientPushService,
     ClientWhatsappService,
     ClientEmailService,
+    ClientNotificationsService,
   ],
 })
 export class NotificationsModule {}

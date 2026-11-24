@@ -28,6 +28,8 @@ import {
   type MyNotifications,
   myNotificationsSchema,
   type SetMyBusinessNotificationsInput,
+  type SetMyNotificationsInput,
+  setMyNotificationsSchema,
   setMyBusinessNotificationsSchema,
 } from './my-notifications.schema.js';
 import { MyNotificationsService } from './my-notifications.service.js';
@@ -43,11 +45,14 @@ export class MyNotificationsController {
   ) {}
 
   @Get()
-  @ApiOkResponse({ description: 'My account-wide notification switches', schema: openApi(myNotificationsSchema) })
+  @ApiOkResponse({
+    description: 'My account-wide notifications: what the server offers and what is on',
+    schema: openApi(myNotificationsSchema),
+  })
   @ApiUnauthorizedResponse({ description: 'No live session' })
   @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   get(@CurrentUser('id') userId: string): Promise<MyNotifications> {
-    return this.notifications.email(userId);
+    return this.notifications.mine(userId);
   }
 
   @Put()
@@ -57,7 +62,7 @@ export class MyNotificationsController {
   @ApiTooManyRequestsResponse({ description: 'Too many requests; try again later' })
   set(
     @CurrentUser('id') userId: string,
-    @Body({ schema: myNotificationsSchema }) { email }: MyNotifications,
+    @Body({ schema: setMyNotificationsSchema }) { email }: SetMyNotificationsInput,
   ): Promise<MyNotifications> {
     return this.notifications.setEmail(userId, email);
   }

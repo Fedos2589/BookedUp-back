@@ -29,12 +29,14 @@ describe('my email switch', () => {
   it('is on until switched, and changes only the caller’s account', async () => {
     const me = await signUpOwner(app);
     const other = await signUpOwner(app);
-    await http().get(mine).set('Cookie', me.cookie).expect(200).expect({ email: true });
+    await http().get(mine).set('Cookie', me.cookie).expect(200);
+    expect((await http().get(mine).set('Cookie', me.cookie)).body.email).toBe(true);
 
-    await http().put(mine).set('Cookie', me.cookie).send({ email: false }).expect(200).expect({ email: false });
+    const put = await http().put(mine).set('Cookie', me.cookie).send({ email: false }).expect(200);
 
-    await http().get(mine).set('Cookie', me.cookie).expect(200).expect({ email: false });
-    await http().get(mine).set('Cookie', other.cookie).expect(200).expect({ email: true });
+    expect(put.body.email).toBe(false);
+    expect((await http().get(mine).set('Cookie', me.cookie)).body.email).toBe(false);
+    expect((await http().get(mine).set('Cookie', other.cookie)).body.email).toBe(true);
   });
 
   it('wants a boolean and a session', async () => {
@@ -265,5 +267,56 @@ describe('my channels', () => {
     expect(owned).toContain(telegram);
     expect(owned).not.toContain(whatsapp);
     expect(owned).toHaveLength(4); // those three, and the owner's email
+  });
+});
+
+describe('GET /me/notifications: what is on', () => {
+  it('is all off with no keys and no channels', async () => {
+    const me = await signUpOwner(app);
+
+    const res = await http().get(mine).set('Cookie', me.cookie).expect(200);
+
+    expect(res.body).toEqual({
+      available: { telegram: false, whatsapp: false, push: false, email: false },
+      pushKey: null,
+      email: true,
+      telegram: false,
+      whatsapp: null,
+      push: [],
+    });
+  });
+
+  it('follows the keys, and shows my own channels only', async () => {
+    const me = await signUpOwner(app);
+    const other = await signUpOwner(app);
+    const [meId, otherId] = [await userIdOf(app, me.cookie), await userIdOf(app, other.cookie)];
+    const keys = { p256dh: 'a', auth: 'b' };
+    await prisma.userChannel.createMany({
+      data: [
+        { userId: meId, kind: 'TELEGRAM', address: randomUUID() },
+        { userId: meId, kind: 'WHATSAPP', address: '+79990001122' },
+        { userId: meId, kind: 'PUSH', address: 'https://fcm.googleapis.com/fcm/send/1', keys },
+        { userId: otherId, kind: 'PUSH', address: 'https://fcm.googleapis.com/fcm/send/2', keys },
+      ],
+    });
+    const registry = app.get(ChannelRegistry);
+    const on = vi.spyOn(registry, 'isOn').mockReturnValue(true);
+    const key = vi.spyOn(registry, 'pushKey').mockReturnValue('public-key');
+    try {
+      const res = await http().get(mine).set('Cookie', me.cookie).expect(200);
+
+      expect(res.body).toEqual({
+        available: { telegram: true, whatsapp: true, push: true, email: true },
+        pushKey: 'public-key',
+        email: true,
+        telegram: true,
+        whatsapp: '+79990001122',
+        push: ['https://fcm.googleapis.com/fcm/send/1'],
+      });
+      expect(JSON.stringify(res.body)).not.toContain('fcm/send/2');
+    } finally {
+      on.mockRestore();
+      key.mockRestore();
+    }
   });
 });
