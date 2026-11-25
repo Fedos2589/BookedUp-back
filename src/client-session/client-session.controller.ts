@@ -1,8 +1,9 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, Post, Req, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
+  ApiOkResponse,
   ApiNotFoundResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
@@ -20,6 +21,7 @@ import {
 } from '../notifications/link.schema.js';
 import { ClientCookies } from './client-cookies.js';
 import { ClientLoginsService } from './client-logins.service.js';
+import { type ClientLoginStatusDto, clientLoginStatusSchema } from './client-session.schema.js';
 
 // A client's sign-in on the public pages: no account, the phone is confirmed in Telegram.
 @ApiTags('client-session')
@@ -52,5 +54,22 @@ export class ClientSessionController {
     const { link, browserSecret } = await this.logins.start(locale, this.cookies.browserOf(req));
     this.cookies.setBrowser(res, browserSecret);
     return link;
+  }
+
+  @Get('client-login')
+  @Header('Cache-Control', 'no-store')
+  @ApiOkResponse({
+    description:
+      "Where this browser's login stands (by its cookie). `confirmed`: the phone is confirmed, the login is used up and the session cookie is set by this answer; asking again gives `expired`. Poll every couple of seconds for up to 10 minutes.",
+    schema: openApi(clientLoginStatusSchema),
+  })
+  async status(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<ClientLoginStatusDto> {
+    const taken = await this.logins.take(this.cookies.browserOf(req));
+    if ('sessionToken' in taken) {
+      this.cookies.setSession(res, taken.sessionToken);
+      this.cookies.clearBrowser(res);
+      return { status: 'confirmed' };
+    }
+    return taken;
   }
 }

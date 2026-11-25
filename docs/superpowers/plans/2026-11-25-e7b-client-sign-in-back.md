@@ -167,7 +167,7 @@ true, resize_keyboard: true }`. Neither → the «expired» reply as now.
 «expired»; expired login → «expired»; a channel link token still works (existing tests green).
 Commit `feat(notifications): the bot confirms a client's phone`.
 
-### - [ ] S6: the browser takes its session
+### - [x] S6: the browser takes its session
 
 **Files:** `src/client-session/{client-logins.service.ts,client-sessions.service.ts,client-session.controller.ts,client-session.schema.ts}`,
 `test/client-login.int-spec.ts`.

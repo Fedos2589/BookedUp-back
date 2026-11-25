@@ -8,7 +8,7 @@ import { ChannelRegistry } from '../src/notifications/channels/channel-registry.
 import { TelegramClient } from '../src/notifications/channels/telegram.client.js';
 import { TelegramUpdatesService } from '../src/notifications/telegram-updates.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { sessionSetCookie } from './helpers.js';
+import { sessionCookie, sessionSetCookie } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -157,5 +157,88 @@ describe('the bot confirms the phone', () => {
 
     await pressStart(nonce, chatId());
     expect(lastReply().text).toBe('This link has expired, open it again');
+  });
+});
+
+describe('GET /public/client-login', () => {
+  const chat = () => Math.floor(Math.random() * 1_000_000_000) + 1;
+  let call: MockInstance<TelegramClient['call']>;
+  beforeEach(() => {
+    call = vi.spyOn(app.get(TelegramClient), 'call').mockResolvedValue({});
+  });
+  afterEach(() => call.mockRestore());
+
+  const poll = (cookie?: string) => {
+    const req = request(app.getHttpServer()).get('/public/client-login');
+    return cookie === undefined ? req : req.set('Cookie', cookie);
+  };
+  const confirmed = async () => {
+    const res = await start().expect(201);
+    const nonce = (res.body.url as string).split('start=')[1]!;
+    const id = chat();
+    const phone = `+995${Math.floor(Math.random() * 900_000_000) + 100_000_000}`;
+    const bot = app.get(TelegramUpdatesService);
+    await bot.handleUpdate({ message: { text: `/start ${nonce}`, chat: { id, type: 'private' }, from: { id } } });
+    return {
+      cookie: sessionCookie(res, '__Host-cl')!,
+      phone,
+      id,
+      confirm: () =>
+        bot.handleUpdate({
+          message: {
+            contact: { phone_number: phone, user_id: id },
+            chat: { id, type: 'private' },
+            from: { id },
+          },
+        }),
+    };
+  };
+
+  it('is pending until the contact, then gives the session once and only to this browser', async () => {
+    const login = await confirmed();
+    await poll(login.cookie).expect(200, { status: 'pending' });
+
+    await login.confirm();
+    // Another browser, or none, gets nothing from the same login.
+    await poll(`__Host-cl=${'x'.repeat(43)}`).expect(200, { status: 'expired' });
+    await poll().expect(200, { status: 'expired' });
+    expect(await prisma.clientSession.count({ where: { phone: login.phone } })).toBe(0);
+
+    const res = await poll(login.cookie).expect(200, { status: 'confirmed' });
+    expect(res.headers['cache-control']).toBe('no-store');
+    const set = sessionSetCookie(res, '__Host-client')!;
+    expect(set).toMatch(/HttpOnly/);
+    expect(set).toMatch(/Secure/);
+    expect(set).toMatch(/SameSite=Lax/);
+    const token = /^__Host-client=([^;]+)/.exec(set)![1]!;
+    const session = await prisma.clientSession.findUniqueOrThrow({ where: { tokenHash: hashRandomToken(token) } });
+    expect(session).toMatchObject({ phone: login.phone, chatId: String(login.id) });
+    expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 3600 * 1000);
+    expect(sessionSetCookie(res, '__Host-cl')).toMatch(/Expires=Thu, 01 Jan 1970/);
+
+    await poll(login.cookie).expect(200, { status: 'expired' });
+    expect(await prisma.clientSession.count({ where: { phone: login.phone } })).toBe(1);
+  });
+
+  it('two polls at once make one session', async () => {
+    const login = await confirmed();
+    await login.confirm();
+
+    const answers = await Promise.all([poll(login.cookie), poll(login.cookie)]);
+
+    expect(answers.map((a) => a.body.status).sort((a: string, b: string) => a.localeCompare(b))).toEqual([
+      'confirmed',
+      'expired',
+    ]);
+    expect(await prisma.clientSession.count({ where: { phone: login.phone } })).toBe(1);
+  });
+
+  it('an expired login is expired', async () => {
+    const login = await confirmed();
+    await login.confirm();
+    await prisma.clientLogin.updateMany({ where: { chatId: String(login.id) }, data: { expiresAt: new Date(0) } });
+
+    await poll(login.cookie).expect(200, { status: 'expired' });
+    expect(await prisma.clientSession.count({ where: { phone: login.phone } })).toBe(0);
   });
 });

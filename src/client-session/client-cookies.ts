@@ -14,6 +14,7 @@ export function readCookie(header: string | undefined, name: string): string | u
 }
 
 const LOGIN_TTL_MS = 10 * 60 * 1000;
+const SESSION_COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // The client's cookies on the public pages (back-auth: `__Host-` + Secure, plain names with
 // SESSION_COOKIE_SECURE=false). `cl` is the browser's half of a login: only this browser can take
@@ -34,14 +35,24 @@ export class ClientCookies {
     return readCookie(req.headers.cookie, this.browserName);
   }
 
+  get sessionName(): string {
+    return this.secure ? '__Host-client' : 'client';
+  }
+
+  private options(maxAge: number) {
+    return { httpOnly: true, secure: this.secure, sameSite: 'lax', path: '/', maxAge } as const;
+  }
+
   setBrowser(res: Response, secret: string): void {
-    res.cookie(this.browserName, secret, {
-      httpOnly: true,
-      secure: this.secure,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: LOGIN_TTL_MS,
-    });
+    res.cookie(this.browserName, secret, this.options(LOGIN_TTL_MS));
+  }
+
+  clearBrowser(res: Response): void {
+    res.clearCookie(this.browserName, this.options(0));
+  }
+
+  setSession(res: Response, token: string): void {
+    res.cookie(this.sessionName, token, this.options(SESSION_COOKIE_TTL_MS));
   }
 }
 
