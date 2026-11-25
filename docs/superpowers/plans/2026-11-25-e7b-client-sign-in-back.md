@@ -77,7 +77,7 @@ The common plan's «Review focus across repos» 1–6, and:
 
 ---
 
-### - [ ] S1: tables
+### - [x] S1: tables
 
 **Files:** `prisma/schema.prisma`, a new migration `prisma/migrations/<ts>_client_sign_in/migration.sql`,
 `test/schema.int-spec.ts`.
