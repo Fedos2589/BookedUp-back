@@ -5,6 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import { SESSION_TTL_MS } from '../src/client-session/client-sessions.service.js';
 import { ClientSessionPurgeService } from '../src/notifications/client-session-purge.service.js';
+import { ClientLoginConfirmService } from '../src/notifications/client-login-confirm.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { signUpOwner } from './helpers.js';
@@ -90,15 +91,16 @@ describe('DELETE /public/client-session', () => {
 });
 
 describe('ClientSessionPurgeService.purgeExpired', () => {
-  it('deletes expired logins and sessions, keeps the live ones', async () => {
+  const login = (hash: string, expiresAt: Date, chatId?: string) =>
+    prisma.clientLogin.create({
+      data: { nonceHash: `n-${hash}`, browserHash: `b-${hash}`, locale: 'en', expiresAt, chatId },
+    });
+
+  it('deletes expired sessions and long-dead logins, keeps live sessions and logins', async () => {
     const stale = await sessionFor(phone(), new Date(Date.now() - 1000));
     const live = await sessionFor(phone());
-    const login = (hash: string, expiresAt: Date) =>
-      prisma.clientLogin.create({
-        data: { nonceHash: `n-${hash}`, browserHash: `b-${hash}`, locale: 'en', expiresAt },
-      });
     const id = randomUUID();
-    await login(`stale-${id}`, new Date(Date.now() - 1000));
+    await login(`dead-${id}`, new Date(Date.now() - 2 * 24 * 3600_000));
     await login(`live-${id}`, new Date(Date.now() + 60_000));
 
     await app.get(ClientSessionPurgeService).purgeExpired(new Date());
@@ -109,5 +111,16 @@ describe('ClientSessionPurgeService.purgeExpired', () => {
     expect(sessions.map((s) => s.tokenHash)).toEqual([hashRandomToken(live.token)]);
     const logins = await prisma.clientLogin.findMany({ where: { nonceHash: { endsWith: id } } });
     expect(logins.map((l) => l.nonceHash)).toEqual([`n-live-${id}`]);
+  });
+
+  // The bot answers a contact from a chat whose sign-in is out of time («expired») only while it still knows
+  // that chat: the row of an expired login must outlive its ten minutes.
+  it('still lets the bot recognise a chat whose login has just expired', async () => {
+    const chatId = `chat-${randomUUID()}`;
+    await login(`recent-${randomUUID()}`, new Date(Date.now() - 15 * 60_000), chatId);
+
+    await app.get(ClientSessionPurgeService).purgeExpired(new Date());
+
+    expect(await app.get(ClientLoginConfirmService).hasLogin(chatId)).toBe(true);
   });
 });
