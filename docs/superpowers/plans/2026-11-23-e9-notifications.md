@@ -11,11 +11,11 @@ crosses repos. **Tasks live in each repo's own plan** — an executor opens only
 
 ## Steps and where their tasks are
 
-| Step | Repo           | Branch             | Plan                                                                    | Status      |
-| ---- | -------------- | ------------------ | ----------------------------------------------------------------------- | ----------- |
-| N    | BookedUp-back  | `e9/notifications` | `docs/superpowers/plans/2026-11-23-e9-notifications-back.md`, N1–N10    | in review   |
-| M    | BookedUp-back  | `e9/channels`      | same file, M1–M9                                                        | in progress |
-| F    | BookedUp-front | `e9/notifications` | `~/work/BookedUp-front/docs/plans/2026-11-23-e9-notifications-front.md` | not started |
+| Step | Repo           | Branch             | Plan                                                                    | Status             |
+| ---- | -------------- | ------------------ | ----------------------------------------------------------------------- | ------------------ |
+| N    | BookedUp-back  | `e9/notifications` | `docs/superpowers/plans/2026-11-23-e9-notifications-back.md`, N1–N10    | in review          |
+| M    | BookedUp-back  | `e9/channels`      | same file, M1–M9                                                        | in progress        |
+| F    | BookedUp-front | `e9/notifications` | `~/work/BookedUp-front/docs/plans/2026-11-23-e9-notifications-front.md` | done — PRs #53–#57 |
 
 **Order:** N → M → F. N is the engine: events, reminders and settings, with a log channel only
 (every message goes to the log), so it can be reviewed without any outside account. M adds the
