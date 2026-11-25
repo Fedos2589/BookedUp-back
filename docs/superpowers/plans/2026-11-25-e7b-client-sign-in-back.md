@@ -98,7 +98,7 @@ The common plan's «Review focus across repos» 1–6, and:
 TELEGRAM row (no `appointment_id`) succeeds and a card PUSH row still fails (add both to the schema test).
 Commit `feat(client-session): tables`.
 
-### - [ ] S2: a card's Telegram reaches its bookings
+### - [x] S2: a card's Telegram reaches its bookings
 
 **Files:** `src/notifications/dispatcher.service.ts`, `src/notifications/client-notifications.service.ts`,
 `src/notifications/recipients.ts` (+ `recipients.spec.ts`), `test/notification-dispatch.int-spec.ts`.

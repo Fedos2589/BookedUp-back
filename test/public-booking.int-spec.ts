@@ -660,6 +660,15 @@ describe('which channels are on', () => {
     expect(JSON.stringify(res.body)).not.toContain('maria.k');
   });
 
+  it('shows the Telegram on the client’s card as on', async () => {
+    const b = await onlineBooking(app);
+    await channel(b, { appointmentId: null, kind: 'TELEGRAM', address: '555' });
+
+    const res = await http().get(`/public/bookings/${b.token}`).expect(200);
+
+    expect(res.body.notifications.telegram).toBe(true);
+  });
+
   it('does not show the WhatsApp of another client of the business', async () => {
     const b = await onlineBooking(app);
     const stranger = await createClient(prisma, b.business.id, '+79990009999');

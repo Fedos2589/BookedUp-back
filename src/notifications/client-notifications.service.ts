@@ -17,7 +17,7 @@ export const maskEmail = (email: string): string => {
 export class ClientNotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // The same rows the dispatcher reads for the booking: its own, and the WhatsApp of its cards (E9, decision 4).
+  // The same rows the dispatcher reads for the booking: its own, and the card rows of its cards (E9, decision 4; E7b D8).
   async of(booking: {
     businessId: string;
     id: string;
@@ -29,7 +29,7 @@ export class ClientNotificationsService {
       where: {
         businessId,
         disabledAt: null,
-        OR: [{ appointmentId: id }, { kind: 'WHATSAPP', clientId: { in: cardsOf(booking) } }],
+        OR: [{ appointmentId: id }, { appointmentId: null, clientId: { in: cardsOf(booking) } }],
       },
       select: { kind: true, address: true },
       orderBy: { createdAt: 'asc' },
