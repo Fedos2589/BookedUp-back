@@ -84,12 +84,17 @@ export class ClientSessionController {
   @Get('client-session')
   @Header('Cache-Control', 'no-store')
   @ApiOkResponse({
-    description: 'The phone this browser has confirmed, or null without a live session (not an error).',
+    description:
+      'The phone this browser has confirmed, or null without a live session (not an error). A live session is kept 30 days from now, cookie included; a dead cookie is cleared.',
     schema: openApi(clientSessionSchema),
   })
-  async current(@Req() req: Request): Promise<ClientSessionDto> {
+  async current(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<ClientSessionDto> {
     const token = this.cookies.sessionOf(req);
-    const session = token === undefined ? null : await this.sessions.find(token);
+    if (token === undefined) return { phone: null };
+    const session = await this.sessions.find(token);
+    // The cookie follows the session: kept alive while it lives, dropped when it is gone.
+    if (session) this.cookies.setSession(res, token);
+    else this.cookies.clearSession(res);
     return { phone: session?.phone ?? null };
   }
 
