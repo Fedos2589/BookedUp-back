@@ -75,6 +75,22 @@ The common plan's «Review focus across repos» 1–6, and:
 4. `my-bookings` and the by-id routes find only bookings of the session's phone (holder or guardian) at
    the slug's business; another's id is 404, same as a missing one.
 
+## Left from the review of #58 (not done yet)
+
+- **Forwarded sign-in link (must close before S8 ships).** The bot's text now names the site and warns,
+  but a victim can still be talked into sharing their phone. Stronger: the page shows a short code and
+  the bot asks the person to compare it («Это вы входите? Код 4821») before the contact button. Needs a
+  `code` column on `client_logins` (migration), the code in the `POST /public/client-login` answer, the
+  bot's extra step, and the front showing it. Split into its own task on both repos; decide with D9
+  (global session) — a stolen session opens the victim's bookings on every business.
+- **Rate limit of `POST /public/client-login`:** 10/h per IP may be tight behind CGNAT (a school's
+  parents on one mobile network). Decision: keep 10 or raise to 30.
+- **Out of this step, a bug in main:** `switchClientChannelOff` (`src/notifications/client-channels.ts`)
+  filters by `disabledAt: null`, so a Telegram row the dispatcher already disabled as undeliverable gets
+  no `optedOutAt`, and the next `turnClientChannelOn` for the same chat turns it back on against the
+  client's «off». Own branch, own test (booking → dispatcher disables → client switches off → new
+  booking on the same chat stays off).
+
 ---
 
 ### - [x] S1: tables
