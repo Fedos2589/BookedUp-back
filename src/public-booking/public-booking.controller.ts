@@ -1,5 +1,18 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -8,6 +21,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import { hours, Throttle } from '@nestjs/throttler';
@@ -26,6 +40,10 @@ import {
 } from '../notifications/link.schema.js';
 import { type EmailOnInput, emailOnInput } from '../notifications/email.schema.js';
 import { type PushOffInput, pushOffInput, type PushOnInput, pushOnInput } from '../notifications/push.schema.js';
+import { ClientSessionGuard } from '../client-session/client-session.guard.js';
+import { CurrentClient } from '../client-session/current-client.decorator.js';
+import { clientSignInSchema } from '../client-session/client-session.schema.js';
+import type { ClientSession } from '../client-session/client-sessions.service.js';
 import { slugSchema } from '../business/business.schema.js';
 import { openApi, validationErrorSchema } from '../common/api-errors.js';
 import { type PublicSlotsQuery, publicSlotsQuery, type SlotDto, slotSchema } from '../schedule/schedule.schema.js';
@@ -104,12 +122,18 @@ export class PublicBookingController {
   }
 
   @Post('businesses/:slug/bookings')
+  @UseGuards(ClientSessionGuard)
   @Throttle({ default: { limit: 10, ttl: hours(1) } })
   @ApiCreatedResponse({
-    description: 'Booked. `manageLink` is shown once: it is how the booker sees, cancels or moves it',
+    description:
+      'Booked for the phone confirmed in this browser. `manageLink` is shown once: it is how the booker sees, cancels or moves it',
     schema: openApi(publicBookingResultSchema),
   })
   @ApiBadRequestResponse({ description: 'A field is invalid', schema: openApi(validationErrorSchema) })
+  @ApiUnauthorizedResponse({
+    description: 'No confirmed phone in this browser (clientSignIn): start POST /public/client-login',
+    schema: openApi(clientSignInSchema),
+  })
   @ApiNotFoundResponse({ description: 'No business with this slug' })
   @ApiConflictResponse({
     description:
@@ -120,8 +144,9 @@ export class PublicBookingController {
   book(
     @Param('slug', { schema: slugSchema }) slug: string,
     @Body({ schema: publicBookingInput }) input: PublicBookingInput,
+    @CurrentClient() client: ClientSession,
   ): Promise<PublicBookingResult> {
-    return this.service.book(slug, input);
+    return this.service.book(slug, input, client);
   }
 
   @Get('bookings/:token')

@@ -219,7 +219,7 @@ null; sign out → null after. Guard: a unit test with a fake request (no cookie
 401 `clientSignIn`; a live session → passes). No test-only route. The processor spec covers the purge. Commit
 `feat(client-session): read and end a client session`.
 
-### - [ ] S8: a booking needs a confirmed phone
+### - [x] S8: a booking needs a confirmed phone
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `src/notifications/client-channels.ts` (a helper `ensureCardTelegram`), `test/helpers.ts`,
