@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** S11 (or a follow-up) sets row S of the common plan to «done — PR #…».
 
-**Status:** in review (S1–S11 done).
+**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) open.
 
 **Common plan** (goal, decisions 1–6, the front's step): `2026-11-23-e7b-client-sign-in.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — its decisions are «D1»…«D6»,
@@ -75,14 +75,9 @@ The common plan's «Review focus across repos» 1–6, and:
 4. `my-bookings` and the by-id routes find only bookings of the session's phone (holder or guardian) at
    the slug's business; another's id is 404, same as a missing one.
 
-## Left from the review of #58 (not done yet)
+## Left from the review of #58
 
-- **Forwarded sign-in link (must close before S8 ships).** The bot's text now names the site and warns,
-  but a victim can still be talked into sharing their phone. Stronger: the page shows a short code and
-  the bot asks the person to compare it («Это вы входите? Код 4821») before the contact button. Needs a
-  `code` column on `client_logins` (migration), the code in the `POST /public/client-login` answer, the
-  bot's extra step, and the front showing it. Split into its own task on both repos; decide with D9
-  (global session) — a stolen session opens the victim's bookings on every business.
+- **Forwarded sign-in link** — split into S12–S14 below; the front's part is F1 (other repo).
 - ~~**Rate limit of `POST /public/client-login`**~~ — done: 30 an hour per IP (CGNAT).
 - ~~**A bug in main, `switchClientChannelOff`**~~ — done in `b8f59b7` (takes every row without `opted_out_at`).
 
@@ -279,3 +274,64 @@ as a hash, opens only `/public/…` routes through `ClientSessionGuard`, never t
 
 **Check:** `npm run format:check`, and the full list from AGENTS.md «Перед PR» passes. Commit
 `docs(client-session): client sign-in`.
+
+---
+
+## Tails: the sign-in code (branch `e7b/tails-58`, from `main`)
+
+**Why:** a forwarded `t.me/<bot>?start=<nonce>` link can talk a victim into sharing their phone, and the
+attacker's browser takes the session (global, D9: it opens the victim's bookings on every business). The page
+shows a short code; the bot's first message shows the same code and says «press the button only if it is
+the one on your page». A victim who has no such page sees a stranger's code and has nothing to compare it
+with. **Decision (the review's, 2026-11-25):** compare, not type. If it proves too weak, the stronger form is
+the bot offering three codes as inline buttons and the person picking the one from the page (a callback
+query) — a separate task then.
+
+**Data shape:** `client_logins.code` — four digits, `text NOT NULL`, `CHECK (code ~ '^[0-9]{4}$')`. Not a
+secret and never checked by the server: it only lets a human spot the mismatch. Random per login
+(`randomInt(10000)` zero-padded).
+
+### - [ ] S12: the login has a code, the page gets it
+
+**Files:** `prisma/schema.prisma`, new `prisma/migrations/<ts>_client_login_code/migration.sql`,
+`src/client-session/client-logins.service.ts`, `src/client-session/client-session.schema.ts` (the answer
+schema), `src/client-session/client-session.controller.ts`, `test/client-login.int-spec.ts`.
+
+- Migration: `DELETE FROM client_logins` (rows live ten minutes; the code can't be invented for them), then
+  `ALTER TABLE client_logins ADD COLUMN code text NOT NULL`, add the CHECK. Model: `code String`.
+- `start()` writes `code` and returns `{ link, code, browserSecret }`; `POST /public/client-login` answers
+  `{ url, code }` — a new schema `clientLoginStartSchema = telegramLinkSchema.extend({ code: z.string().regex(/^\d{4}$/) })`
+  used in `@ApiCreatedResponse` and as the return type (the front's Orval client gets `code`).
+
+**Check:** int test — 201 body has `code` matching `^\d{4}$` and the row stores the same code; a second
+POST gives a row with its own code; a row with a bad code (`'12a4'`) is refused by the CHECK (see how
+`test/schema.int-spec.ts` pins other CHECKs). Commit `feat(client-session): a sign-in has a code`.
+
+### - [ ] S13: the bot shows the code
+
+**Files:** `src/notifications/client-login-confirm.service.ts`, `src/notifications/telegram-updates.service.ts`,
+`test/client-login.int-spec.ts`.
+
+- `begin()` returns `{ locale, code }` (the same `UPDATE … RETURNING`).
+- `TEXTS.sharePhone(host, code)` en / ru, e.g. «You are signing in on {host}. Code: {code}. Press the button
+  only if this is the code on your page; otherwise ignore this message». The button and keyboard stay.
+
+**Check:** int test with the spied client — after `/start <nonce>` the reply text contains the login's
+code and the host, in the login's language (en and ru); the existing S5 cases stay green. Commit
+`feat(notifications): the bot shows the sign-in's code`.
+
+### - [ ] S14: docs
+
+**Files:** `.claude/skills/back-auth/SKILL.md`, `docs/notifications.md` (only if it describes the bot's
+sign-in text), this file (tick S12–S14, status).
+
+One sentence in `back-auth`: the sign-in's `code` is shown on the page and in the bot, never verified by the
+server — it is a prompt for a human.
+
+**Check:** `npm run format:check`, the full list from AGENTS.md «Перед PR». Commit `docs(client-session): the sign-in code`.
+
+### Front (other repo, after S12): F1 — show the code
+
+Not part of this branch. After S12 merges the front regenerates its API client (`code` in the
+`POST /public/client-login` answer) and, next to the «Open Telegram» button, shows «Code: 4821 — the bot
+will ask you to compare it». Check: Storybook / the sign-in page shows the code; the text is in en and ru.
