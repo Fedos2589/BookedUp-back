@@ -41,8 +41,9 @@ export class ClientSessionController {
     private readonly cookies: ClientCookies,
   ) {}
 
+  // 30, not the booking's 10: a school's parents sit behind one mobile network's address (CGNAT).
   @Post('client-login')
-  @Throttle({ default: { limit: 10, ttl: hours(1) } })
+  @Throttle({ default: { limit: 30, ttl: hours(1) } })
   @ApiCreatedResponse({
     description:
       'Open the link in Telegram and share your phone. This browser gets a cookie that, for 10 minutes, is the only one that can take the session the confirmation opens. A second call replaces the first login.',

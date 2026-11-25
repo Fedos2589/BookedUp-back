@@ -68,7 +68,7 @@ export async function turnClientChannelOn(tx: Prisma.TransactionClient, on: Clie
 // The client switched a kind off from a booking's link: every row of it the booking's client and their guardian
 // have, on the card and on any booking (a chat on several bookings is one «no»), so nothing keeps writing to
 // them. Never deletes: events and deliveries hang on the rows. Marked as the client's own doing (`opted_out_at`),
-// which no later booking on the same address undoes.
+// which no later booking on the same address undoes, also on a row the dispatcher had already switched off.
 export async function switchClientChannelOff(
   db: Pick<Prisma.TransactionClient, 'appointment' | 'clientChannel'>,
   booking: { businessId: string; id: string },
@@ -81,7 +81,7 @@ export async function switchClientChannelOff(
     select: { clientId: true, client: { select: { guardianId: true } } },
   });
   await db.clientChannel.updateMany({
-    where: { businessId, kind, clientId: { in: cardsOf(appointment) }, disabledAt: null },
+    where: { businessId, kind, clientId: { in: cardsOf(appointment) }, optedOutAt: null },
     data: { disabledAt: now, optedOutAt: now },
   });
 }
