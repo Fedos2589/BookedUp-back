@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
-import { hashRandomToken } from '../src/common/random-token.js';
+import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clientSession, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -183,7 +183,7 @@ describe('cancel and move my booking', () => {
 
   it('moves its own booking, and the manage link of it still works', async () => {
     const t = await withSchedule();
-    const token = 'm'.repeat(43);
+    const token = newRandomToken();
     const booking = await t.book(t.holder.id, 7, { manageTokenHash: hashRandomToken(token) });
 
     const res = await act(t.business.slug, booking.id, t.session.cookie).move(slot(8)).expect(200);
@@ -193,6 +193,21 @@ describe('cancel and move my booking', () => {
       .get(`/public/bookings/${token}`)
       .expect(200)
       .expect((r) => expect(r.body.booking).toMatchObject(slot(8)));
+  });
+
+  it('cancels and moves a dependent’s booking: the guardian’s phone is the session’s', async () => {
+    const t = await withSchedule();
+    const child = await prisma.client.create({
+      data: { businessId: t.business.id, name: 'Kid', guardianId: t.holder.id },
+    });
+    const toMove = await t.book(child.id, 7);
+    const toCancel = await t.book(child.id, 9);
+
+    await act(t.business.slug, toMove.id, t.session.cookie).move(slot(8)).expect(200);
+    await act(t.business.slug, toCancel.id, t.session.cookie).cancel().expect(201);
+
+    expect(await prisma.appointment.findFirstOrThrow({ where: { id: toMove.id } })).toMatchObject({ startsAt: at(8) });
+    expect((await prisma.appointment.findFirstOrThrow({ where: { id: toCancel.id } })).status).toBe('CANCELLED');
   });
 
   it('is 404 for another phone’s booking and leaves it as it was', async () => {
@@ -219,7 +234,11 @@ describe('cancel and move my booking', () => {
     );
 
     await act(t.business.slug, booking.id, t.session.cookie).cancel().expect(404);
-    expect((await prisma.appointment.findFirstOrThrow({ where: { id: booking.id } })).status).toBe('BOOKED');
+    await act(t.business.slug, booking.id, t.session.cookie).move(slot(8)).expect(404);
+    expect(await prisma.appointment.findFirstOrThrow({ where: { id: booking.id } })).toMatchObject({
+      status: 'BOOKED',
+      startsAt: at(7),
+    });
   });
 
   it('is 409 badTransition for a started booking, 401 without a session, 400 for a bad body', async () => {
@@ -238,6 +257,9 @@ describe('cancel and move my booking', () => {
     const booking = await t.book(t.holder.id, 7);
 
     expect((await act(t.business.slug, started.id, t.session.cookie).cancel().expect(409)).body.code).toBe(
+      'badTransition',
+    );
+    expect((await act(t.business.slug, started.id, t.session.cookie).move(slot(8)).expect(409)).body.code).toBe(
       'badTransition',
     );
     await act(t.business.slug, booking.id).cancel().expect(401);

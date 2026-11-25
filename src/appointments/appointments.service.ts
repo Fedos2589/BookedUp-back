@@ -245,7 +245,8 @@ export class AppointmentsService {
     return this.relocate(businessId, actor.id, id, current.staffId, input, now, false);
   }
 
-  // The booker moves what they booked online, until it starts: no actor, the business is the token's.
+  // The booker moves their booking, until it starts: no actor. The caller proved the booker owns it (the manage
+  // token, or a client session whose phone is the card's or its guardian's) and passes that business's id.
   async moveOnline(businessId: string, id: string, input: MoveInput, now: Date): Promise<AppointmentDto> {
     const current = await this.prisma.appointment.findFirst({ where: { id, businessId }, select: { staffId: true } });
     if (!current) throw new NotFoundException();
@@ -372,8 +373,8 @@ export class AppointmentsService {
     return this.transition(businessId, actor.id, id, current, status, now);
   }
 
-  // The booker cancels what they booked online, until it starts. Same rule and same conditional
-  // update as the cabinet's status change; the booker is no actor, the business is the token's.
+  // The booker cancels their booking, until it starts (ownership proved by the caller, as for moveOnline). Same
+  // rule and same conditional update as the cabinet's status change; the booker is no actor.
   async cancelOnline(businessId: string, id: string, now: Date): Promise<AppointmentDto> {
     const current = await this.prisma.appointment.findFirst({
       where: { id, businessId },
