@@ -274,6 +274,31 @@ describe('POST /public/businesses/:slug/bookings', () => {
       expect(events.map((e) => e.kind)).toEqual(['BOOKED']);
     });
 
+    it('comes back on when only the dispatcher had given up on the chat: the sign-in proves it is alive', async () => {
+      const t = await withSchedules();
+      const session = await clientSession(app, undefined, '777003');
+      const first = await http()
+        .post(`/public/businesses/${t.business.slug}/bookings`)
+        .set('Cookie', session.cookie)
+        .send(hoursBody(t, 7))
+        .expect(201);
+      const { clientId } = await prisma.appointment.findFirstOrThrow({ where: { id: first.body.booking.id } });
+      await prisma.clientChannel.updateMany({
+        where: { businessId: t.business.id, clientId, kind: 'TELEGRAM' },
+        data: { disabledAt: new Date() }, // undeliverable, not the client's «off»
+      });
+
+      await http()
+        .post(`/public/businesses/${t.business.slug}/bookings`)
+        .set('Cookie', session.cookie)
+        .send(hoursBody(t, 8))
+        .expect(201);
+
+      const rows = await cardChannels(t.business.id, clientId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ disabledAt: null, optedOutAt: null });
+    });
+
     it('stays switched off when the client switched it off: a new booking does not turn it back on', async () => {
       const t = await withSchedules();
       const session = await clientSession(app, undefined, '777002');
