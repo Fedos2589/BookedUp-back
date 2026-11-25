@@ -243,7 +243,7 @@ with another `phone` in the body; the card has a TELEGRAM row with the chat and 
 it; a disabled card Telegram stays disabled after a new booking; limits (10/h IP, 3 ahead) still hold;
 `clientSignIn` false with no token. Commit `feat(public-booking): book with a confirmed phone`.
 
-### - [ ] S9: my bookings
+### - [x] S9: my bookings
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 create `test/my-bookings.int-spec.ts`.

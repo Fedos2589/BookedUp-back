@@ -29,6 +29,7 @@ import { manageLink } from './manage-token.js';
 import type {
   BusinessManifestDto,
   ManagedBookingDto,
+  MyBookingsDto,
   PublicBookingInput,
   PublicBookingResult,
   PublicBusinessDto,
@@ -164,6 +165,50 @@ export class PublicBookingService {
       },
       phone: client.phone,
       manageLink: manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
+    };
+  }
+
+  // What the signed-in phone has coming here: its own bookings and its dependents' (clients whose guardian has
+  // this phone), that hold time and haven't ended. Always this slug's business.
+  async myBookings(slug: string, { phone }: ClientSession): Promise<MyBookingsDto> {
+    const businessId = await this.businessIdOf(slug);
+    const now = new Date();
+    const rows = await this.prisma.appointment.findMany({
+      where: {
+        businessId,
+        ...holdsTime,
+        endsAt: { gt: now },
+        client: { OR: [{ phone }, { guardian: { phone } }] },
+      },
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        clientName: true,
+        staffId: true,
+        startsAt: true,
+        endsAt: true,
+        status: true,
+        groupId: true,
+        oneOffSessionId: true,
+        staff: { select: { name: true } },
+        group: { select: { title: true } },
+        oneOffSession: { select: { title: true } },
+      },
+    });
+    return {
+      bookings: rows.map((row) => ({
+        id: row.id,
+        clientName: row.clientName,
+        staffId: row.staffId,
+        staffName: row.staff.name,
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+        title: row.group?.title ?? row.oneOffSession?.title ?? null,
+        status: row.status,
+        groupId: row.groupId,
+        oneOffSessionId: row.oneOffSessionId,
+        canChange: canChange(row, now),
+      })),
     };
   }
 

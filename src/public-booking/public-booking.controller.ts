@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
@@ -60,6 +61,8 @@ import {
   businessManifestSchema,
   managedBookingSchema,
   manageTokenSchema,
+  type MyBookingsDto,
+  myBookingsSchema,
   type PublicBusinessDto,
   publicBusinessSchema,
 } from './public-booking.schema.js';
@@ -147,6 +150,27 @@ export class PublicBookingController {
     @CurrentClient() client: ClientSession,
   ): Promise<PublicBookingResult> {
     return this.service.book(slug, input, client);
+  }
+
+  @Get('businesses/:slug/my-bookings')
+  @UseGuards(ClientSessionGuard)
+  @Header('Cache-Control', 'no-store')
+  @ApiOkResponse({
+    description:
+      'The bookings to come at this business of the phone confirmed in this browser, and of its dependents, earliest first. Empty for a phone with none.',
+    schema: openApi(myBookingsSchema),
+  })
+  @ApiBadRequestResponse({ description: 'The slug is malformed', schema: openApi(validationErrorSchema) })
+  @ApiUnauthorizedResponse({
+    description: 'No confirmed phone in this browser (clientSignIn)',
+    schema: openApi(clientSignInSchema),
+  })
+  @ApiNotFoundResponse({ description: 'No business with this slug' })
+  myBookings(
+    @Param('slug', { schema: slugSchema }) slug: string,
+    @CurrentClient() client: ClientSession,
+  ): Promise<MyBookingsDto> {
+    return this.service.myBookings(slug, client);
   }
 
   @Get('bookings/:token')

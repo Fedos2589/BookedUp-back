@@ -110,6 +110,26 @@ export const publicMoveConflictSchema = bookingConflictSchema.omit({ code: true 
   code: z.enum(['notFree', 'full', 'badTransition']),
 });
 
+// One of the signed-in client's bookings at this business: theirs, or a dependent's (`clientName` says whose).
+// No client ids, no manage token.
+export const myBookingSchema = z.object({
+  id: z.uuid(),
+  clientName: z.string().describe('Whose booking it is: the holder, or a dependent'),
+  staffId: z.uuid(),
+  staffName: z.string(),
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  title: z.string().nullable().describe("The meeting's title; none for an hours booking"),
+  status: z.enum(AppointmentStatus),
+  groupId: z.uuid().nullable(),
+  oneOffSessionId: z.uuid().nullable(),
+  canChange: z.boolean().describe('BOOKED or CONFIRMED and not started: it can be cancelled or moved'),
+});
+export type MyBookingDto = z.infer<typeof myBookingSchema>;
+
+export const myBookingsSchema = z.object({ bookings: z.array(myBookingSchema) });
+export type MyBookingsDto = z.infer<typeof myBookingsSchema>;
+
 // The business's web app manifest: what makes /book/<slug> installable as its own app.
 export const businessManifestSchema = z.object({
   id: z.string(),
