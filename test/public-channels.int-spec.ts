@@ -516,6 +516,38 @@ describe('DELETE /public/bookings/:token/telegram', () => {
     expect(rows.every((row) => row.disabledAt === null)).toBe(true);
   });
 
+  it('stays off for a chat the dispatcher had switched off before the client said no', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+    const chat = randomUUID();
+    await prisma.clientChannel.create({
+      data: {
+        businessId: b.business.id,
+        clientId: b.clientId,
+        appointmentId: b.appointmentId,
+        kind: 'TELEGRAM',
+        address: chat,
+        locale: 'en',
+        disabledAt: new Date(),
+      },
+    });
+    await telegramOff(b.token).expect(204);
+
+    await prisma.$transaction((tx) =>
+      turnClientChannelOn(tx, {
+        businessId: b.business.id,
+        appointment: { id: other.appointmentId, clientId: b.clientId, startsAt: new Date(Date.now() + 86_400_000) },
+        kind: 'TELEGRAM',
+        address: chat,
+        locale: 'en',
+        manageLink: 'http://localhost/manage',
+      }),
+    );
+
+    const rows = await telegramOf(b.business.id, b.clientId);
+    expect(rows.find((row) => row.appointmentId === b.appointmentId)!.disabledAt).not.toBeNull();
+  });
+
   it('is 204 when it was not on, 404 for an unknown token, 400 for a bad one', async () => {
     const b = await booking();
     await telegramOff(b.token).expect(204);
