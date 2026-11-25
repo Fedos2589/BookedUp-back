@@ -39,6 +39,10 @@ export class ClientCookies {
     return this.secure ? '__Host-client' : 'client';
   }
 
+  sessionOf(req: Request): string | undefined {
+    return readCookie(req.headers.cookie, this.sessionName);
+  }
+
   private options(maxAge: number) {
     return { httpOnly: true, secure: this.secure, sameSite: 'lax', path: '/', maxAge } as const;
   }
@@ -49,6 +53,10 @@ export class ClientCookies {
 
   clearBrowser(res: Response): void {
     res.clearCookie(this.browserName, this.options(0));
+  }
+
+  clearSession(res: Response): void {
+    res.clearCookie(this.sessionName, this.options(0));
   }
 
   setSession(res: Response, token: string): void {

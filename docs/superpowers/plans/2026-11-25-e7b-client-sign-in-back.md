@@ -199,10 +199,10 @@ count decides who wins two parallel polls), insert a `client_sessions` row (30-d
 a second GET → `expired`; the nonce through another browser (no `cl` cookie, or another `cl`) → `expired`,
 no session; pending before the contact. Commit `feat(client-session): a confirmed login becomes a session`.
 
-### - [ ] S7: the session: read, sign out, guard
+### - [x] S7: the session: read, sign out, guard
 
 **Files:** `src/client-session/{client-sessions.service.ts,client-session.guard.ts,current-client.decorator.ts,client-session.controller.ts,client-session.schema.ts}`,
-`src/notifications/notifications.processor.ts` (+ its spec), `test/client-session.int-spec.ts` (new).
+`src/notifications/{notifications.processor.ts,client-session-purge.service.ts}` (+ spec), `test/client-session.int-spec.ts` (new).
 
 - `ClientSessionsService.of(req)` → `{ id, phone, chatId } | null`: by the cookie's hash, unexpired; moves
   `last_used_at` and `expires_at` forward (sliding, conditional update like `touchSession`).

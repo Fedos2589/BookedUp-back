@@ -1,9 +1,10 @@
 import { Public } from '@nestjs/authentication';
-import { Body, Controller, Get, Header, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Post, Req, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
@@ -21,7 +22,13 @@ import {
 } from '../notifications/link.schema.js';
 import { ClientCookies } from './client-cookies.js';
 import { ClientLoginsService } from './client-logins.service.js';
-import { type ClientLoginStatusDto, clientLoginStatusSchema } from './client-session.schema.js';
+import { ClientSessionsService } from './client-sessions.service.js';
+import {
+  type ClientLoginStatusDto,
+  type ClientSessionDto,
+  clientLoginStatusSchema,
+  clientSessionSchema,
+} from './client-session.schema.js';
 
 // A client's sign-in on the public pages: no account, the phone is confirmed in Telegram.
 @ApiTags('client-session')
@@ -30,6 +37,7 @@ import { type ClientLoginStatusDto, clientLoginStatusSchema } from './client-ses
 export class ClientSessionController {
   constructor(
     private readonly logins: ClientLoginsService,
+    private readonly sessions: ClientSessionsService,
     private readonly cookies: ClientCookies,
   ) {}
 
@@ -71,5 +79,26 @@ export class ClientSessionController {
       return { status: 'confirmed' };
     }
     return taken;
+  }
+
+  @Get('client-session')
+  @Header('Cache-Control', 'no-store')
+  @ApiOkResponse({
+    description: 'The phone this browser has confirmed, or null without a live session (not an error).',
+    schema: openApi(clientSessionSchema),
+  })
+  async current(@Req() req: Request): Promise<ClientSessionDto> {
+    const token = this.cookies.sessionOf(req);
+    const session = token === undefined ? null : await this.sessions.find(token);
+    return { phone: session?.phone ?? null };
+  }
+
+  @Delete('client-session')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Signed out; the same when there was no session' })
+  async end(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
+    const token = this.cookies.sessionOf(req);
+    if (token !== undefined) await this.sessions.end(token);
+    this.cookies.clearSession(res);
   }
 }
