@@ -113,7 +113,7 @@ key already makes it one — check, and say which in a comment.
 booking; a card row of another client gets nothing; booking + card on the same chat → one delivery.
 `client-notifications` reports `telegram: true` for a card row. Commit `feat(notifications): Telegram on a client card`.
 
-### - [ ] S3: switch the client's Telegram off by the manage link
+### - [x] S3: switch the client's Telegram off by the manage link
 
 **Files:** `src/public-booking/public-booking.controller.ts`, `src/public-booking/public-booking.service.ts`,
 `test/public-channels.int-spec.ts`.

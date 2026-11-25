@@ -248,6 +248,10 @@ export class PublicBookingService {
     );
   }
 
+  async telegramOff(token: string): Promise<void> {
+    await this.notifications.telegramOff(await this.idsOf(token), new Date());
+  }
+
   async whatsappOff(token: string): Promise<void> {
     await this.whatsapp.turnOff(await this.idsOf(token), new Date());
   }

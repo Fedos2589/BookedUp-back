@@ -386,6 +386,60 @@ describe('a WhatsApp number and the card it hangs on', () => {
   });
 });
 
+const telegramOff = (token: string) => http().delete(`/public/bookings/${token}/telegram`);
+const telegramOf = (businessId: string, clientId: string) =>
+  prisma.clientChannel.findMany({ where: { businessId, clientId, kind: 'TELEGRAM' } });
+
+describe('DELETE /public/bookings/:token/telegram', () => {
+  const telegramOn = (b: Awaited<ReturnType<typeof booking>>, appointmentId: string | null, clientId = b.clientId) =>
+    prisma.clientChannel.create({
+      data: {
+        businessId: b.business.id,
+        clientId,
+        appointmentId,
+        kind: 'TELEGRAM',
+        address: randomUUID(),
+        locale: 'en',
+      },
+    });
+
+  it('switches off the booking’s Telegram and the card’s without deleting them', async () => {
+    const b = await booking();
+    await telegramOn(b, b.appointmentId);
+    await telegramOn(b, null);
+    const before = await http().get(`/public/bookings/${b.token}`).expect(200);
+    expect(before.body.notifications.telegram).toBe(true);
+
+    await telegramOff(b.token).expect(204);
+
+    const rows = await telegramOf(b.business.id, b.clientId);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.disabledAt !== null)).toBe(true);
+    const after = await http().get(`/public/bookings/${b.token}`).expect(200);
+    expect(after.body.notifications.telegram).toBe(false);
+  });
+
+  it('leaves another booking’s Telegram and another client’s card alone', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+    const stranger = await createClient(prisma, b.business.id, '+79990008888');
+    await telegramOn(b, other.appointmentId);
+    await telegramOn(b, null, stranger);
+
+    await telegramOff(b.token).expect(204);
+
+    expect((await telegramOf(b.business.id, b.clientId))[0]!.disabledAt).toBeNull();
+    expect((await telegramOf(b.business.id, stranger))[0]!.disabledAt).toBeNull();
+  });
+
+  it('is 204 when it was not on, 404 for an unknown token, 400 for a bad one', async () => {
+    const b = await booking();
+    await telegramOff(b.token).expect(204);
+    await telegramOff(newRandomToken()).expect(404);
+    await telegramOff('short').expect(400);
+  });
+});
+
 describe('DELETE /public/bookings/:token/whatsapp', () => {
   it('switches the card’s WhatsApp off without deleting it, and a PUT switches it on with a new event', async () => {
     const b = await booking();
