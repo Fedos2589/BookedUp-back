@@ -125,7 +125,7 @@ token; 204 also when nothing was on. Swagger as the other `…Off` routes.
 **Check:** int test — on (booking row and card row) → off → `GET /public/bookings/:token` says
 `telegram: false`, the dispatcher sends nothing to it. Commit `feat(public-booking): turn the client's Telegram off`.
 
-### - [ ] S4: start a login
+### - [x] S4: start a login
 
 **Files:** create `src/client-session/{client-session.module.ts,client-cookies.ts,client-logins.service.ts,client-session.controller.ts,client-session.schema.ts}`,
 `src/app.module.ts`, create `test/client-login.int-spec.ts`.

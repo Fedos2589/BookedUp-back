@@ -10,6 +10,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AccountModule } from './account/account.module.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
 import { ClientsModule } from './clients/clients.module.js';
+import { ClientSessionModule } from './client-session/client-session.module.js';
 import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BusinessModule } from './business/business.module.js';
@@ -89,6 +90,7 @@ import { StaffModule } from './staff/staff.module.js';
     MembersModule,
     InvitationsModule,
     PublicBookingModule,
+    ClientSessionModule,
     NotificationsModule,
   ],
   controllers: [HealthController],
