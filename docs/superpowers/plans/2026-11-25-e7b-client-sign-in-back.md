@@ -83,13 +83,8 @@ The common plan's «Review focus across repos» 1–6, and:
   `code` column on `client_logins` (migration), the code in the `POST /public/client-login` answer, the
   bot's extra step, and the front showing it. Split into its own task on both repos; decide with D9
   (global session) — a stolen session opens the victim's bookings on every business.
-- **Rate limit of `POST /public/client-login`:** 10/h per IP may be tight behind CGNAT (a school's
-  parents on one mobile network). Decision: keep 10 or raise to 30.
-- **Out of this step, a bug in main:** `switchClientChannelOff` (`src/notifications/client-channels.ts`)
-  filters by `disabledAt: null`, so a Telegram row the dispatcher already disabled as undeliverable gets
-  no `optedOutAt`, and the next `turnClientChannelOn` for the same chat turns it back on against the
-  client's «off». Own branch, own test (booking → dispatcher disables → client switches off → new
-  booking on the same chat stays off).
+- ~~**Rate limit of `POST /public/client-login`**~~ — done: 30 an hour per IP (CGNAT).
+- ~~**A bug in main, `switchClientChannelOff`**~~ — done in `b8f59b7` (takes every row without `opted_out_at`).
 
 ---
 
@@ -153,7 +148,7 @@ token; 204 also when nothing was on. Swagger as the other `…Off` routes.
 - `POST /public/client-login` body `{ locale }` (`localeBodySchema`) → 201 `{ url }` (reuse
   `telegramLinkSchema`) and the `cl` cookie (10 min). Writes a `client_logins` row with the nonce's and the
   browser secret's hashes (`newRandomToken`/`hashRandomToken`), 10-minute expiry. 404 `channelOff` when
-  Telegram is off (same check as `LinkTokensService.issue`). `@Throttle` 10 an hour per IP.
+  Telegram is off (same check as `LinkTokensService.issue`). `@Throttle` 30 an hour per IP (was 10; raised for CGNAT, 2026-11-25).
 - A second POST from the same browser replaces its earlier login (delete by the old cookie's hash).
 
 **Check:** int test — 201, the url has `start=<43 chars>`, the cookie is `__Host-cl` HttpOnly Secure
@@ -240,7 +235,7 @@ locale })` — `INSERT … ON CONFLICT DO NOTHING`, never re-enables a disabled 
 
 **Check:** int tests — no cookie → 401 `clientSignIn`; with a session → booked on the session's phone even
 with another `phone` in the body; the card has a TELEGRAM row with the chat and the BOOKED event delivers to
-it; a disabled card Telegram stays disabled after a new booking; limits (10/h IP, 3 ahead) still hold;
+it; a disabled card Telegram stays disabled after a new booking; limits (10/h IP for bookings, 3 ahead) still hold;
 `clientSignIn` false with no token. Commit `feat(public-booking): book with a confirmed phone`.
 
 ### - [x] S9: my bookings
