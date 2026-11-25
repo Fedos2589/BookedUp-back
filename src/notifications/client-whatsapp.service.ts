@@ -3,9 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { statusConflict } from '../appointments/appointments.service.js';
 import { canChange } from '../public-booking/can-change.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { cardsOf } from './booking-cards.js';
 import { ChannelRegistry } from './channels/channel-registry.js';
-import { turnClientChannelOn } from './client-channels.js';
+import { switchClientChannelOff, turnClientChannelOn } from './client-channels.js';
 import { channelOff } from './link-tokens.service.js';
 
 // A client's WhatsApp, found through one online booking. The number belongs to their card — or to their
@@ -58,17 +57,9 @@ export class ClientWhatsappService {
     });
   }
 
-  // Never deletes: events and deliveries hang on the row. The card's and the guardian's, whichever the booking
-  // reaches. Works with the channel off too: someone who asked not to be told must not be told when it comes back on.
+  // The card's and the guardian's, whichever the booking reaches. Works with the channel off too: someone who asked
+  // not to be told must not be told when it comes back on.
   async turnOff(booking: { businessId: string; id: string }, now: Date): Promise<void> {
-    const { businessId, id } = booking;
-    const appointment = await this.prisma.appointment.findFirstOrThrow({
-      where: { id, businessId },
-      select: { clientId: true, client: { select: { guardianId: true } } },
-    });
-    await this.prisma.clientChannel.updateMany({
-      where: { businessId, kind: 'WHATSAPP', clientId: { in: cardsOf(appointment) }, disabledAt: null },
-      data: { disabledAt: now },
-    });
+    await switchClientChannelOff(this.prisma, booking, 'WHATSAPP', now);
   }
 }

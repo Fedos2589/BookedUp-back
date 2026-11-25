@@ -1,4 +1,5 @@
 import type { Prisma, ChannelKind } from '../generated/prisma/client.js';
+import { cardsOf } from './booking-cards.js';
 
 export type ClientChannelOn = {
   businessId: string;
@@ -28,7 +29,7 @@ export async function turnClientChannelOn(tx: Prisma.TransactionClient, on: Clie
             ${kind}::"ChannelKind", ${address}, ${on.keys === undefined ? null : JSON.stringify(on.keys)}::jsonb,
             ${on.locale})
     ON CONFLICT (business_id, client_id, kind, address, appointment_id)
-    DO UPDATE SET disabled_at = NULL, locale = EXCLUDED.locale, keys = EXCLUDED.keys
+    DO UPDATE SET disabled_at = NULL, opted_out_at = NULL, locale = EXCLUDED.locale, keys = EXCLUDED.keys
     WHERE client_channels.disabled_at IS NOT NULL
     RETURNING id`;
   // Already on: a push subscription may have a new key (the same endpoint, re-subscribed), no new event.
@@ -41,10 +42,11 @@ export async function turnClientChannelOn(tx: Prisma.TransactionClient, on: Clie
   // A chat that never worked answers again: the other bookings of this business it was switched off for hear
   // it too (the dispatcher switches off every channel with an address that never worked). Telegram only: a
   // gone push endpoint never comes back, and a WhatsApp number the client switched off (or whose card changed its
-  // phone) stays off, whoever turns the number on.
+  // phone) stays off, whoever turns the number on. So does a Telegram the client switched off themselves
+  // (`opted_out_at`): a new booking on the same chat is no «yes» to the old ones.
   if (kind === 'TELEGRAM') {
     await tx.clientChannel.updateMany({
-      where: { businessId, kind, address, disabledAt: { not: null } },
+      where: { businessId, kind, address, disabledAt: { not: null }, optedOutAt: null },
       data: { disabledAt: null },
     });
   }
@@ -61,4 +63,25 @@ export async function turnClientChannelOn(tx: Prisma.TransactionClient, on: Clie
     },
   });
   return true;
+}
+
+// The client switched a kind off from a booking's link: every row of it the booking's client and their guardian
+// have, on the card and on any booking (a chat on several bookings is one «no»), so nothing keeps writing to
+// them. Never deletes: events and deliveries hang on the rows. Marked as the client's own doing (`opted_out_at`),
+// which no later booking on the same address undoes.
+export async function switchClientChannelOff(
+  db: Pick<Prisma.TransactionClient, 'appointment' | 'clientChannel'>,
+  booking: { businessId: string; id: string },
+  kind: ChannelKind,
+  now: Date,
+): Promise<void> {
+  const { businessId, id } = booking;
+  const appointment = await db.appointment.findFirstOrThrow({
+    where: { id, businessId },
+    select: { clientId: true, client: { select: { guardianId: true } } },
+  });
+  await db.clientChannel.updateMany({
+    where: { businessId, kind, clientId: { in: cardsOf(appointment) }, disabledAt: null },
+    data: { disabledAt: now, optedOutAt: now },
+  });
 }

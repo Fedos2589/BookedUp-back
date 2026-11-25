@@ -8,6 +8,7 @@ import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import type { Locale } from '../account/locale.js';
 import { ChannelRegistry } from '../notifications/channels/channel-registry.js';
+import { switchClientChannelOff } from '../notifications/client-channels.js';
 import { ClientNotificationsService } from '../notifications/client-notifications.service.js';
 import { ClientEmailService } from '../notifications/client-email.service.js';
 import { ClientPushService } from '../notifications/client-push.service.js';
@@ -249,7 +250,7 @@ export class PublicBookingService {
   }
 
   async telegramOff(token: string): Promise<void> {
-    await this.notifications.telegramOff(await this.idsOf(token), new Date());
+    await switchClientChannelOff(this.prisma, await this.idsOf(token), 'TELEGRAM', new Date());
   }
 
   async whatsappOff(token: string): Promise<void> {

@@ -143,12 +143,24 @@ export class DispatcherService {
     }
   }
 
-  // false when a client's delivery has no active channel row any more. A member's channel is deleted, not switched off,
+  // false when a client's delivery has no active channel row any more — among the rows its booking reaches (its own and
+  // its cards'), not any row of the business with this address: the same chat of another client, or of another
+  // booking the client kept, is no reason to write to this one. A member's channel is deleted, not switched off,
   // and the log stands for every kind: both are left alone. Push is checked by its keys.
-  private async clientChannelIsOn({ businessId, audience, channel, address }: Claimed): Promise<boolean> {
+  private async clientChannelIsOn({ businessId, eventId, audience, channel, address }: Claimed): Promise<boolean> {
     if (audience !== 'client' || channel === 'LOG' || channel === 'PUSH') return true;
+    const { appointment } = await this.prisma.notificationEvent.findFirstOrThrow({
+      where: { businessId, id: eventId },
+      select: { appointment: { select: { id: true, clientId: true, client: { select: { guardianId: true } } } } },
+    });
     const on = await this.prisma.clientChannel.findFirst({
-      where: { businessId, kind: channel, address, disabledAt: null },
+      where: {
+        businessId,
+        kind: channel,
+        address,
+        disabledAt: null,
+        OR: [{ appointmentId: appointment.id }, { appointmentId: null, clientId: { in: cardsOf(appointment) } }],
+      },
       select: { id: true },
     });
     return on !== null;
@@ -366,7 +378,9 @@ export class DispatcherService {
         OR: [{ appointmentId: appointment.id }, { appointmentId: null, clientId: { in: cards } }],
       },
       select: { id: true, kind: true, address: true, locale: true },
-      orderBy: { id: 'asc' },
+      // The newest row first: when one chat is on the card and on the booking, `skipDuplicates` keeps the first, so
+      // the language the client chose last wins.
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
     const members: Member[] = memberships.map(({ role, notifyAllOnline, user }) => ({
       userId: user.id,

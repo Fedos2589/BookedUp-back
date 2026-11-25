@@ -575,6 +575,10 @@ model ClientChannel {
   /// Switched off (the client turned it off, or it was unreachable): the row stays, because its events and
   /// deliveries hang on it. Nothing is sent to it; turning it on again clears the mark.
   disabledAt    DateTime?   @map("disabled_at") @db.Timestamptz(3)
+  /// Switched off by the client themselves («don't write to me»), as opposed to the dispatcher finding the
+  /// address unreachable: only the second comes back when the same chat answers again. Needs `disabledAt`
+  /// (CHECK); turning the channel on again clears both.
+  optedOutAt    DateTime?   @map("opted_out_at") @db.Timestamptz(3)
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
 
   business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)

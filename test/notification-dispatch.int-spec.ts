@@ -195,6 +195,31 @@ describe('events into deliveries', () => {
     expect(perEvent.map((g) => g._count)).toEqual([1, 1]);
   });
 
+  it('writes in the language the client chose last when one chat is on the card and on the booking', async () => {
+    const t = await setUp();
+    const clientId = await createClient(prisma, t.businessId, phone());
+    const appointment = await t.book(clientId);
+    const channel = (appointmentId: string | null, locale: string, createdAt: Date) =>
+      prisma.clientChannel.create({
+        data: {
+          businessId: t.businessId,
+          clientId,
+          appointmentId,
+          kind: 'TELEGRAM',
+          address: 'same-chat',
+          locale,
+          createdAt,
+        },
+      });
+    await channel(null, 'ru', new Date(Date.now() - 60_000));
+    await channel(appointment.id, 'en', new Date(Date.now() - 30_000));
+    await t.bookedEvent(appointment);
+
+    await drain();
+
+    expect((await t.deliveries()).filter((row) => row.includes(' client '))).toEqual(['LOG client en same-chat']);
+  });
+
   it('leaves out a channel turned on after the event', async () => {
     const t = await setUp();
     const clientId = await createClient(prisma, t.businessId, phone());

@@ -9,6 +9,8 @@ import { ClientsService } from '../src/clients/clients.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
 import { EmailChannel } from '../src/notifications/channels/email.channel.js';
+import { TelegramChannel } from '../src/notifications/channels/telegram.channel.js';
+import { turnClientChannelOn } from '../src/notifications/client-channels.js';
 import { PushChannel } from '../src/notifications/channels/push.channel.js';
 import { DispatcherService } from '../src/notifications/dispatcher.service.js';
 import { messageFor } from '../src/notifications/messages.js';
@@ -28,6 +30,8 @@ beforeAll(async () => {
   process.env.VAPID_SUBJECT = 'mailto:ops@example.com';
   process.env.WHATSAPP_TOKEN = 'wa-token';
   process.env.WHATSAPP_PHONE_NUMBER_ID = '1234567890';
+  process.env.TELEGRAM_BOT_TOKEN = '123:test-token';
+  process.env.TELEGRAM_BOT_USERNAME = 'bookedup_test_bot';
   process.env.RESEND_API_KEY = 're_test-key';
   process.env.MAIL_FROM = 'BookedUp <no-reply@example.com>';
   app = await createTestApp();
@@ -48,6 +52,8 @@ afterAll(async () => {
     'VAPID_SUBJECT',
     'WHATSAPP_TOKEN',
     'WHATSAPP_PHONE_NUMBER_ID',
+    'TELEGRAM_BOT_TOKEN',
+    'TELEGRAM_BOT_USERNAME',
     'RESEND_API_KEY',
     'MAIL_FROM',
   ])
@@ -419,17 +425,95 @@ describe('DELETE /public/bookings/:token/telegram', () => {
     expect(after.body.notifications.telegram).toBe(false);
   });
 
-  it('leaves another booking’s Telegram and another client’s card alone', async () => {
+  it('leaves another client’s Telegram alone, on their card and on their booking', async () => {
     const b = await booking();
-    const other = await bookingFor(b, b.clientId);
-    const stranger = await createClient(prisma, b.business.id, '+79990008888');
-    await telegramOn(b, other.appointmentId);
-    await telegramOn(b, null, stranger);
+    const strangerBooking = await booking();
+    await telegramOn(b, b.appointmentId);
+    await telegramOn(strangerBooking, strangerBooking.appointmentId, strangerBooking.clientId);
+    await telegramOn(strangerBooking, null, strangerBooking.clientId);
 
     await telegramOff(b.token).expect(204);
 
-    expect((await telegramOf(b.business.id, b.clientId))[0]!.disabledAt).toBeNull();
-    expect((await telegramOf(b.business.id, stranger))[0]!.disabledAt).toBeNull();
+    expect((await telegramOf(b.business.id, b.clientId))[0]!.disabledAt).not.toBeNull();
+    const theirs = await telegramOf(strangerBooking.business.id, strangerBooking.clientId);
+    expect(theirs).toHaveLength(2);
+    expect(theirs.every((row) => row.disabledAt === null)).toBe(true);
+  });
+
+  it('switches the same chat off for the client’s other bookings too', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+    const chat = randomUUID();
+    for (const appointmentId of [b.appointmentId, other.appointmentId])
+      await prisma.clientChannel.create({
+        data: {
+          businessId: b.business.id,
+          clientId: b.clientId,
+          appointmentId,
+          kind: 'TELEGRAM',
+          address: chat,
+          locale: 'en',
+        },
+      });
+
+    await telegramOff(b.token).expect(204);
+
+    const res = await http().get(`/public/bookings/${other.token}`).expect(200);
+    expect(res.body.notifications.telegram).toBe(false);
+  });
+
+  it('stays off when the same chat is turned on for another booking: the client said no', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+    const chat = randomUUID();
+    await telegramOn(b, null).then(({ id }) => prisma.clientChannel.update({ where: { id }, data: { address: chat } }));
+    await telegramOff(b.token).expect(204);
+
+    await prisma.$transaction((tx) =>
+      turnClientChannelOn(tx, {
+        businessId: b.business.id,
+        appointment: { id: other.appointmentId, clientId: b.clientId, startsAt: new Date(Date.now() + 86_400_000) },
+        kind: 'TELEGRAM',
+        address: chat,
+        locale: 'en',
+        manageLink: 'http://localhost/manage',
+      }),
+    );
+
+    const rows = await telegramOf(b.business.id, b.clientId);
+    expect(rows.find((row) => row.appointmentId === null)!.disabledAt).not.toBeNull();
+    expect(rows.find((row) => row.appointmentId === other.appointmentId)!.disabledAt).toBeNull();
+  });
+
+  it('still brings back a chat the dispatcher switched off as unreachable', async () => {
+    const b = await booking();
+    const other = await bookingFor(b, b.clientId);
+    const chat = randomUUID();
+    await prisma.clientChannel.create({
+      data: {
+        businessId: b.business.id,
+        clientId: b.clientId,
+        appointmentId: b.appointmentId,
+        kind: 'TELEGRAM',
+        address: chat,
+        locale: 'en',
+        disabledAt: new Date(),
+      },
+    });
+
+    await prisma.$transaction((tx) =>
+      turnClientChannelOn(tx, {
+        businessId: b.business.id,
+        appointment: { id: other.appointmentId, clientId: b.clientId, startsAt: new Date(Date.now() + 86_400_000) },
+        kind: 'TELEGRAM',
+        address: chat,
+        locale: 'en',
+        manageLink: 'http://localhost/manage',
+      }),
+    );
+
+    const rows = await telegramOf(b.business.id, b.clientId);
+    expect(rows.every((row) => row.disabledAt === null)).toBe(true);
   });
 
   it('is 204 when it was not on, 404 for an unknown token, 400 for a bad one', async () => {
@@ -682,6 +766,73 @@ describe('sending an email', () => {
     await dispatch();
 
     expect(emailsTo(to)).toHaveLength(0);
+  });
+});
+
+describe('sending Telegram after the client switched it off', () => {
+  let kinds: MockInstance<ChannelRegistry['kinds']>;
+  let telegram: MockInstance<TelegramChannel['send']>;
+  beforeEach(() => {
+    kinds = vi.spyOn(app.get(ChannelRegistry), 'kinds').mockReturnValue(['TELEGRAM']);
+    telegram = vi.spyOn(app.get(TelegramChannel), 'send').mockResolvedValue('sent');
+  });
+  afterEach(() => {
+    kinds.mockRestore();
+    telegram.mockRestore();
+  });
+
+  const dispatch = async () => {
+    const dispatcher = app.get(DispatcherService);
+    while ((await dispatcher.send(new Date())) === 50);
+  };
+  const queued = async (b: Awaited<ReturnType<typeof booking>>, address: string) => {
+    const { id: eventId } = await prisma.notificationEvent.create({
+      data: {
+        businessId: b.business.id,
+        appointmentId: b.appointmentId,
+        kind: 'BOOKED',
+        startsAt: new Date(Date.now() + 86_400_000),
+        processedAt: new Date(),
+      },
+    });
+    await prisma.notificationDelivery.create({
+      data: { businessId: b.business.id, eventId, channel: 'TELEGRAM', address, audience: 'client', locale: 'en' },
+    });
+  };
+  const chatOn = (
+    b: Awaited<ReturnType<typeof booking>>,
+    clientId: string,
+    appointmentId: string | null,
+    chat: string,
+  ) =>
+    prisma.clientChannel.create({
+      data: { businessId: b.business.id, clientId, appointmentId, kind: 'TELEGRAM', address: chat, locale: 'en' },
+    });
+  const sentTo = (chat: string) => telegram.mock.calls.filter(([to]) => to === chat);
+
+  it('sends to a chat that is on', async () => {
+    const b = await booking();
+    const chat = randomUUID();
+    await chatOn(b, b.clientId, null, chat);
+    await queued(b, chat);
+
+    await dispatch();
+
+    expect(sentTo(chat)).toHaveLength(1);
+  });
+
+  it('sends nothing queued for the booking, though another client’s booking has the same chat on', async () => {
+    const b = await booking();
+    const stranger = await createClient(prisma, b.business.id, '+79990007777');
+    const chat = randomUUID();
+    await chatOn(b, b.clientId, null, chat);
+    await chatOn(b, stranger, null, chat);
+    await queued(b, chat);
+    await telegramOff(b.token).expect(204);
+
+    await dispatch();
+
+    expect(sentTo(chat)).toHaveLength(0);
   });
 });
 

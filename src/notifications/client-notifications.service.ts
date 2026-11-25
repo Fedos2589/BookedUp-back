@@ -42,23 +42,4 @@ export class ClientNotificationsService {
       email: email === undefined ? null : maskEmail(email.address),
     };
   }
-
-  // The client's Telegram off, whichever of it this booking reaches: its own and its cards' (E7b D8). Never
-  // deletes: events and deliveries hang on the row. Works with Telegram off on the deployment too.
-  async telegramOff(booking: { businessId: string; id: string }, now: Date): Promise<void> {
-    const { businessId, id } = booking;
-    const appointment = await this.prisma.appointment.findFirstOrThrow({
-      where: { id, businessId },
-      select: { clientId: true, client: { select: { guardianId: true } } },
-    });
-    await this.prisma.clientChannel.updateMany({
-      where: {
-        businessId,
-        kind: 'TELEGRAM',
-        disabledAt: null,
-        OR: [{ appointmentId: id }, { appointmentId: null, clientId: { in: cardsOf(appointment) } }],
-      },
-      data: { disabledAt: now },
-    });
-  }
 }

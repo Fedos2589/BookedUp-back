@@ -248,7 +248,7 @@ export class PublicBookingController {
   @HttpCode(204)
   @ApiNoContentResponse({
     description:
-      'Telegram is off for this client: this booking’s and the card’s (also when it was not on, or is not turned on here)',
+      'Telegram is off for this client: every chat of theirs and their guardian’s, on the card and on all their bookings; it stays off when the same chat is turned on for another booking (also when it was not on, or is not turned on here)',
   })
   @ApiBadRequestResponse({ description: 'The token is invalid', schema: openApi(validationErrorSchema) })
   @ApiNotFoundResponse({ description: 'No booking with this token' })
