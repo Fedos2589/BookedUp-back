@@ -61,6 +61,8 @@ import {
   businessManifestSchema,
   managedBookingSchema,
   manageTokenSchema,
+  type MyBookingDto,
+  myBookingSchema,
   type MyBookingsDto,
   myBookingsSchema,
   type PublicBusinessDto,
@@ -174,6 +176,57 @@ export class PublicBookingController {
     @CurrentClient() client: ClientSession,
   ): Promise<MyBookingsDto> {
     return this.service.myBookings(slug, client);
+  }
+
+  @Post('businesses/:slug/my-bookings/:id/cancel')
+  @UseGuards(ClientSessionGuard)
+  @ApiCreatedResponse({ description: 'Cancelled: the booking as it is now', schema: openApi(myBookingSchema) })
+  @ApiBadRequestResponse({ description: 'The slug or the id is malformed', schema: openApi(validationErrorSchema) })
+  @ApiUnauthorizedResponse({
+    description: 'No confirmed phone in this browser (clientSignIn)',
+    schema: openApi(clientSignInSchema),
+  })
+  @ApiNotFoundResponse({
+    description: 'No business with this slug, or no such booking of this phone (another’s id is the same 404)',
+  })
+  @ApiConflictResponse({
+    description: 'The booking has started or is not BOOKED / CONFIRMED any more (badTransition)',
+    schema: openApi(managedBookingConflictSchema),
+  })
+  cancelMine(
+    @Param('slug', { schema: slugSchema }) slug: string,
+    @Param('id', { schema: z.uuid() }) id: string,
+    @CurrentClient() client: ClientSession,
+  ): Promise<MyBookingDto> {
+    return this.service.cancelMine(slug, id, client);
+  }
+
+  @Patch('businesses/:slug/my-bookings/:id')
+  @UseGuards(ClientSessionGuard)
+  @ApiOkResponse({ description: 'Moved: the booking as it is now', schema: openApi(myBookingSchema) })
+  @ApiBadRequestResponse({
+    description: 'The slug, the id or a field is invalid',
+    schema: openApi(validationErrorSchema),
+  })
+  @ApiUnauthorizedResponse({
+    description: 'No confirmed phone in this browser (clientSignIn)',
+    schema: openApi(clientSignInSchema),
+  })
+  @ApiNotFoundResponse({
+    description: 'No business with this slug, or no such booking of this phone (another’s id is the same 404)',
+  })
+  @ApiConflictResponse({
+    description:
+      'The new place is not a free slot (notFree) or has no seat left (full), or the booking has started or is not BOOKED / CONFIRMED (badTransition)',
+    schema: openApi(publicMoveConflictSchema),
+  })
+  moveMine(
+    @Param('slug', { schema: slugSchema }) slug: string,
+    @Param('id', { schema: z.uuid() }) id: string,
+    @Body({ schema: moveInput }) input: MoveInput,
+    @CurrentClient() client: ClientSession,
+  ): Promise<MyBookingDto> {
+    return this.service.moveMine(slug, id, input, client);
   }
 
   @Get('bookings/:token')

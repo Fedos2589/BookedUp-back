@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import type { Prisma } from '../generated/prisma/client.js';
 import type { MoveInput } from '../appointments/appointments.schema.js';
 import { AppointmentsService, isNotFree, notFree, statusConflict } from '../appointments/appointments.service.js';
 import { ClientsService } from '../clients/clients.service.js';
@@ -29,6 +30,7 @@ import { manageLink } from './manage-token.js';
 import type {
   BusinessManifestDto,
   ManagedBookingDto,
+  MyBookingDto,
   MyBookingsDto,
   PublicBookingInput,
   PublicBookingResult,
@@ -37,6 +39,37 @@ import type {
 
 // Bookings to come that hold time (not cancelled) that one phone may have at a business.
 const MAX_AHEAD = 3;
+
+const myBookingSelect = {
+  id: true,
+  clientName: true,
+  staffId: true,
+  startsAt: true,
+  endsAt: true,
+  status: true,
+  groupId: true,
+  oneOffSessionId: true,
+  staff: { select: { name: true } },
+  group: { select: { title: true } },
+  oneOffSession: { select: { title: true } },
+} satisfies Prisma.AppointmentSelect;
+
+const toMyBooking = (
+  row: Prisma.AppointmentGetPayload<{ select: typeof myBookingSelect }>,
+  now: Date,
+): MyBookingDto => ({
+  id: row.id,
+  clientName: row.clientName,
+  staffId: row.staffId,
+  staffName: row.staff.name,
+  startsAt: row.startsAt.toISOString(),
+  endsAt: row.endsAt.toISOString(),
+  title: row.group?.title ?? row.oneOffSession?.title ?? null,
+  status: row.status,
+  groupId: row.groupId,
+  oneOffSessionId: row.oneOffSessionId,
+  canChange: canChange(row, now),
+});
 
 // What a visitor does without signing in. The slug is turned into the business's id once per
 // request; every query after it carries that id.
@@ -168,48 +201,57 @@ export class PublicBookingService {
     };
   }
 
-  // What the signed-in phone has coming here: its own bookings and its dependents' (clients whose guardian has
-  // this phone), that hold time and haven't ended. Always this slug's business.
+  // The bookings the session's phone may act on at this business: its own and its dependents' (clients whose
+  // guardian has this phone). One place for «whose», so the list and the by-id routes can't differ.
+  private ownedBy(businessId: string, phone: string) {
+    return { businessId, client: { OR: [{ phone }, { guardian: { phone } }] } };
+  }
+
+  // What the signed-in phone has coming here: its own bookings and its dependents', that hold time and haven't
+  // ended. Always this slug's business.
   async myBookings(slug: string, { phone }: ClientSession): Promise<MyBookingsDto> {
     const businessId = await this.businessIdOf(slug);
     const now = new Date();
     const rows = await this.prisma.appointment.findMany({
-      where: {
-        businessId,
-        ...holdsTime,
-        endsAt: { gt: now },
-        client: { OR: [{ phone }, { guardian: { phone } }] },
-      },
+      where: { ...this.ownedBy(businessId, phone), ...holdsTime, endsAt: { gt: now } },
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        clientName: true,
-        staffId: true,
-        startsAt: true,
-        endsAt: true,
-        status: true,
-        groupId: true,
-        oneOffSessionId: true,
-        staff: { select: { name: true } },
-        group: { select: { title: true } },
-        oneOffSession: { select: { title: true } },
-      },
+      select: myBookingSelect,
     });
-    return {
-      bookings: rows.map((row) => ({
-        id: row.id,
-        clientName: row.clientName,
-        staffId: row.staffId,
-        staffName: row.staff.name,
-        startsAt: row.startsAt.toISOString(),
-        endsAt: row.endsAt.toISOString(),
-        title: row.group?.title ?? row.oneOffSession?.title ?? null,
-        status: row.status,
-        groupId: row.groupId,
-        oneOffSessionId: row.oneOffSessionId,
-        canChange: canChange(row, now),
-      })),
-    };
+    return { bookings: rows.map((row) => toMyBooking(row, now)) };
+  }
+
+  // The booking `id` if it is the session's phone's at this slug's business; 404 otherwise, the same as a
+  // missing one, so an id of someone else's says nothing.
+  private async ownBooking(slug: string, id: string, { phone }: ClientSession): Promise<string> {
+    const businessId = await this.businessIdOf(slug);
+    const found = await this.prisma.appointment.findFirst({
+      where: { id, ...this.ownedBy(businessId, phone) },
+      select: { id: true },
+    });
+    if (!found) throw new NotFoundException();
+    return businessId;
+  }
+
+  private async myBooking(businessId: string, id: string, now: Date): Promise<MyBookingDto> {
+    const row = await this.prisma.appointment.findFirstOrThrow({
+      where: { id, businessId },
+      select: myBookingSelect,
+    });
+    return toMyBooking(row, now);
+  }
+
+  async cancelMine(slug: string, id: string, client: ClientSession): Promise<MyBookingDto> {
+    const now = new Date();
+    const businessId = await this.ownBooking(slug, id, client);
+    await this.appointments.cancelOnline(businessId, id, now);
+    return this.myBooking(businessId, id, now);
+  }
+
+  async moveMine(slug: string, id: string, input: MoveInput, client: ClientSession): Promise<MyBookingDto> {
+    const now = new Date();
+    const businessId = await this.ownBooking(slug, id, client);
+    await this.appointments.moveOnline(businessId, id, input, now);
+    return this.myBooking(businessId, id, now);
   }
 
   // The booking the token belongs to, with the business it is in; every later query carries that id.

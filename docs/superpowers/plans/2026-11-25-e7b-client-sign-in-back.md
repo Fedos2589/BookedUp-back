@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** S11 (or a follow-up) sets row S of the common plan to «done — PR #…».
 
-**Status:** not started.
+**Status:** in review (S1–S11 done).
 
 **Common plan** (goal, decisions 1–6, the front's step): `2026-11-23-e7b-client-sign-in.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — its decisions are «D1»…«D6»,
@@ -257,7 +257,7 @@ shape for a phone with no bookings (empty list).
 **Check:** int test — own and a dependent's bookings listed; another phone's, another business's, past
 and cancelled ones not; no session → 401. Commit `feat(public-booking): my bookings`.
 
-### - [ ] S10: cancel and move my booking
+### - [x] S10: cancel and move my booking
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,
 `test/my-bookings.int-spec.ts`.
@@ -272,7 +272,7 @@ token routes use. Answer the S9 item. Errors and Swagger as the token routes (40
 booking → 409; the manage link of the same booking still works after a move. Commit
 `feat(public-booking): cancel and move my booking`.
 
-### - [ ] S11: docs
+### - [x] S11: docs
 
 **Files:** `.claude/skills/back-auth/SKILL.md`, `AGENTS.md` (one line under «Что где» for
 `src/client-session/`), `docs/notifications.md` (the bot also confirms phones; nothing to set up beyond
