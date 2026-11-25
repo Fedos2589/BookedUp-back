@@ -6,7 +6,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { hashRandomToken } from '../common/random-token.js';
 import { canChange } from '../public-booking/can-change.js';
 import { TelegramClient } from './channels/telegram.client.js';
+import { clientPhone } from '../clients/clients.schema.js';
 import { turnClientChannelOn } from './client-channels.js';
+import { ClientLoginConfirmService } from './client-login-confirm.service.js';
 
 // The part of an update we read: a text message from a private chat. Anything else is not for us.
 const startUpdate = z.object({
@@ -17,9 +19,35 @@ const startUpdate = z.object({
   }),
 });
 
-const TEXTS: Record<Locale, { connected: string; expired: string }> = {
-  en: { connected: "Connected: you'll get your bookings here", expired: 'This link has expired, open it again' },
-  ru: { connected: 'Подключено: записи будут приходить сюда', expired: 'Ссылка истекла, откройте её заново' },
+// The phone a person shares with the button: their own (`user_id` is the sender), from a private chat.
+const contactUpdate = z.object({
+  message: z.object({
+    contact: z.object({ phone_number: z.string().max(32), user_id: z.number().int().optional() }),
+    chat: z.object({ id: z.number().int(), type: z.literal('private') }),
+    from: z.object({ id: z.number().int(), language_code: z.string().optional() }),
+  }),
+});
+
+const TEXTS: Record<
+  Locale,
+  { connected: string; expired: string; sharePhone: string; shareButton: string; phoneOk: string; ownPhone: string }
+> = {
+  en: {
+    connected: "Connected: you'll get your bookings here",
+    expired: 'This link has expired, open it again',
+    sharePhone: 'Share your phone to confirm it',
+    shareButton: 'Share my phone',
+    phoneOk: 'Phone confirmed, go back to the page',
+    ownPhone: 'Use the button to share your own phone',
+  },
+  ru: {
+    connected: 'Подключено: записи будут приходить сюда',
+    expired: 'Ссылка истекла, откройте её заново',
+    sharePhone: 'Поделитесь номером телефона, чтобы подтвердить его',
+    shareButton: 'Поделиться номером',
+    phoneOk: 'Телефон подтверждён, вернитесь на страницу',
+    ownPhone: 'Нажмите кнопку, чтобы поделиться своим номером',
+  },
 };
 
 type Link = {
@@ -39,10 +67,13 @@ export class TelegramUpdatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly telegram: TelegramClient,
+    private readonly logins: ClientLoginConfirmService,
   ) {}
 
   // Never throws: a failed update is logged, Telegram would only send it again.
   async handleUpdate(update: unknown): Promise<void> {
+    const contact = contactUpdate.safeParse(update);
+    if (contact.success) return this.handleContact(contact.data.message);
     const parsed = startUpdate.safeParse(update);
     if (!parsed.success) return;
     const { text, chat, from } = parsed.data.message;
@@ -63,7 +94,7 @@ export class TelegramUpdatesService {
       const [link] = await tx.$queryRaw<Link[]>`
         DELETE FROM channel_link_tokens WHERE token_hash = ${hash} AND expires_at > now()
         RETURNING user_id, business_id, appointment_id, locale, manage_link`;
-      if (!link) return TEXTS[spoken].expired;
+      if (!link) return this.startLogin(hash, chatId, spoken);
       // The language the person chose where they asked for the link.
       const texts = TEXTS[localeSchema.parse(link.locale)];
       const address = String(chatId);
@@ -97,7 +128,40 @@ export class TelegramUpdatesService {
   }
 
   // Straight to the chat, not through the outbox: the person is waiting for an answer to a button.
-  private async reply(chatId: number, text: string): Promise<void> {
-    await this.telegram.call('sendMessage', { chat_id: chatId, text });
+  // Not a link token: maybe a client's sign-in. Its reply asks for the phone, with the share button.
+  private async startLogin(nonceHash: string, chatId: number, spoken: Locale): Promise<string | null> {
+    const locale = await this.logins.begin(nonceHash, String(chatId));
+    if (locale === null) return TEXTS[spoken].expired;
+    const texts = TEXTS[locale];
+    await this.reply(chatId, texts.sharePhone, {
+      keyboard: [[{ text: texts.shareButton, request_contact: true }]],
+      one_time_keyboard: true,
+      resize_keyboard: true,
+    });
+    return null;
+  }
+
+  private async handleContact({ contact, chat, from }: z.infer<typeof contactUpdate>['message']): Promise<void> {
+    const spoken = localeSchema.safeParse(from.language_code);
+    const texts = TEXTS[spoken.success ? spoken.data : 'en'];
+    try {
+      // Someone else's contact (forwarded, or picked from the address book) proves nothing.
+      if (contact.user_id !== from.id) return await this.reply(chat.id, texts.ownPhone);
+      const phone = clientPhone.safeParse(`+${contact.phone_number.replace(/\D/g, '')}`);
+      if (!phone.success) return await this.reply(chat.id, texts.ownPhone);
+      const locale = await this.logins.confirm(String(chat.id), phone.data);
+      if (locale === null) return await this.reply(chat.id, texts.expired);
+      await this.reply(chat.id, TEXTS[locale].phoneOk, { remove_keyboard: true });
+    } catch (err) {
+      this.logger.warn({ err }, 'Handling a Telegram contact failed');
+    }
+  }
+
+  private async reply(chatId: number, text: string, replyMarkup?: object): Promise<void> {
+    await this.telegram.call('sendMessage', {
+      chat_id: chatId,
+      text,
+      ...(replyMarkup && { reply_markup: replyMarkup }),
+    });
   }
 }

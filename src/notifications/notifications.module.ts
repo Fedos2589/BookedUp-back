@@ -13,6 +13,7 @@ import { ClientWhatsappService } from './client-whatsapp.service.js';
 import { ClientEmailService } from './client-email.service.js';
 import { ClientNotificationsService } from './client-notifications.service.js';
 import { ClientPushService } from './client-push.service.js';
+import { ClientLoginConfirmService } from './client-login-confirm.service.js';
 import { LinkTokensService } from './link-tokens.service.js';
 import { DispatcherService } from './dispatcher.service.js';
 import { TelegramPolling } from './telegram-polling.js';
@@ -38,6 +39,7 @@ import { RemindersService } from './reminders.service.js';
     MyChannelsService,
     LinkTokensService,
     TelegramUpdatesService,
+    ClientLoginConfirmService,
     TelegramPolling,
     NotificationsProcessor,
     DispatcherService,

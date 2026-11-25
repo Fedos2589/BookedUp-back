@@ -1,9 +1,12 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import type { MockInstance } from 'vitest';
 import type { App } from 'supertest/types.js';
 
 import { hashRandomToken } from '../src/common/random-token.js';
 import { ChannelRegistry } from '../src/notifications/channels/channel-registry.js';
+import { TelegramClient } from '../src/notifications/channels/telegram.client.js';
+import { TelegramUpdatesService } from '../src/notifications/telegram-updates.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { sessionSetCookie } from './helpers.js';
 import { createTestApp } from './test-app.js';
@@ -71,5 +74,88 @@ describe('POST /public/client-login', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('the bot confirms the phone', () => {
+  let call: MockInstance<TelegramClient['call']>;
+  beforeEach(() => {
+    call = vi.spyOn(app.get(TelegramClient), 'call').mockResolvedValue({});
+  });
+  afterEach(() => call.mockRestore());
+
+  const chatId = () => Math.floor(Math.random() * 1_000_000_000) + 1;
+  const feed = (update: object) => app.get(TelegramUpdatesService).handleUpdate(update);
+  const pressStart = (nonce: string, chat: number) =>
+    feed({ message: { text: `/start ${nonce}`, chat: { id: chat, type: 'private' }, from: { id: chat } } });
+  const share = (chat: number, phone: string, userId: number | null = chat) =>
+    feed({
+      message: {
+        contact: { phone_number: phone, ...(userId !== null && { user_id: userId }) },
+        chat: { id: chat, type: 'private' },
+        from: { id: chat },
+      },
+    });
+  const lastReply = () => call.mock.calls.at(-1)![1] as { chat_id: number; text: string; reply_markup?: object };
+  const newLogin = async () => {
+    const res = await start().expect(201);
+    const nonce = (res.body.url as string).split('start=')[1]!;
+    return { nonce, row: () => prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } }) };
+  };
+  const digits = () => `995${Math.floor(Math.random() * 900_000_000) + 100_000_000}`;
+
+  it('Start asks for the phone with a share button, then the own contact confirms it', async () => {
+    const { nonce, row } = await newLogin();
+    const chat = chatId();
+
+    await pressStart(nonce, chat);
+
+    expect(lastReply()).toMatchObject({
+      chat_id: chat,
+      text: 'Поделитесь номером телефона, чтобы подтвердить его',
+      reply_markup: { keyboard: [[{ request_contact: true }]] },
+    });
+    expect(await row()).toMatchObject({ chatId: String(chat), phone: null, confirmedAt: null });
+
+    const phone = digits();
+    await share(chat, phone);
+
+    expect(await row()).toMatchObject({ chatId: String(chat), phone: `+${phone}` });
+    expect((await row()).confirmedAt).not.toBeNull();
+    expect(lastReply()).toMatchObject({ text: 'Телефон подтверждён, вернитесь на страницу' });
+    expect(lastReply().reply_markup).toEqual({ remove_keyboard: true });
+  });
+
+  it("another person's contact confirms nothing", async () => {
+    const { nonce, row } = await newLogin();
+    const chat = chatId();
+    await pressStart(nonce, chat);
+
+    await share(chat, digits(), chat + 1);
+    expect((await row()).confirmedAt).toBeNull();
+    expect(lastReply().text).toBe('Use the button to share your own phone');
+
+    await share(chat, digits(), null);
+    expect((await row()).confirmedAt).toBeNull();
+  });
+
+  it('a contact from a chat that never started a login says the link expired', async () => {
+    await share(chatId(), digits());
+
+    expect(lastReply().text).toBe('This link has expired, open it again');
+  });
+
+  it('an expired login cannot be started or confirmed', async () => {
+    const { nonce, row } = await newLogin();
+    const chat = chatId();
+    await pressStart(nonce, chat);
+    await prisma.clientLogin.update({ where: { id: (await row()).id }, data: { expiresAt: new Date(Date.now() - 1) } });
+
+    await share(chat, digits());
+    expect((await row()).confirmedAt).toBeNull();
+    expect(lastReply().text).toBe('This link has expired, open it again');
+
+    await pressStart(nonce, chatId());
+    expect(lastReply().text).toBe('This link has expired, open it again');
   });
 });

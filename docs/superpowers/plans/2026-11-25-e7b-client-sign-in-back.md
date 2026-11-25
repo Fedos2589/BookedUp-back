@@ -144,7 +144,7 @@ token; 204 also when nothing was on. Swagger as the other `…Off` routes.
 SameSite=Lax; only hashes are in the row; Telegram off → 404 `channelOff`; a second POST leaves one row.
 Commit `feat(client-session): start a login through Telegram`.
 
-### - [ ] S5: the bot confirms the phone
+### - [x] S5: the bot confirms the phone
 
 **Files:** `src/notifications/telegram-updates.service.ts`, `src/client-session/client-logins.service.ts`,
 `src/notifications/notifications.module.ts` (import what it needs; no import cycle — the bot calls a
