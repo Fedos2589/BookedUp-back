@@ -10,6 +10,5 @@ import { ClientSessionController } from './client-session.controller.js';
   imports: [NotificationsModule],
   controllers: [ClientSessionController],
   providers: [ClientCookies, ClientLoginsService, ClientSessionsService],
-  exports: [ClientLoginsService],
 })
 export class ClientSessionModule {}

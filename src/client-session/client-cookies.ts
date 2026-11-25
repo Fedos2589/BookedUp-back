@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 
 import type { Env } from '../config/env.js';
+import { SESSION_TTL_MS } from './client-sessions.service.js';
 
 // The value of one cookie of a `Cookie` header; the app has no cookie-parser.
 export function readCookie(header: string | undefined, name: string): string | undefined {
@@ -14,7 +15,6 @@ export function readCookie(header: string | undefined, name: string): string | u
 }
 
 const LOGIN_TTL_MS = 10 * 60 * 1000;
-const SESSION_COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // The client's cookies on the public pages (back-auth: `__Host-` + Secure, plain names with
 // SESSION_COOKIE_SECURE=false). `cl` is the browser's half of a login: only this browser can take
@@ -52,7 +52,7 @@ export class ClientCookies {
   }
 
   setSession(res: Response, token: string): void {
-    res.cookie(this.sessionName, token, this.options(SESSION_COOKIE_TTL_MS));
+    res.cookie(this.sessionName, token, this.options(SESSION_TTL_MS));
   }
 }
 

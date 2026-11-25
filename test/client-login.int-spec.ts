@@ -112,7 +112,7 @@ describe('the bot confirms the phone', () => {
 
     expect(lastReply()).toMatchObject({
       chat_id: chat,
-      text: 'Поделитесь номером телефона, чтобы подтвердить его',
+      text: expect.stringContaining('Поделитесь номером телефона'),
       reply_markup: { keyboard: [[{ request_contact: true }]] },
     });
     expect(await row()).toMatchObject({ chatId: String(chat), phone: null, confirmedAt: null });
@@ -139,10 +139,34 @@ describe('the bot confirms the phone', () => {
     expect((await row()).confirmedAt).toBeNull();
   });
 
-  it('a contact from a chat that never started a login says the link expired', async () => {
+  it('a contact from a chat that never started a login gets no answer', async () => {
     await share(chatId(), digits());
 
-    expect(lastReply().text).toBe('This link has expired, open it again');
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it('names the site in the ask for the phone', async () => {
+    const { nonce } = await newLogin();
+
+    await pressStart(nonce, chatId());
+
+    expect(lastReply().text).toContain('localhost:5173');
+  });
+
+  it('the same nonce pressed in a second chat does not take the login from the first', async () => {
+    const { nonce, row } = await newLogin();
+    const first = chatId();
+    const second = chatId();
+    await pressStart(nonce, first);
+
+    await pressStart(nonce, second);
+
+    expect(lastReply()).toMatchObject({ chat_id: second, text: 'This link has expired, open it again' });
+    expect((await row()).chatId).toBe(String(first));
+    await share(second, digits());
+    expect((await row()).confirmedAt).toBeNull();
+    await share(first, digits());
+    expect((await row()).confirmedAt).not.toBeNull();
   });
 
   it('an expired login cannot be started or confirmed', async () => {
