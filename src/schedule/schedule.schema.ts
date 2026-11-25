@@ -52,7 +52,6 @@ export const dayWindowSchema = z.object({
   durationMinutes: z.int().min(1).max(1440),
   slotMinutes,
 });
-export type DayWindowDto = z.infer<typeof dayWindowSchema>;
 
 const dayWindowInput = dayWindowSchema.refine((window) => window.slotMinutes <= window.durationMinutes, {
   path: ['slotMinutes'],
