@@ -244,6 +244,18 @@ export class PublicBookingController {
     return this.service.whatsappOff(token);
   }
 
+  @Delete('bookings/:token/telegram')
+  @HttpCode(204)
+  @ApiNoContentResponse({
+    description:
+      'Telegram is off for this client: every chat of theirs and their guardian’s, on the card and on all their bookings; it stays off when the same chat is turned on for another booking (also when it was not on, or is not turned on here)',
+  })
+  @ApiBadRequestResponse({ description: 'The token is invalid', schema: openApi(validationErrorSchema) })
+  @ApiNotFoundResponse({ description: 'No booking with this token' })
+  telegramOff(@Param('token', { schema: manageTokenSchema }) token: string): Promise<void> {
+    return this.service.telegramOff(token);
+  }
+
   @Put('bookings/:token/email')
   @HttpCode(204)
   @Throttle({ default: { limit: 10, ttl: hours(1) } })

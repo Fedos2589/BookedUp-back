@@ -77,7 +77,7 @@ The common plan's «Review focus across repos» 1–6, and:
 
 ---
 
-### - [ ] S1: tables
+### - [x] S1: tables
 
 **Files:** `prisma/schema.prisma`, a new migration `prisma/migrations/<ts>_client_sign_in/migration.sql`,
 `test/schema.int-spec.ts`.
@@ -98,7 +98,7 @@ The common plan's «Review focus across repos» 1–6, and:
 TELEGRAM row (no `appointment_id`) succeeds and a card PUSH row still fails (add both to the schema test).
 Commit `feat(client-session): tables`.
 
-### - [ ] S2: a card's Telegram reaches its bookings
+### - [x] S2: a card's Telegram reaches its bookings
 
 **Files:** `src/notifications/dispatcher.service.ts`, `src/notifications/client-notifications.service.ts`,
 `src/notifications/recipients.ts` (+ `recipients.spec.ts`), `test/notification-dispatch.int-spec.ts`.
@@ -113,7 +113,7 @@ key already makes it one — check, and say which in a comment.
 booking; a card row of another client gets nothing; booking + card on the same chat → one delivery.
 `client-notifications` reports `telegram: true` for a card row. Commit `feat(notifications): Telegram on a client card`.
 
-### - [ ] S3: switch the client's Telegram off by the manage link
+### - [x] S3: switch the client's Telegram off by the manage link
 
 **Files:** `src/public-booking/public-booking.controller.ts`, `src/public-booking/public-booking.service.ts`,
 `test/public-channels.int-spec.ts`.

@@ -143,12 +143,24 @@ export class DispatcherService {
     }
   }
 
-  // false when a client's delivery has no active channel row any more. A member's channel is deleted, not switched off,
+  // false when a client's delivery has no active channel row any more — among the rows its booking reaches (its own and
+  // its cards'), not any row of the business with this address: the same chat of another client, or of another
+  // booking the client kept, is no reason to write to this one. A member's channel is deleted, not switched off,
   // and the log stands for every kind: both are left alone. Push is checked by its keys.
-  private async clientChannelIsOn({ businessId, audience, channel, address }: Claimed): Promise<boolean> {
+  private async clientChannelIsOn({ businessId, eventId, audience, channel, address }: Claimed): Promise<boolean> {
     if (audience !== 'client' || channel === 'LOG' || channel === 'PUSH') return true;
+    const { appointment } = await this.prisma.notificationEvent.findFirstOrThrow({
+      where: { businessId, id: eventId },
+      select: { appointment: { select: { id: true, clientId: true, client: { select: { guardianId: true } } } } },
+    });
     const on = await this.prisma.clientChannel.findFirst({
-      where: { businessId, kind: channel, address, disabledAt: null },
+      where: {
+        businessId,
+        kind: channel,
+        address,
+        disabledAt: null,
+        OR: [{ appointmentId: appointment.id }, { appointmentId: null, clientId: { in: cardsOf(appointment) } }],
+      },
       select: { id: true },
     });
     return on !== null;
@@ -352,8 +364,10 @@ export class DispatcherService {
           },
         })
       : [];
-    // The client's WhatsApp sits on their card, or on their guardian's when they have no phone;
-    // every other channel belongs to this booking (E9, decision 4). A channel turned on after the event
+    // The client's card rows (no booking: WhatsApp, and the Telegram they signed in with, E7b D8) sit on their
+    // card, or on their guardian's when they have no phone; the other channels belong to this booking (E9,
+    // decision 4). The same chat on the booking and on the card is one delivery, not two: the key
+    // (event, channel, address, audience) with `skipDuplicates` below makes it one. A channel turned on after the event
     // wasn't there for it: it hears of itself through its own CHANNEL_ON.
     const cards = cardsOf(appointment);
     const clientChannels = await tx.clientChannel.findMany({
@@ -361,10 +375,12 @@ export class DispatcherService {
         businessId,
         disabledAt: null,
         ...(event.kind === 'CHANNEL_ON' ? {} : { createdAt: { lte: event.createdAt } }),
-        OR: [{ appointmentId: appointment.id }, { kind: 'WHATSAPP', clientId: { in: cards } }],
+        OR: [{ appointmentId: appointment.id }, { appointmentId: null, clientId: { in: cards } }],
       },
       select: { id: true, kind: true, address: true, locale: true },
-      orderBy: { id: 'asc' },
+      // The newest row first: when one chat is on the card and on the booking, `skipDuplicates` keeps the first, so
+      // the language the client chose last wins.
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
     const members: Member[] = memberships.map(({ role, notifyAllOnline, user }) => ({
       userId: user.id,
