@@ -257,7 +257,7 @@ shape for a phone with no bookings (empty list).
 **Check:** int test — own and a dependent's bookings listed; another phone's, another business's, past
 and cancelled ones not; no session → 401. Commit `feat(public-booking): my bookings`.
 
-### - [ ] S10: cancel and move my booking
+### - [x] S10: cancel and move my booking
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts}`,
 `test/my-bookings.int-spec.ts`.
