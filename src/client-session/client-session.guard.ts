@@ -1,5 +1,5 @@
 import { type CanActivate, type ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 import { ClientCookies } from './client-cookies.js';
 import { type ClientSession, ClientSessionsService } from './client-sessions.service.js';
@@ -23,11 +23,15 @@ export class ClientSessionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest<ClientRequest>();
+    const http = context.switchToHttp();
+    const req = http.getRequest<ClientRequest>();
     const token = this.cookies.sessionOf(req);
-    const session = token === undefined ? null : await this.sessions.find(token);
+    if (token === undefined) throw clientSignIn();
+    const session = await this.sessions.find(token);
     if (!session) throw clientSignIn();
     req.clientSession = session;
+    // The server's expiry slides, so the browser's cookie does too.
+    this.cookies.setSession(http.getResponse<Response>(), token);
     return true;
   }
 }

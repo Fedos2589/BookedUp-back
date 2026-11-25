@@ -5,6 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import type { MemberRole } from '../src/generated/prisma/enums.js';
+import { ClientCookies } from '../src/client-session/client-cookies.js';
 import { ClientSessionsService } from '../src/client-session/client-sessions.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -109,10 +110,15 @@ export const onlineBooking = async (
 
 // A confirmed client's session, as a browser holds it after the Telegram sign-in: the row is written
 // through the service the sign-in uses, the cookie is what the browser sends back.
-export const clientSession = async (app: INestApplication<App>, phone?: string, chatId = '5550001') => {
+export const clientSession = async (
+  app: INestApplication<App>,
+  phone?: string,
+  chatId = '5550001',
+  locale: 'en' | 'ru' = 'en',
+) => {
   const booked = phone ?? `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
-  const token = await app.get(ClientSessionsService).create(app.get(PrismaService), { phone: booked, chatId });
-  return { cookie: `__Host-client=${token}`, phone: booked, chatId };
+  const token = await app.get(ClientSessionsService).create(app.get(PrismaService), { phone: booked, chatId, locale });
+  return { cookie: `${app.get(ClientCookies).sessionName}=${token}`, phone: booked, chatId };
 };
 
 // POST /public/businesses/:slug/bookings as the client whose phone is `body.phone` (a new random one when

@@ -5,9 +5,10 @@ import type { App } from 'supertest/types.js';
 
 import { SESSION_TTL_MS } from '../src/client-session/client-sessions.service.js';
 import { ClientSessionPurgeService } from '../src/notifications/client-session-purge.service.js';
+import { ClientLoginConfirmService } from '../src/notifications/client-login-confirm.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { signUpOwner } from './helpers.js';
+import { sessionSetCookie, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -25,10 +26,14 @@ afterAll(async () => {
 const phone = () => `+7${randomUUID().replace(/\D/g, '').padEnd(10, '1').slice(0, 10)}`;
 
 // A confirmed client's session, written straight to the table: the cookie a browser would hold.
-const sessionFor = async (clientPhone: string, expiresAt = new Date(Date.now() + SESSION_TTL_MS)) => {
+const sessionFor = async (
+  clientPhone: string,
+  expiresAt = new Date(Date.now() + SESSION_TTL_MS),
+  lastUsedAt = new Date(),
+) => {
   const token = newRandomToken();
   await prisma.clientSession.create({
-    data: { tokenHash: hashRandomToken(token), phone: clientPhone, chatId: '555', expiresAt },
+    data: { tokenHash: hashRandomToken(token), phone: clientPhone, chatId: '555', locale: 'en', expiresAt, lastUsedAt },
   });
   return { token, cookie: `__Host-client=${token}` };
 };
@@ -39,16 +44,39 @@ const read = (cookie?: string) => {
 };
 
 describe('GET /public/client-session', () => {
-  it('gives the phone of the live session and slides its expiry', async () => {
+  it('gives the phone of the live session and keeps its cookie 30 days from now', async () => {
     const clientPhone = phone();
-    const { token, cookie } = await sessionFor(clientPhone, new Date(Date.now() + 60_000));
+    const { token, cookie } = await sessionFor(clientPhone);
 
     const res = await read(cookie).expect(200);
 
     expect(res.body).toEqual({ phone: clientPhone });
     expect(res.headers['cache-control']).toBe('no-store');
-    const row = await prisma.clientSession.findUniqueOrThrow({ where: { tokenHash: hashRandomToken(token) } });
-    expect(row.expiresAt.getTime()).toBeGreaterThan(Date.now() + SESSION_TTL_MS - 60_000);
+    expect(sessionSetCookie(res, '__Host-client')).toMatch(
+      new RegExp(`^__Host-client=${token}; .*Max-Age=${SESSION_TTL_MS / 1000}`),
+    );
+  });
+
+  it('slides the expiry once an hour, not on every read', async () => {
+    const recent = await sessionFor(phone(), new Date(Date.now() + 60_000), new Date(Date.now() - 5 * 60_000));
+    const old = await sessionFor(phone(), new Date(Date.now() + 60_000), new Date(Date.now() - 2 * 3600_000));
+    const expiryOf = async (token: string) =>
+      (await prisma.clientSession.findUniqueOrThrow({ where: { tokenHash: hashRandomToken(token) } })).expiresAt;
+
+    await read(recent.cookie).expect(200);
+    await read(old.cookie).expect(200);
+
+    expect((await expiryOf(recent.token)).getTime()).toBeLessThan(Date.now() + 2 * 60_000);
+    expect((await expiryOf(old.token)).getTime()).toBeGreaterThan(Date.now() + SESSION_TTL_MS - 60_000);
+  });
+
+  it('clears a cookie whose session is gone, and sets none without a cookie', async () => {
+    const expired = await sessionFor(phone(), new Date(Date.now() - 1000));
+
+    const dead = await read(expired.cookie).expect(200).expect({ phone: null });
+    expect(sessionSetCookie(dead, '__Host-client')).toMatch(/^__Host-client=;.*Expires=Thu, 01 Jan 1970/);
+    const none = await read().expect(200);
+    expect(sessionSetCookie(none, '__Host-client')).toBeUndefined();
   });
 
   it('is null without a cookie, with an unknown token and with an expired session', async () => {
@@ -90,15 +118,16 @@ describe('DELETE /public/client-session', () => {
 });
 
 describe('ClientSessionPurgeService.purgeExpired', () => {
-  it('deletes expired logins and sessions, keeps the live ones', async () => {
+  const login = (hash: string, expiresAt: Date, chatId?: string) =>
+    prisma.clientLogin.create({
+      data: { nonceHash: `n-${hash}`, browserHash: `b-${hash}`, locale: 'en', expiresAt, chatId },
+    });
+
+  it('deletes expired sessions and long-dead logins, keeps live sessions and logins', async () => {
     const stale = await sessionFor(phone(), new Date(Date.now() - 1000));
     const live = await sessionFor(phone());
-    const login = (hash: string, expiresAt: Date) =>
-      prisma.clientLogin.create({
-        data: { nonceHash: `n-${hash}`, browserHash: `b-${hash}`, locale: 'en', expiresAt },
-      });
     const id = randomUUID();
-    await login(`stale-${id}`, new Date(Date.now() - 1000));
+    await login(`dead-${id}`, new Date(Date.now() - 2 * 24 * 3600_000));
     await login(`live-${id}`, new Date(Date.now() + 60_000));
 
     await app.get(ClientSessionPurgeService).purgeExpired(new Date());
@@ -109,5 +138,16 @@ describe('ClientSessionPurgeService.purgeExpired', () => {
     expect(sessions.map((s) => s.tokenHash)).toEqual([hashRandomToken(live.token)]);
     const logins = await prisma.clientLogin.findMany({ where: { nonceHash: { endsWith: id } } });
     expect(logins.map((l) => l.nonceHash)).toEqual([`n-live-${id}`]);
+  });
+
+  // The bot answers a contact from a chat whose sign-in is out of time («expired») only while it still knows
+  // that chat: the row of an expired login must outlive its ten minutes.
+  it('still lets the bot recognise a chat whose login has just expired', async () => {
+    const chatId = `chat-${randomUUID()}`;
+    await login(`recent-${randomUUID()}`, new Date(Date.now() - 15 * 60_000), chatId);
+
+    await app.get(ClientSessionPurgeService).purgeExpired(new Date());
+
+    expect(await app.get(ClientLoginConfirmService).hasLogin(chatId)).toBe(true);
   });
 });

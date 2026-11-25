@@ -143,7 +143,10 @@ export class PublicBookingController {
       'The time is not a free slot of the master (notFree), the meeting has no seat left (full), or this phone already has 3 bookings to come (tooManyBookings)',
     schema: openApi(publicBookingConflictSchema),
   })
-  @ApiTooManyRequestsResponse({ description: 'Too many bookings from this address; try again later' })
+  @ApiTooManyRequestsResponse({
+    description:
+      'Too many bookings from this address; try again later. Every attempt counts, a 401 too: check GET /public/client-session before booking instead of trying and catching the 401.',
+  })
   book(
     @Param('slug', { schema: slugSchema }) slug: string,
     @Body({ schema: publicBookingInput }) input: PublicBookingInput,

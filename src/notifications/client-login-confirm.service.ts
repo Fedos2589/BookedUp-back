@@ -33,7 +33,7 @@ export class ClientLoginConfirmService {
     return login ? localeSchema.parse(login.locale) : null;
   }
 
-  // Whether this chat ever started a sign-in (even one that has expired): a contact from a chat that
+  // Whether this chat started a sign-in (an expired one too, until the purge job drops it a day later): a contact from a chat that
   // never did is not ours to answer.
   async hasLogin(chatId: string): Promise<boolean> {
     return (await this.prisma.clientLogin.count({ where: { chatId } })) > 0;

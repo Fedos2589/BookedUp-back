@@ -726,9 +726,9 @@ describe('notifications (E9)', () => {
     const login = (phone: string | null, chatId: string | null, confirmed: boolean) =>
       prisma.$executeRaw`INSERT INTO client_logins (nonce_hash, browser_hash, locale, chat_id, phone, confirmed_at, expires_at)
         VALUES (${unique()}, ${unique()}, 'en', ${chatId}, ${phone}, ${confirmed ? new Date() : null}, now() + interval '10 minutes')`;
-    const session = (phone: string) =>
-      prisma.$executeRaw`INSERT INTO client_sessions (token_hash, phone, chat_id, expires_at)
-        VALUES (${unique()}, ${phone}, 'chat-1', now() + interval '30 days')`;
+    const session = (phone: string, locale = 'en') =>
+      prisma.$executeRaw`INSERT INTO client_sessions (token_hash, phone, chat_id, locale, expires_at)
+        VALUES (${unique()}, ${phone}, 'chat-1', ${locale}, now() + interval '30 days')`;
 
     await expect(login(null, null, false)).resolves.toBeDefined();
     await expect(login('+66812345678', '1', true)).resolves.toBeDefined();
@@ -737,6 +737,7 @@ describe('notifications (E9)', () => {
     await expect(login('66812345678', '1', false)).rejects.toThrow(/client_logins_phone/);
     await expect(session('+66812345678')).resolves.toBeDefined();
     await expect(session('0812345678')).rejects.toThrow(/client_sessions_phone/);
+    await expect(session('+66812345678', 'de')).rejects.toThrow(/client_sessions_locale/);
   });
 
   it('refuses the same channel address twice for one booking, and one card phone twice', async () => {

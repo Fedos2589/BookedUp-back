@@ -123,10 +123,10 @@ export class PublicBookingService {
     return this.schedule.slots(businessId, query, new Date());
   }
 
-  // Books a slot for whoever types a name and a phone: the master asked for, or without one, the
-  // first free master in `orderMasters` order (one who gets taken meanwhile is skipped). The answer
-  // is the same for a phone the business knows and for a new one. The limit is counted in the
-  // booking's transaction, on the locked client, so two parallel bookings can't both pass it.
+  // Books a slot for the signed-in client: their confirmed phone (never one from the body) and the name typed.
+  // The master asked for, or without one, the first free master in `orderMasters` order (one who gets taken
+  // meanwhile is skipped). The answer is the same for a phone the business knows and for a new one. The limit
+  // is counted in the booking's transaction, on the locked client, so two parallel bookings can't both pass it.
   async book(
     slug: string,
     { staffId, ...input }: PublicBookingInput,
@@ -379,7 +379,7 @@ export class PublicBookingService {
           businessId,
           clientId: who.clientId,
           chatId: client.chatId,
-          locale: input.locale,
+          locale: client.locale,
         });
         return who;
       },

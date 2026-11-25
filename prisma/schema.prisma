@@ -546,6 +546,8 @@ model ClientSession {
   /// E.164 (CHECK).
   phone      String
   chatId     String   @map("chat_id")
+  /// The language of the sign-in (`en` or `ru`, CHECK): the one the client's Telegram messages come in.
+  locale     String
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   lastUsedAt DateTime @default(now()) @map("last_used_at") @db.Timestamptz(3)
   expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
