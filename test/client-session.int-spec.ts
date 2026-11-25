@@ -29,7 +29,7 @@ const phone = () => `+7${randomUUID().replace(/\D/g, '').padEnd(10, '1').slice(0
 const sessionFor = async (clientPhone: string, expiresAt = new Date(Date.now() + SESSION_TTL_MS)) => {
   const token = newRandomToken();
   await prisma.clientSession.create({
-    data: { tokenHash: hashRandomToken(token), phone: clientPhone, chatId: '555', expiresAt },
+    data: { tokenHash: hashRandomToken(token), phone: clientPhone, chatId: '555', locale: 'en', expiresAt },
   });
   return { token, cookie: `__Host-client=${token}` };
 };

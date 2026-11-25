@@ -236,7 +236,7 @@ describe('GET /public/client-login', () => {
     expect(set).toMatch(/SameSite=Lax/);
     const token = /^__Host-client=([^;]+)/.exec(set)![1]!;
     const session = await prisma.clientSession.findUniqueOrThrow({ where: { tokenHash: hashRandomToken(token) } });
-    expect(session).toMatchObject({ phone: login.phone, chatId: String(login.id) });
+    expect(session).toMatchObject({ phone: login.phone, chatId: String(login.id), locale: 'ru' });
     expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 3600 * 1000);
     expect(sessionSetCookie(res, '__Host-cl')).toMatch(/Expires=Thu, 01 Jan 1970/);
 

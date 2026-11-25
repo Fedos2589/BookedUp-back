@@ -257,14 +257,14 @@ describe('POST /public/businesses/:slug/bookings', () => {
     const cardChannels = (businessId: string, clientId: string) =>
       prisma.clientChannel.findMany({ where: { businessId, clientId, kind: 'TELEGRAM', appointmentId: null } });
 
-    it('joins the client’s card with the locale, and the BOOKED event is delivered to it', async () => {
+    it('joins the client’s card in the language of the sign-in, and the BOOKED event is delivered to it', async () => {
       const t = await withSchedules();
-      const session = await clientSession(app, undefined, '777001');
+      const session = await clientSession(app, undefined, '777001', 'ru');
 
       const res = await http()
         .post(`/public/businesses/${t.business.slug}/bookings`)
         .set('Cookie', session.cookie)
-        .send(hoursBody(t, 7, { locale: 'ru' }))
+        .send(hoursBody(t, 7, { locale: 'en' })) // the session's language rules, not the body's
         .expect(201);
 
       const stored = await prisma.appointment.findFirstOrThrow({ where: { id: res.body.booking.id } });
@@ -401,13 +401,10 @@ describe('POST /public/businesses/:slug/bookings', () => {
       .expect(201);
   });
 
-  it('is 404 for an unknown slug, 400 for a missing name or an unknown locale, and 409 for another business’s master', async () => {
+  it('is 404 for an unknown slug, 400 for a missing name, and 409 for another business’s master', async () => {
     const t = await withSchedules();
     const other = await withSchedules();
     await bookingsOf('no-such-business-at-all').send(hoursBody(t, 7)).expect(404);
-    await bookingsOf(t.business.slug)
-      .send(hoursBody(t, 7, { locale: 'xx' }))
-      .expect(400);
     await bookingsOf(t.business.slug)
       .send(hoursBody(t, 7, { name: '' }))
       .expect(400);

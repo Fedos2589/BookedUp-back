@@ -109,9 +109,14 @@ export const onlineBooking = async (
 
 // A confirmed client's session, as a browser holds it after the Telegram sign-in: the row is written
 // through the service the sign-in uses, the cookie is what the browser sends back.
-export const clientSession = async (app: INestApplication<App>, phone?: string, chatId = '5550001') => {
+export const clientSession = async (
+  app: INestApplication<App>,
+  phone?: string,
+  chatId = '5550001',
+  locale: 'en' | 'ru' = 'en',
+) => {
   const booked = phone ?? `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
-  const token = await app.get(ClientSessionsService).create(app.get(PrismaService), { phone: booked, chatId });
+  const token = await app.get(ClientSessionsService).create(app.get(PrismaService), { phone: booked, chatId, locale });
   return { cookie: `__Host-client=${token}`, phone: booked, chatId };
 };
 

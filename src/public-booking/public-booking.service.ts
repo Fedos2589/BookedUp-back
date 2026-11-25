@@ -379,7 +379,7 @@ export class PublicBookingService {
           businessId,
           clientId: who.clientId,
           chatId: client.chatId,
-          locale: input.locale,
+          locale: client.locale,
         });
         return who;
       },

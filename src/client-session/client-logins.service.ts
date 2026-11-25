@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import type { Locale } from '../account/locale.js';
+import { type Locale, localeSchema } from '../account/locale.js';
 import { hashRandomToken, newRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import { ChannelRegistry } from '../notifications/channels/channel-registry.js';
@@ -54,12 +54,18 @@ export class ClientLoginsService {
     if (browserSecret === undefined) return { status: 'expired' };
     const browserHash = hashRandomToken(browserSecret);
     return this.prisma.$transaction(async (tx) => {
-      const [taken] = await tx.$queryRaw<{ phone: string; chat_id: string }[]>`
+      const [taken] = await tx.$queryRaw<{ phone: string; chat_id: string; locale: string }[]>`
         DELETE FROM client_logins
         WHERE browser_hash = ${browserHash} AND confirmed_at IS NOT NULL AND expires_at > now()
-        RETURNING phone, chat_id`;
+        RETURNING phone, chat_id, locale`;
       if (taken) {
-        return { sessionToken: await this.sessions.create(tx, { phone: taken.phone, chatId: taken.chat_id }) };
+        return {
+          sessionToken: await this.sessions.create(tx, {
+            phone: taken.phone,
+            chatId: taken.chat_id,
+            locale: localeSchema.parse(taken.locale),
+          }),
+        };
       }
       const waiting = await tx.clientLogin.count({ where: { browserHash, expiresAt: { gt: new Date() } } });
       return { status: waiting > 0 ? 'pending' : 'expired' };

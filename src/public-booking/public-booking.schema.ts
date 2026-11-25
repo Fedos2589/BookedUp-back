@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 import { availableChannelsSchema, clientNotificationsSchema } from '../notifications/channels.schema.js';
 import { bookingConflictSchema } from '../appointments/appointments.schema.js';
-import { localeSchema } from '../account/locale.js';
 import { blankIsNone, clientName } from '../clients/clients.schema.js';
 import { instant, whenFieldsValid } from '../schedule/schedule.schema.js';
 import { AppointmentStatus, ScheduleMode } from '../generated/prisma/enums.js';
@@ -31,7 +30,6 @@ export const publicBookingInput = z
     groupId: z.uuid().optional().describe('Book a seat in the meeting of this group at this time'),
     oneOffSessionId: z.uuid().optional().describe('Book a seat in this one-off session'),
     name: clientName,
-    locale: localeSchema.default('en').describe('The language of the messages the booking gets in Telegram'),
     note: blankIsNone(2000),
   })
   .refine((booking) => booking.startsAt < booking.endsAt, {
