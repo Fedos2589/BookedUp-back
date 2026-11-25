@@ -526,6 +526,8 @@ model ClientLogin {
   browserHash String    @unique @map("browser_hash")
   /// `en` or `ru` (CHECK).
   locale      String
+  /// Four digits (CHECK): shown on the page and by the bot so a person can compare; never verified.
+  code        String
   chatId      String?   @map("chat_id")
   /// E.164 (CHECK).
   phone       String?

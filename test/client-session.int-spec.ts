@@ -120,7 +120,7 @@ describe('DELETE /public/client-session', () => {
 describe('ClientSessionPurgeService.purgeExpired', () => {
   const login = (hash: string, expiresAt: Date, chatId?: string) =>
     prisma.clientLogin.create({
-      data: { nonceHash: `n-${hash}`, browserHash: `b-${hash}`, locale: 'en', expiresAt, chatId },
+      data: { nonceHash: `n-${hash}`, browserHash: `b-${hash}`, locale: 'en', code: '1234', expiresAt, chatId },
     });
 
   it('deletes expired sessions and long-dead logins, keeps live sessions and logins', async () => {

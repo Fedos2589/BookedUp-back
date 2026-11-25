@@ -51,6 +51,9 @@ describe('POST /public/client-login', () => {
     expect(row.nonceHash).not.toBe(nonce);
     expect(row.browserHash).not.toBe(secret);
     expect(row).toMatchObject({ locale: 'ru', chatId: null, phone: null, confirmedAt: null });
+    // The page gets the same four digits the row keeps (the bot shows them too).
+    expect(res.body.code).toMatch(/^\d{4}$/);
+    expect(row.code).toBe(res.body.code);
     expect(row.expiresAt.getTime()).toBeGreaterThan(Date.now() + 9 * 60 * 1000);
     expect(row.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000);
   });
@@ -60,9 +63,12 @@ describe('POST /public/client-login', () => {
     const firstCookie = /^(__Host-cl=[^;]+)/.exec(sessionSetCookie(first, '__Host-cl')!)![1]!;
     const before = await prisma.clientLogin.count();
 
-    await start(firstCookie).expect(201);
+    const second = await start(firstCookie).expect(201);
 
     expect(await prisma.clientLogin.count()).toBe(before);
+    const nonce = (second.body.url as string).split('start=')[1]!;
+    const row = await prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } });
+    expect(row.code).toBe(second.body.code);
   });
 
   it('is 404 channelOff when Telegram is not turned on here', async () => {

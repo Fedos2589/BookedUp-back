@@ -723,9 +723,9 @@ describe('notifications (E9)', () => {
   });
 
   it('keeps a client login and a session to a phone in E.164, and a confirmed login complete', async () => {
-    const login = (phone: string | null, chatId: string | null, confirmed: boolean) =>
-      prisma.$executeRaw`INSERT INTO client_logins (nonce_hash, browser_hash, locale, chat_id, phone, confirmed_at, expires_at)
-        VALUES (${unique()}, ${unique()}, 'en', ${chatId}, ${phone}, ${confirmed ? new Date() : null}, now() + interval '10 minutes')`;
+    const login = (phone: string | null, chatId: string | null, confirmed: boolean, code = '1234') =>
+      prisma.$executeRaw`INSERT INTO client_logins (nonce_hash, browser_hash, locale, code, chat_id, phone, confirmed_at, expires_at)
+        VALUES (${unique()}, ${unique()}, 'en', ${code}, ${chatId}, ${phone}, ${confirmed ? new Date() : null}, now() + interval '10 minutes')`;
     const session = (phone: string, locale = 'en') =>
       prisma.$executeRaw`INSERT INTO client_sessions (token_hash, phone, chat_id, locale, expires_at)
         VALUES (${unique()}, ${phone}, 'chat-1', ${locale}, now() + interval '30 days')`;
@@ -735,6 +735,8 @@ describe('notifications (E9)', () => {
     await expect(login(null, '1', true)).rejects.toThrow(/client_logins_confirmed_complete/);
     await expect(login('+66812345678', null, true)).rejects.toThrow(/client_logins_confirmed_complete/);
     await expect(login('66812345678', '1', false)).rejects.toThrow(/client_logins_phone/);
+    await expect(login(null, null, false, '12a4')).rejects.toThrow(/client_logins_code/);
+    await expect(login(null, null, false, '123')).rejects.toThrow(/client_logins_code/);
     await expect(session('+66812345678')).resolves.toBeDefined();
     await expect(session('0812345678')).rejects.toThrow(/client_sessions_phone/);
     await expect(session('+66812345678', 'de')).rejects.toThrow(/client_sessions_locale/);
