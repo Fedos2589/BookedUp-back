@@ -9,6 +9,7 @@ import { TelegramChannel } from './channels/telegram.channel.js';
 import { TelegramClient } from './channels/telegram.client.js';
 import { WhatsappChannel } from './channels/whatsapp.channel.js';
 import { WhatsappClient } from './channels/whatsapp.client.js';
+import { ClientSessionPurgeService } from './client-session-purge.service.js';
 import { ClientWhatsappService } from './client-whatsapp.service.js';
 import { ClientEmailService } from './client-email.service.js';
 import { ClientNotificationsService } from './client-notifications.service.js';
@@ -38,6 +39,7 @@ import { RemindersService } from './reminders.service.js';
     MyNotificationsService,
     MyChannelsService,
     LinkTokensService,
+    ClientSessionPurgeService,
     TelegramUpdatesService,
     ClientLoginConfirmService,
     TelegramPolling,

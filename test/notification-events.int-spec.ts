@@ -5,7 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { isoWeekday, startOfDay, todayIn } from '../src/schedule/local-time.js';
-import { signUpOwner, userIdOf } from './helpers.js';
+import { bookAsClient, signUpOwner, userIdOf } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -48,9 +48,7 @@ const setUp = async () => {
         .send({ staffId, ...slot(index), newClient: { name: 'Olga', phone: phone() } }),
     );
   const bookOnline = (index: number) =>
-    http()
-      .post(`/public/businesses/${owner.business.slug}/bookings`)
-      .send({ staffId, ...slot(index), name: 'Vera', phone: phone() });
+    bookAsClient(app, owner.business.slug, { staffId, ...slot(index), name: 'Vera', phone: phone() });
   const events = () =>
     prisma.$queryRaw<
       { kind: string; actor_user_id: string | null; starts_at: Date; appointment_id: string; payload: unknown }[]

@@ -85,3 +85,17 @@ export async function switchClientChannelOff(
     data: { disabledAt: now, optedOutAt: now },
   });
 }
+
+// A client's confirmed Telegram chat joins their card (D8), in the booking's transaction and before its BOOKED
+// event, so the confirmation reaches it. Only ever adds: a row that exists, on or off, is left as it is, so a
+// chat the client switched off (or one the dispatcher gave up on) is not turned back on by a new booking. No
+// CHANNEL_ON event: the booking's own messages are the first ones.
+export async function ensureCardTelegram(
+  tx: Prisma.TransactionClient,
+  card: { businessId: string; clientId: string; chatId: string; locale: string },
+): Promise<void> {
+  await tx.$queryRaw`
+    INSERT INTO client_channels (business_id, client_id, appointment_id, kind, address, locale)
+    VALUES (${card.businessId}::uuid, ${card.clientId}::uuid, NULL, 'TELEGRAM'::"ChannelKind", ${card.chatId}, ${card.locale})
+    ON CONFLICT (business_id, client_id, kind, address, appointment_id) DO NOTHING`;
+}

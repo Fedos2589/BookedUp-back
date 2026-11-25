@@ -5,6 +5,7 @@ import type { App } from 'supertest/types.js';
 
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import type { MemberRole } from '../src/generated/prisma/enums.js';
+import { ClientSessionsService } from '../src/client-session/client-sessions.service.js';
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
@@ -105,3 +106,54 @@ export const onlineBooking = async (
   });
   return { token, business: owner.business, appointmentId: created.id, clientId: created.clientId };
 };
+
+// A confirmed client's session, as a browser holds it after the Telegram sign-in: the row is written
+// through the service the sign-in uses, the cookie is what the browser sends back.
+export const clientSession = async (app: INestApplication<App>, phone?: string, chatId = '5550001') => {
+  const booked = phone ?? `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
+  const token = await app.get(ClientSessionsService).create(app.get(PrismaService), { phone: booked, chatId });
+  return { cookie: `__Host-client=${token}`, phone: booked, chatId };
+};
+
+// POST /public/businesses/:slug/bookings as the client whose phone is `body.phone` (a new random one when
+// absent): the phone is no part of the request any more, it comes from the session made here. Awaits and
+// chains `.expect(status)` like a supertest request.
+export const bookAsClient = (
+  app: INestApplication<App>,
+  slug: string,
+  body: { phone?: string } & Record<string, unknown>,
+) => new LazyBooking(app, slug, body);
+
+class LazyBooking implements PromiseLike<request.Response> {
+  private readonly expected: number[] = [];
+
+  constructor(
+    private readonly app: INestApplication<App>,
+    private readonly slug: string,
+    private readonly body: { phone?: string } & Record<string, unknown>,
+  ) {}
+
+  expect(status: number): this {
+    this.expected.push(status);
+    return this;
+  }
+
+  // oxlint-disable-next-line unicorn/no-thenable -- the point: `await` and `.expect()` work as on a supertest request
+  then<R1 = request.Response, R2 = never>(
+    onfulfilled?: ((value: request.Response) => R1 | PromiseLike<R1>) | null,
+    onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
+  ): PromiseLike<R1 | R2> {
+    return this.run().then(onfulfilled, onrejected);
+  }
+
+  private async run(): Promise<request.Response> {
+    const { phone, ...rest } = this.body;
+    const session = await clientSession(this.app, phone);
+    let req = request(this.app.getHttpServer())
+      .post(`/public/businesses/${this.slug}/bookings`)
+      .set('Cookie', session.cookie)
+      .send(rest);
+    for (const status of this.expected) req = req.expect(status);
+    return req;
+  }
+}

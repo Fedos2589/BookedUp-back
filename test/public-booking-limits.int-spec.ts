@@ -15,17 +15,16 @@ afterAll(async () => {
 });
 
 describe('POST /public/businesses/:slug/bookings limit', () => {
-  // Every attempt counts, whatever it ends in: an unknown slug is the cheapest one.
+  // Every attempt counts, whatever it ends in: one without a client session (401) is the cheapest.
   const attempt = () =>
     request(app.getHttpServer()).post('/public/businesses/no-such-business-at-all/bookings').send({
       startsAt: '2030-01-08T07:00:00.000Z',
       endsAt: '2030-01-08T08:00:00.000Z',
       name: 'Vera',
-      phone: '+79991234567',
     });
 
   it('lets 10 attempts an hour from one address through and stops the 11th with 429', async () => {
-    for (let i = 0; i < 10; i++) await attempt().expect(404);
+    for (let i = 0; i < 10; i++) await attempt().expect(401);
 
     await attempt().expect(429);
   });

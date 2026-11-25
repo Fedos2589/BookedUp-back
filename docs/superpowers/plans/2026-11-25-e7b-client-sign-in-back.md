@@ -199,10 +199,10 @@ count decides who wins two parallel polls), insert a `client_sessions` row (30-d
 a second GET → `expired`; the nonce through another browser (no `cl` cookie, or another `cl`) → `expired`,
 no session; pending before the contact. Commit `feat(client-session): a confirmed login becomes a session`.
 
-### - [ ] S7: the session: read, sign out, guard
+### - [x] S7: the session: read, sign out, guard
 
 **Files:** `src/client-session/{client-sessions.service.ts,client-session.guard.ts,current-client.decorator.ts,client-session.controller.ts,client-session.schema.ts}`,
-`src/notifications/notifications.processor.ts` (+ its spec), `test/client-session.int-spec.ts` (new).
+`src/notifications/{notifications.processor.ts,client-session-purge.service.ts}` (+ spec), `test/client-session.int-spec.ts` (new).
 
 - `ClientSessionsService.of(req)` → `{ id, phone, chatId } | null`: by the cookie's hash, unexpired; moves
   `last_used_at` and `expires_at` forward (sliding, conditional update like `touchSession`).
@@ -219,7 +219,7 @@ null; sign out → null after. Guard: a unit test with a fake request (no cookie
 401 `clientSignIn`; a live session → passes). No test-only route. The processor spec covers the purge. Commit
 `feat(client-session): read and end a client session`.
 
-### - [ ] S8: a booking needs a confirmed phone
+### - [x] S8: a booking needs a confirmed phone
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 `src/notifications/client-channels.ts` (a helper `ensureCardTelegram`), `test/helpers.ts`,
@@ -243,7 +243,7 @@ with another `phone` in the body; the card has a TELEGRAM row with the chat and 
 it; a disabled card Telegram stays disabled after a new booking; limits (10/h IP, 3 ahead) still hold;
 `clientSignIn` false with no token. Commit `feat(public-booking): book with a confirmed phone`.
 
-### - [ ] S9: my bookings
+### - [x] S9: my bookings
 
 **Files:** `src/public-booking/{public-booking.controller.ts,public-booking.service.ts,public-booking.schema.ts}`,
 create `test/my-bookings.int-spec.ts`.

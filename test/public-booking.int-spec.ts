@@ -7,7 +7,7 @@ import { generateVAPIDKeys } from 'web-push';
 
 import { hashRandomToken, newRandomToken } from '../src/common/random-token.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { createClient, onlineBooking, signUpOwner } from './helpers.js';
+import { bookAsClient, clientSession, createClient, onlineBooking, signUpOwner } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -47,6 +47,7 @@ describe('GET /public/businesses/:slug', () => {
         { id: adam!.id, name: 'Adam', scheduleMode: 'HOURS' },
         { id: zoe!.id, name: 'Zoe', scheduleMode: 'HOURS' },
       ],
+      clientSignIn: false,
     });
   });
 
@@ -187,7 +188,9 @@ describe('GET /public/businesses/:slug/slots', () => {
 
 describe('POST /public/businesses/:slug/bookings', () => {
   const phoneOf = () => `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
-  const bookingsOf = (slug: string) => http().post(`/public/businesses/${slug}/bookings`);
+  const bookingsOf = (slug: string) => ({
+    send: (body: { phone?: string } & Record<string, unknown>) => bookAsClient(app, slug, body),
+  });
   const hoursBody = (t: Awaited<ReturnType<typeof withSchedules>>, hour: number, who = {}) => ({
     staffId: t.hours.id,
     startsAt: at(hour).toISOString(),
@@ -214,12 +217,88 @@ describe('POST /public/businesses/:slug/bookings', () => {
         groupId: null,
         oneOffSessionId: null,
       },
+      phone: body.phone,
       manageLink: expect.stringMatching(/^http:\/\/localhost:5173\/book\/.+\/manage\/[\w-]{43}$/),
     });
     const stored = await prisma.appointment.findFirstOrThrow({ where: { id: res.body.booking.id } });
     expect(stored).toMatchObject({ businessId: t.business.id, clientName: 'Vera', clientPhone: body.phone });
     expect(stored.manageTokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(res.body.manageLink).not.toContain(stored.manageTokenHash);
+  });
+
+  it('is 401 clientSignIn without a client session, and with only the cabinet’s', async () => {
+    const t = await withSchedules();
+    const { phone: _, ...body } = hoursBody(t, 7);
+    const post = () => http().post(`/public/businesses/${t.business.slug}/bookings`).send(body);
+
+    const res = await post().expect(401);
+    expect(res.body).toMatchObject({ code: 'clientSignIn' });
+    await post().set('Cookie', t.cookie).expect(401);
+    expect(await prisma.appointment.count({ where: { businessId: t.business.id } })).toBe(0);
+  });
+
+  it('books on the session’s phone whatever phone the body carries, and says which phone', async () => {
+    const t = await withSchedules();
+    const session = await clientSession(app);
+
+    const res = await http()
+      .post(`/public/businesses/${t.business.slug}/bookings`)
+      .set('Cookie', session.cookie)
+      .send(hoursBody(t, 7, { phone: '+79990000000' }))
+      .expect(201);
+
+    expect(res.body.phone).toBe(session.phone);
+    const stored = await prisma.appointment.findFirstOrThrow({ where: { id: res.body.booking.id } });
+    expect(stored.clientPhone).toBe(session.phone);
+    expect(await prisma.client.count({ where: { businessId: t.business.id, phone: '+79990000000' } })).toBe(0);
+  });
+
+  describe('the confirmed Telegram chat', () => {
+    const cardChannels = (businessId: string, clientId: string) =>
+      prisma.clientChannel.findMany({ where: { businessId, clientId, kind: 'TELEGRAM', appointmentId: null } });
+
+    it('joins the client’s card with the locale, and the BOOKED event is delivered to it', async () => {
+      const t = await withSchedules();
+      const session = await clientSession(app, undefined, '777001');
+
+      const res = await http()
+        .post(`/public/businesses/${t.business.slug}/bookings`)
+        .set('Cookie', session.cookie)
+        .send(hoursBody(t, 7, { locale: 'ru' }))
+        .expect(201);
+
+      const stored = await prisma.appointment.findFirstOrThrow({ where: { id: res.body.booking.id } });
+      const [card] = await cardChannels(t.business.id, stored.clientId);
+      expect(card).toMatchObject({ address: '777001', locale: 'ru', disabledAt: null, optedOutAt: null });
+      const events = await prisma.notificationEvent.findMany({ where: { appointmentId: stored.id } });
+      expect(events.map((e) => e.kind)).toEqual(['BOOKED']);
+    });
+
+    it('stays switched off when the client switched it off: a new booking does not turn it back on', async () => {
+      const t = await withSchedules();
+      const session = await clientSession(app, undefined, '777002');
+      const first = await http()
+        .post(`/public/businesses/${t.business.slug}/bookings`)
+        .set('Cookie', session.cookie)
+        .send(hoursBody(t, 7))
+        .expect(201);
+      const { clientId } = await prisma.appointment.findFirstOrThrow({ where: { id: first.body.booking.id } });
+      const off = new Date();
+      await prisma.clientChannel.updateMany({
+        where: { businessId: t.business.id, clientId, kind: 'TELEGRAM' },
+        data: { disabledAt: off, optedOutAt: off },
+      });
+
+      await http()
+        .post(`/public/businesses/${t.business.slug}/bookings`)
+        .set('Cookie', session.cookie)
+        .send(hoursBody(t, 8))
+        .expect(201);
+
+      const rows = await cardChannels(t.business.id, clientId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ disabledAt: off, optedOutAt: off });
+    });
   });
 
   it('takes a seat in a meeting and names it', async () => {
@@ -322,12 +401,12 @@ describe('POST /public/businesses/:slug/bookings', () => {
       .expect(201);
   });
 
-  it('is 404 for an unknown slug, 400 for a bad phone or a missing name, and 409 for another business’s master', async () => {
+  it('is 404 for an unknown slug, 400 for a missing name or an unknown locale, and 409 for another business’s master', async () => {
     const t = await withSchedules();
     const other = await withSchedules();
     await bookingsOf('no-such-business-at-all').send(hoursBody(t, 7)).expect(404);
     await bookingsOf(t.business.slug)
-      .send(hoursBody(t, 7, { phone: '123' }))
+      .send(hoursBody(t, 7, { locale: 'xx' }))
       .expect(400);
     await bookingsOf(t.business.slug)
       .send(hoursBody(t, 7, { name: '' }))
@@ -401,16 +480,12 @@ describe('see and cancel by the link', () => {
   const phoneOf = () => `+7999${randomUUID().replace(/\D/g, '').padEnd(7, '1').slice(0, 7)}`;
   const tokenOf = (link: string) => link.split('/').pop()!;
   const bookOnline = async (t: Awaited<ReturnType<typeof withSchedules>>, hour: number) => {
-    const res = await http()
-      .post(`/public/businesses/${t.business.slug}/bookings`)
-      .send({
-        staffId: t.hours.id,
-        startsAt: at(hour).toISOString(),
-        endsAt: at(hour + 1).toISOString(),
-        name: 'Vera',
-        phone: phoneOf(),
-      })
-      .expect(201);
+    const res = await bookAsClient(app, t.business.slug, {
+      staffId: t.hours.id,
+      startsAt: at(hour).toISOString(),
+      endsAt: at(hour + 1).toISOString(),
+      name: 'Vera',
+    }).expect(201);
     return { id: res.body.booking.id as string, token: tokenOf(res.body.manageLink) };
   };
   // A booking with a known token that started already (the slots are in 2030, so a past one is made by hand).
@@ -451,7 +526,7 @@ describe('see and cancel by the link', () => {
         oneOffSessionId: null,
       },
       canChange: true,
-      notifications: { telegram: false, whatsapp: false, push: [], email: null },
+      notifications: { telegram: true, whatsapp: false, push: [], email: null },
     });
     expect(JSON.stringify(res.body)).not.toMatch(new RegExp(`Vera|\\+7999|${id}`));
   });
@@ -620,6 +695,7 @@ describe('which channels are on', () => {
     expect(on.body).toMatchObject({
       channels: { telegram: true, whatsapp: true, push: true, email: true },
       pushKey: vapid.publicKey,
+      clientSignIn: true,
     });
     expect(JSON.stringify(on.body)).not.toContain(vapid.privateKey);
     expect(off.body).toMatchObject({

@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 import { availableChannelsSchema, clientNotificationsSchema } from '../notifications/channels.schema.js';
 import { bookingConflictSchema } from '../appointments/appointments.schema.js';
-import { blankIsNone, clientName, clientPhone } from '../clients/clients.schema.js';
+import { localeSchema } from '../account/locale.js';
+import { blankIsNone, clientName } from '../clients/clients.schema.js';
 import { instant, whenFieldsValid } from '../schedule/schedule.schema.js';
 import { AppointmentStatus, ScheduleMode } from '../generated/prisma/enums.js';
 
@@ -15,10 +16,13 @@ export const publicBusinessSchema = z.object({
   channels: availableChannelsSchema.describe('Which channels the booker may turn on for a booking'),
   pushKey: z.string().nullable().describe('The VAPID public key a browser subscribes with; null when push is off'),
   masters: z.array(z.object({ id: z.uuid(), name: z.string(), scheduleMode: z.enum(ScheduleMode) })),
+  clientSignIn: z
+    .boolean()
+    .describe('Telegram is on, so a client can confirm a phone and book; false: call the business'),
 });
 export type PublicBusinessDto = z.infer<typeof publicBusinessSchema>;
 
-// A booking from the business's page: the slot, and who by name and phone.
+// A booking from the business's page: the slot and the booker's name. The phone is the signed-in client's, never the body's.
 export const publicBookingInput = z
   .object({
     staffId: z.uuid().optional().describe('The master; none: any master who is free at exactly this time'),
@@ -27,7 +31,7 @@ export const publicBookingInput = z
     groupId: z.uuid().optional().describe('Book a seat in the meeting of this group at this time'),
     oneOffSessionId: z.uuid().optional().describe('Book a seat in this one-off session'),
     name: clientName,
-    phone: clientPhone,
+    locale: localeSchema.default('en').describe('The language of the messages the booking gets in Telegram'),
     note: blankIsNone(2000),
   })
   .refine((booking) => booking.startsAt < booking.endsAt, {
@@ -60,6 +64,7 @@ export const publicBookingResultSchema = z.object({
     groupId: z.uuid().nullable(),
     oneOffSessionId: z.uuid().nullable(),
   }),
+  phone: z.string().describe('The phone the booking was made for: the one confirmed in Telegram'),
   manageLink: z.url().describe('Private: whoever has it can see, cancel and move this booking'),
 });
 export type PublicBookingResult = z.infer<typeof publicBookingResultSchema>;
@@ -104,6 +109,26 @@ export const managedBookingConflictSchema = bookingConflictSchema.omit({ code: t
 export const publicMoveConflictSchema = bookingConflictSchema.omit({ code: true }).extend({
   code: z.enum(['notFree', 'full', 'badTransition']),
 });
+
+// One of the signed-in client's bookings at this business: theirs, or a dependent's (`clientName` says whose).
+// No client ids, no manage token.
+export const myBookingSchema = z.object({
+  id: z.uuid(),
+  clientName: z.string().describe('Whose booking it is: the holder, or a dependent'),
+  staffId: z.uuid(),
+  staffName: z.string(),
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  title: z.string().nullable().describe("The meeting's title; none for an hours booking"),
+  status: z.enum(AppointmentStatus),
+  groupId: z.uuid().nullable(),
+  oneOffSessionId: z.uuid().nullable(),
+  canChange: z.boolean().describe('BOOKED or CONFIRMED and not started: it can be cancelled or moved'),
+});
+export type MyBookingDto = z.infer<typeof myBookingSchema>;
+
+export const myBookingsSchema = z.object({ bookings: z.array(myBookingSchema) });
+export type MyBookingsDto = z.infer<typeof myBookingsSchema>;
 
 // The business's web app manifest: what makes /book/<slug> installable as its own app.
 export const businessManifestSchema = z.object({

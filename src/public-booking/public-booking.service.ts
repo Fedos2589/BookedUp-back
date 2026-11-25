@@ -8,7 +8,8 @@ import { newRandomToken, hashRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import type { Locale } from '../account/locale.js';
 import { ChannelRegistry } from '../notifications/channels/channel-registry.js';
-import { switchClientChannelOff } from '../notifications/client-channels.js';
+import type { ClientSession } from '../client-session/client-sessions.service.js';
+import { ensureCardTelegram, switchClientChannelOff } from '../notifications/client-channels.js';
 import { ClientNotificationsService } from '../notifications/client-notifications.service.js';
 import { ClientEmailService } from '../notifications/client-email.service.js';
 import { ClientPushService } from '../notifications/client-push.service.js';
@@ -28,6 +29,7 @@ import { manageLink } from './manage-token.js';
 import type {
   BusinessManifestDto,
   ManagedBookingDto,
+  MyBookingsDto,
   PublicBookingInput,
   PublicBookingResult,
   PublicBusinessDto,
@@ -86,6 +88,7 @@ export class PublicBookingService {
       channels: this.channels.available(),
       pushKey: this.channels.pushKey(),
       masters: business.staff,
+      clientSignIn: this.channels.isOn('TELEGRAM'), // the bot's token and username go together (env.ts)
     };
   }
 
@@ -124,12 +127,16 @@ export class PublicBookingService {
   // first free master in `orderMasters` order (one who gets taken meanwhile is skipped). The answer
   // is the same for a phone the business knows and for a new one. The limit is counted in the
   // booking's transaction, on the locked client, so two parallel bookings can't both pass it.
-  async book(slug: string, { staffId, ...input }: PublicBookingInput): Promise<PublicBookingResult> {
+  async book(
+    slug: string,
+    { staffId, ...input }: PublicBookingInput,
+    client: ClientSession,
+  ): Promise<PublicBookingResult> {
     const { id: businessId, timeZone } = await this.businessOf(slug);
     const now = new Date();
     const token = newRandomToken();
     const masters = staffId ? [staffId] : await this.freeMasters(businessId, timeZone, input, now);
-    const attempt = (master: string) => this.bookWith(businessId, { ...input, staffId: master }, token, now);
+    const attempt = (master: string) => this.bookWith(businessId, { ...input, staffId: master }, client, token, now);
     let booked: Awaited<ReturnType<typeof attempt>> | undefined;
     for (const master of masters) {
       try {
@@ -156,7 +163,52 @@ export class PublicBookingService {
         groupId: appointment.groupId,
         oneOffSessionId: appointment.oneOffSessionId,
       },
+      phone: client.phone,
       manageLink: manageLink(this.config.get('APP_URL', { infer: true }), slug, token),
+    };
+  }
+
+  // What the signed-in phone has coming here: its own bookings and its dependents' (clients whose guardian has
+  // this phone), that hold time and haven't ended. Always this slug's business.
+  async myBookings(slug: string, { phone }: ClientSession): Promise<MyBookingsDto> {
+    const businessId = await this.businessIdOf(slug);
+    const now = new Date();
+    const rows = await this.prisma.appointment.findMany({
+      where: {
+        businessId,
+        ...holdsTime,
+        endsAt: { gt: now },
+        client: { OR: [{ phone }, { guardian: { phone } }] },
+      },
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        clientName: true,
+        staffId: true,
+        startsAt: true,
+        endsAt: true,
+        status: true,
+        groupId: true,
+        oneOffSessionId: true,
+        staff: { select: { name: true } },
+        group: { select: { title: true } },
+        oneOffSession: { select: { title: true } },
+      },
+    });
+    return {
+      bookings: rows.map((row) => ({
+        id: row.id,
+        clientName: row.clientName,
+        staffId: row.staffId,
+        staffName: row.staff.name,
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+        title: row.group?.title ?? row.oneOffSession?.title ?? null,
+        status: row.status,
+        groupId: row.groupId,
+        oneOffSessionId: row.oneOffSessionId,
+        canChange: canChange(row, now),
+      })),
     };
   }
 
@@ -302,6 +354,7 @@ export class PublicBookingService {
   private bookWith(
     businessId: string,
     input: Omit<PublicBookingInput, 'staffId'> & { staffId: string },
+    client: ClientSession,
     token: string,
     now: Date,
   ) {
@@ -310,7 +363,7 @@ export class PublicBookingService {
       { ...input, manageTokenHash: hashRandomToken(token) },
       now,
       async (tx) => {
-        const who = await this.clients.resolveByPhone(tx, businessId, input);
+        const who = await this.clients.resolveByPhone(tx, businessId, { name: input.name, phone: client.phone });
         const ahead = await tx.appointment.count({
           where: { businessId, clientId: who.clientId, ...holdsTime, startsAt: { gt: now } },
         });
@@ -322,6 +375,12 @@ export class PublicBookingService {
             code: 'tooManyBookings',
           });
         }
+        await ensureCardTelegram(tx, {
+          businessId,
+          clientId: who.clientId,
+          chatId: client.chatId,
+          locale: input.locale,
+        });
         return who;
       },
     );
