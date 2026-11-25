@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import type { MockInstance } from 'vitest';
+import { inject, type MockInstance } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { App } from 'supertest/types.js';
 
@@ -15,7 +15,7 @@ let prisma: PrismaService;
 let dispatcher: DispatcherService;
 
 beforeAll(async () => {
-  app = await createTestApp();
+  app = await createTestApp({ databaseUrl: inject('dispatchDatabaseUrl') });
   prisma = app.get(PrismaService);
   dispatcher = app.get(DispatcherService);
 });

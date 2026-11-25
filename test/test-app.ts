@@ -14,6 +14,7 @@ const noLimits: ThrottlerStorage = {
 };
 
 // The whole app against the integration test database, with a cheap password hasher.
+// `databaseUrl` picks another database of the container (a suite that must not share one).
 // `controllers` adds test-only routes (what a route with no check gets, say).
 // AppModule is imported only after DATABASE_URL points at the test container: the config
 // module reads the environment when it is imported.
@@ -23,8 +24,9 @@ export async function createTestApp({
   throttle = false,
   controllers = [] as Type[],
   secureCookie = true,
+  databaseUrl = inject('databaseUrl'),
 } = {}): Promise<INestApplication> {
-  process.env.DATABASE_URL = inject('databaseUrl');
+  process.env.DATABASE_URL = databaseUrl;
   process.env.REDIS_URL ??= 'redis://localhost:6379';
   process.env.SESSION_COOKIE_SECURE = String(secureCookie);
   // No queue worker in tests: they call the services directly.
