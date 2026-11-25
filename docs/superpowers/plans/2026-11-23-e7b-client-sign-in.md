@@ -6,21 +6,19 @@ as long as the browser's cookie lives they can see and change their bookings wit
 or opening a link again. A phone nobody has confirmed can no longer be booked online.
 
 This file holds what the repos share: the goal, the order, the decisions and the review focus that
-crosses repos. **Tasks are not split yet** — the next session splits each repo's part into small tasks
-and writes the per-repo plans (status «not split» below). It continues E7a's decision 9
+crosses repos. **Tasks live in each repo's own plan** — an executor opens only that one. It continues E7a's decision 9
 (`2026-11-18-e7-online-booking.md`: «a phone is not confirmed until E7b»).
 
 ## Steps and where their tasks are
 
-| Step | Repo           | Branch               | Plan                                                    | Status    |
-| ---- | -------------- | -------------------- | ------------------------------------------------------- | --------- |
-| S    | BookedUp-back  | `e7b/client-sign-in` | to write: `…/2026-11-23-e7b-client-sign-in-back.md`     | not split |
-| T    | BookedUp-front | `e7b/client-sign-in` | to write: `~/work/BookedUp-front/docs/plans/…-front.md` | not split |
+| Step | Repo           | Branch               | Plan                                                                             | Status      |
+| ---- | -------------- | -------------------- | -------------------------------------------------------------------------------- | ----------- |
+| S    | BookedUp-back  | `e7b/client-sign-in` | `docs/superpowers/plans/2026-11-25-e7b-client-sign-in-back.md`, S1–S11           | not started |
+| T    | BookedUp-front | `e7b/client-sign-in` | `~/work/BookedUp-front/docs/plans/2026-11-25-e7b-client-sign-in-front.md`, T1–T8 | not started |
 
 **Order:** E9's step M (the Telegram bot and its linking routes) → S → T. S uses M's bot; T starts once
 S is merged **and** E7a's front (G1–G7, the booking page and the manage page) is merged. No kit step
-expected: the code-free flow needs a waiting screen and a list, both from existing kit parts —
-confirm when splitting. Each step is one branch and one PR, reviewed by Opus before the next. The last
+needed: the waiting screen and the list are built from existing kit parts (confirmed while splitting). Each step is one branch and one PR, reviewed by Opus before the next. The last
 task of each step updates its row here.
 
 **Keeping plans in step:** a decision that changes what another repo does goes here first, then into
@@ -71,16 +69,22 @@ Proposed while planning — the user checks them in this plan's PR:
    this enables. Whether the client can turn it off, and how it is shown in the E9 block, is settled
    when splitting.
 
-## To confirm before splitting
+## Settled while splitting (2026-11-25)
 
-- **Nobody without Telegram can book online** until a second channel exists. This follows from «a
-  phone nobody confirmed can't be booked» and «Telegram only, for now». Accepted for a pilot, or does
-  the page keep an unconfirmed booking under E7a's limits for people without Telegram (the hole decision
-  9 describes stays open for them)?
-- **Dependents** («book a child», the account's people), which E7a's plan listed under E7b, are left
-  out of the first cut; they need the confirmed phone this epic adds and come next.
-- **Bot setup for development and for manual tests:** a test bot and its token (E9's M tasks already
-  need one) — whose, and where it lives.
+- **D7 (user): nobody without Telegram books online** until a second channel exists. Without a client
+  session the booking route answers 401; on a server without Telegram the business says
+  `clientSignIn: false` and the page tells the client to call. No unconfirmed fallback.
+- **D8 (user): the confirmed chat is the client's Telegram on their card** at the business (like WhatsApp),
+  so every booking of the phone there, and of their dependents, gets the messages; switched off from the
+  E9 block (a new `DELETE /public/bookings/:token/telegram`). This answers decision 6's open part.
+- **D9 (proposed, check in S's PR): the login and the session are global**, by phone, not by business — one
+  confirmation works on every business's page; every query by the session is filtered by the slug's business.
+- **D5 simplified (proposed, check in T's PR):** the page no longer asks for a phone at all — it comes from
+  Telegram, and the done screen says which phone was booked. Nothing to override, nothing to explain.
+- **Dependents** stay out of the first cut, as proposed (bookings of a holder's dependents are listed in
+  «My bookings» since they are on the holder's phone, but nobody books a dependent online yet).
+- **Bot for development and manual tests:** the one E9's M step set up (`docs/notifications.md`: in
+  development the API polls the bot itself). No extra setup.
 
 ## Out of this epic
 
