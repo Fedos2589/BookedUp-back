@@ -13,7 +13,7 @@ crosses repos. **Tasks live in each repo's own plan** — an executor opens only
 
 | Step | Repo           | Branch               | Plan                                                                             | Status      |
 | ---- | -------------- | -------------------- | -------------------------------------------------------------------------------- | ----------- |
-| S    | BookedUp-back  | `e7b/client-sign-in` | `docs/superpowers/plans/2026-11-25-e7b-client-sign-in-back.md`, S1–S11           | not started |
+| S    | BookedUp-back  | `e7b/client-sign-in` | `docs/superpowers/plans/2026-11-25-e7b-client-sign-in-back.md`, S1–S11           | in review   |
 | T    | BookedUp-front | `e7b/client-sign-in` | `~/work/BookedUp-front/docs/plans/2026-11-25-e7b-client-sign-in-front.md`, T1–T8 | not started |
 
 **Order:** E9's step M (the Telegram bot and its linking routes) → S → T. S uses M's bot; T starts once

@@ -18,6 +18,8 @@ log); `GET /public/businesses/:slug` and `GET /me/notifications` tell the front 
 
 4. Development: with the token set, no secret and `NODE_ENV=development` the API polls the bot itself — no webhook.
 
+The same bot also confirms a client's phone when they sign in on the booking page (they press the contact button in the chat). Nothing more to set up: the token above is enough, and without it online booking is off.
+
 ## Web Push
 
 1. `npx web-push generate-vapid-keys`.
