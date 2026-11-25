@@ -22,12 +22,12 @@ provider is confirmed (see «Open questions for Paddle»).
 
 ## Providers checked (2026-11-25, blogs, not official lists)
 
-| Provider            | Georgia                                                    | Verdict                                                                                                                       |
-| ------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Paddle              | not on its unsupported-sellers list; a Georgian company can be a seller | **Candidate.** IE (not a company) unconfirmed. Pays monthly; a $100 payout threshold is a third-party figure, unverified |
-| Lemon Squeezy       | no bank payouts to Georgia, only PayPal                    | **Out:** shuts down, stops processing payments on 2027-03-31                                                                  |
-| Polar               | not listed (payouts through Stripe Connect Express)        | Out                                                                                                                           |
-| Creem, Dodo Payments | listed as supporting Georgia in one comparison table      | Fallbacks, **not checked**                                                                                                    |
+| Provider             | Georgia                                                                 | Verdict                                                                                                                  |
+| -------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Paddle               | not on its unsupported-sellers list; a Georgian company can be a seller | **Candidate.** IE (not a company) unconfirmed. Pays monthly; a $100 payout threshold is a third-party figure, unverified |
+| Lemon Squeezy        | no bank payouts to Georgia, only PayPal                                 | **Out:** shuts down, stops processing payments on 2027-03-31                                                             |
+| Polar                | not listed (payouts through Stripe Connect Express)                     | Out                                                                                                                      |
+| Creem, Dodo Payments | listed as supporting Georgia in one comparison table                    | Fallbacks, **not checked**                                                                                               |
 
 Other fallbacks: a local acquirer for Georgian cards — [Flitt](https://flitt.com/card-payments/) (needs an
 active TBC account; Visa, Mastercard, Apple Pay, Google Pay) or
