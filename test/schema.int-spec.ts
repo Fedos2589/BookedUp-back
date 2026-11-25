@@ -20,6 +20,9 @@ const GLOBAL_TABLES = [
   'sessions',
   'user_channels',
   'channel_link_tokens',
+  // A client's phone proved through Telegram, not one business's client: one session works on every page (E7b D9).
+  'client_logins',
+  'client_sessions',
   '_prisma_migrations',
 ];
 
@@ -707,15 +710,33 @@ describe('notifications (E9)', () => {
     await expect(insertBusinessOffsets([60, 120, 2880])).resolves.toBeDefined();
   });
 
-  it('keeps WhatsApp on the client card and Telegram, push and email on a booking', async () => {
+  it('keeps WhatsApp on the client card, push and email on a booking, and Telegram on either', async () => {
     const b = await bookingOf();
 
-    await expect(clientChannel(b, 'WHATSAPP', b.appointmentId)).rejects.toThrow(/client_channels_whatsapp_on_card/);
-    await expect(clientChannel(b, 'TELEGRAM', null)).rejects.toThrow(/client_channels_whatsapp_on_card/);
-    await expect(clientChannel(b, 'EMAIL', null)).rejects.toThrow(/client_channels_whatsapp_on_card/);
+    await expect(clientChannel(b, 'WHATSAPP', b.appointmentId)).rejects.toThrow(/client_channels_placement/);
+    await expect(clientChannel(b, 'PUSH', null)).rejects.toThrow(/client_channels_placement/);
+    await expect(clientChannel(b, 'EMAIL', null)).rejects.toThrow(/client_channels_placement/);
     await expect(clientChannel(b, 'LOG', b.appointmentId)).rejects.toThrow(/client_channels_kind/);
     await expect(clientChannel(b, 'WHATSAPP', null)).resolves.toBeDefined();
     await expect(clientChannel(b, 'TELEGRAM', b.appointmentId)).resolves.toBeDefined();
+    await expect(clientChannel(b, 'TELEGRAM', null)).resolves.toBeDefined();
+  });
+
+  it('keeps a client login and a session to a phone in E.164, and a confirmed login complete', async () => {
+    const login = (phone: string | null, chatId: string | null, confirmed: boolean) =>
+      prisma.$executeRaw`INSERT INTO client_logins (nonce_hash, browser_hash, locale, chat_id, phone, confirmed_at, expires_at)
+        VALUES (${unique()}, ${unique()}, 'en', ${chatId}, ${phone}, ${confirmed ? new Date() : null}, now() + interval '10 minutes')`;
+    const session = (phone: string) =>
+      prisma.$executeRaw`INSERT INTO client_sessions (token_hash, phone, chat_id, expires_at)
+        VALUES (${unique()}, ${phone}, 'chat-1', now() + interval '30 days')`;
+
+    await expect(login(null, null, false)).resolves.toBeDefined();
+    await expect(login('+66812345678', '1', true)).resolves.toBeDefined();
+    await expect(login(null, '1', true)).rejects.toThrow(/client_logins_confirmed_complete/);
+    await expect(login('+66812345678', null, true)).rejects.toThrow(/client_logins_confirmed_complete/);
+    await expect(login('66812345678', '1', false)).rejects.toThrow(/client_logins_phone/);
+    await expect(session('+66812345678')).resolves.toBeDefined();
+    await expect(session('0812345678')).rejects.toThrow(/client_sessions_phone/);
   });
 
   it('refuses the same channel address twice for one booking, and one card phone twice', async () => {
