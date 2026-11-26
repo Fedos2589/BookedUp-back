@@ -10,15 +10,15 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class ClientLoginConfirmService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // The login's language, or null when no live unconfirmed login with this nonce is free for this chat
+  // The login's language and code, or null when no live unconfirmed login with this nonce is free for this chat
   // (unknown, expired, confirmed, or already bound to another chat).
-  async begin(nonceHash: string, chatId: string): Promise<Locale | null> {
-    const [login] = await this.prisma.$queryRaw<{ locale: string }[]>`
+  async begin(nonceHash: string, chatId: string): Promise<{ locale: Locale; code: string } | null> {
+    const [login] = await this.prisma.$queryRaw<{ locale: string; code: string }[]>`
       UPDATE client_logins SET chat_id = ${chatId}
       WHERE nonce_hash = ${nonceHash} AND confirmed_at IS NULL AND expires_at > now()
         AND (chat_id IS NULL OR chat_id = ${chatId})
-      RETURNING locale`;
-    return login ? localeSchema.parse(login.locale) : null;
+      RETURNING locale, code`;
+    return login ? { locale: localeSchema.parse(login.locale), code: login.code } : null;
   }
 
   // The newest live login of this chat, confirmed with `phone` (E.164); null when there is none.

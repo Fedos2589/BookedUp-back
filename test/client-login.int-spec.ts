@@ -103,15 +103,28 @@ describe('the bot confirms the phone', () => {
       },
     });
   const lastReply = () => call.mock.calls.at(-1)![1] as { chat_id: number; text: string; reply_markup?: object };
-  const newLogin = async () => {
-    const res = await start().expect(201);
+  const newLogin = async (locale = 'ru') => {
+    const res = await request(app.getHttpServer()).post('/public/client-login').send({ locale }).expect(201);
     const nonce = (res.body.url as string).split('start=')[1]!;
-    return { nonce, row: () => prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } }) };
+    return {
+      nonce,
+      code: res.body.code as string,
+      row: () => prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } }),
+    };
   };
   const digits = () => `995${Math.floor(Math.random() * 900_000_000) + 100_000_000}`;
 
+  it("shows the code in the login's language", async () => {
+    const { nonce, code } = await newLogin('en');
+
+    await pressStart(nonce, chatId());
+
+    expect(lastReply().text).toContain(`Code: ${code}`);
+    expect(lastReply().text).toContain('only if');
+  });
+
   it('Start asks for the phone with a share button, then the own contact confirms it', async () => {
-    const { nonce, row } = await newLogin();
+    const { nonce, code, row } = await newLogin();
     const chat = chatId();
 
     await pressStart(nonce, chat);
@@ -121,6 +134,9 @@ describe('the bot confirms the phone', () => {
       text: expect.stringContaining('Поделитесь номером телефона'),
       reply_markup: { keyboard: [[{ request_contact: true }]] },
     });
+    // The bot repeats the page's code, so a person can compare the two.
+    expect(lastReply().text).toContain(`Код: ${code}`);
+    expect(lastReply().text).toContain('localhost');
     expect(await row()).toMatchObject({ chatId: String(chat), phone: null, confirmedAt: null });
 
     const phone = digits();
