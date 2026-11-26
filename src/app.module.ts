@@ -15,7 +15,7 @@ import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BusinessModule } from './business/business.module.js';
 import { type Env, validateEnv } from './config/env.js';
-import { logRedaction } from './logging.js';
+import { loggerOptions } from './logging.js';
 import { InvitationsModule } from './invitations/invitations.module.js';
 import { MembersModule } from './members/members.module.js';
 import { HealthController } from './health/health.controller.js';
@@ -30,16 +30,9 @@ import { StaffModule } from './staff/staff.module.js';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => {
-        const env = config.get('NODE_ENV', { infer: true });
-        return {
-          pinoHttp:
-            env === 'development'
-              ? { ...logRedaction, transport: { target: 'pino-pretty' } }
-              : // Tests keep warnings and errors: an unexpected 500 shows its stack, not just the status.
-                { ...logRedaction, level: env === 'test' ? 'warn' : 'info' },
-        };
-      },
+      useFactory: (config: ConfigService<Env, true>) => ({
+        pinoHttp: loggerOptions(config.get('NODE_ENV', { infer: true })),
+      }),
     }),
     // Shared Redis connection for the queues (`notifications`, see NotificationsModule). `ioredis` in package.json
     // is not imported anywhere: BullMQ 6 loads it itself and fails to connect without it.

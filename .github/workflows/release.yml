@@ -10,11 +10,15 @@ permissions:
 
 jobs:
   image:
-    # Only main is released: a branch's image must never reach the server.
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Only main is released: a branch's image must never reach the server. A step, not a job `if`, so a run
+      # from another branch fails loudly instead of "passing" with nothing built.
+      - if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Release runs only from main (this run is ${GITHUB_REF})"
+          exit 1
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
