@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** S11 (or a follow-up) sets row S of the common plan to «done — PR #…».
 
-**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) open.
+**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) done on branch `e7b/sign-in-code` (not pushed); front F1 open.
 
 **Common plan** (goal, decisions 1–6, the front's step): `2026-11-23-e7b-client-sign-in.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — its decisions are «D1»…«D6»,
@@ -291,7 +291,7 @@ query) — a separate task then.
 secret and never checked by the server: it only lets a human spot the mismatch. Random per login
 (`randomInt(10000)` zero-padded).
 
-### - [ ] S12: the login has a code, the page gets it
+### - [x] S12: the login has a code, the page gets it
 
 **Files:** `prisma/schema.prisma`, new `prisma/migrations/<ts>_client_login_code/migration.sql`,
 `src/client-session/client-logins.service.ts`, `src/client-session/client-session.schema.ts` (the answer
@@ -307,7 +307,7 @@ schema), `src/client-session/client-session.controller.ts`, `test/client-login.i
 POST gives a row with its own code; a row with a bad code (`'12a4'`) is refused by the CHECK (see how
 `test/schema.int-spec.ts` pins other CHECKs). Commit `feat(client-session): a sign-in has a code`.
 
-### - [ ] S13: the bot shows the code
+### - [x] S13: the bot shows the code
 
 **Files:** `src/notifications/client-login-confirm.service.ts`, `src/notifications/telegram-updates.service.ts`,
 `test/client-login.int-spec.ts`.
@@ -320,7 +320,7 @@ POST gives a row with its own code; a row with a bad code (`'12a4'`) is refused 
 code and the host, in the login's language (en and ru); the existing S5 cases stay green. Commit
 `feat(notifications): the bot shows the sign-in's code`.
 
-### - [ ] S14: docs
+### - [x] S14: docs
 
 **Files:** `.claude/skills/back-auth/SKILL.md`, `docs/notifications.md` (only if it describes the bot's
 sign-in text), this file (tick S12–S14, status).
