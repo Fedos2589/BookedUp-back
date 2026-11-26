@@ -15,6 +15,7 @@ import { accountLimits } from './auth/account-limits.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BusinessModule } from './business/business.module.js';
 import { type Env, validateEnv } from './config/env.js';
+import { logRedaction } from './logging.js';
 import { InvitationsModule } from './invitations/invitations.module.js';
 import { MembersModule } from './members/members.module.js';
 import { HealthController } from './health/health.controller.js';
@@ -34,9 +35,9 @@ import { StaffModule } from './staff/staff.module.js';
         return {
           pinoHttp:
             env === 'development'
-              ? { transport: { target: 'pino-pretty' } }
+              ? { ...logRedaction, transport: { target: 'pino-pretty' } }
               : // Tests keep warnings and errors: an unexpected 500 shows its stack, not just the status.
-                { level: env === 'test' ? 'warn' : 'info' },
+                { ...logRedaction, level: env === 'test' ? 'warn' : 'info' },
         };
       },
     }),
