@@ -1,0 +1,41 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Swagger lives at /api/docs* in the API itself: passed through as is.
+	handle /api/docs* {
+		reverse_proxy api:3000
+	}
+
+	# The API without its /api prefix. reverse_proxy keeps the Host header (the API compares Origin with it for
+	# CSRF) and sets X-Forwarded-For itself, ignoring a client's one: no trusted_proxies on purpose.
+	handle_path /api/* {
+		reverse_proxy api:3000
+	}
+
+	# Hashed file names never change. A missing /assets/x-<hash>.js gets 404 (no SPA fallback here), so an old
+	# page can't mistake index.html for a chunk.
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Everything else (/, every SPA route, sw.js, the icons): revalidated, and unknown paths fall back to the SPA.
+	# Matched by path, not by /index.html: a header match on /index.html would miss `/` and every SPA route.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	# An error must not inherit the year-long cache of /assets/*.
+	handle_errors {
+		header Cache-Control "no-store"
+		respond "{err.status_code} {err.status_text}" {err.status_code}
+	}
+}
