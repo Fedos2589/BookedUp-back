@@ -22,7 +22,7 @@ services:
       # Postgres 18 keeps its data under /var/lib/postgresql/18/
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U bookedup']
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U bookedup -d bookedup']
       interval: 5s
       retries: 10
 

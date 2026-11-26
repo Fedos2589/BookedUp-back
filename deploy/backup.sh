@@ -2,6 +2,8 @@
 # Dump the database to $BACKUP_DIR (default /var/backups/bookedup), keep 48 hours of dumps.
 # The last line it prints is the dump's path. Usage: backup.sh
 set -euo pipefail
+# dumps hold everything: only the owner reads them
+umask 077
 
 if [ $# -ne 0 ]; then
   echo "usage: $0" >&2
@@ -17,7 +19,7 @@ cd "$(dirname "$0")"
 exec 9>.backup.lock
 flock -w 900 9
 
-name="bookedup-$(date -u +%Y%m%dT%H%MZ).dump"
+name="bookedup-$(date -u +%Y%m%dT%H%M%SZ).dump"
 tmp="$BACKUP_DIR/$name.tmp"
 trap 'rm -f "$tmp"' EXIT
 
@@ -28,6 +30,6 @@ if [ ! -s "$tmp" ]; then
 fi
 mv "$tmp" "$BACKUP_DIR/$name"
 
-find "$BACKUP_DIR" -maxdepth 1 -name 'bookedup-*.dump' -mmin +2880 -delete
+find "$BACKUP_DIR" -maxdepth 1 \( -name 'bookedup-*.dump' -o -name 'bookedup-*.dump.tmp' \) -mmin +2880 -delete
 
 echo "$BACKUP_DIR/$name"
