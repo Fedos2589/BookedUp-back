@@ -1,0 +1,81 @@
+name: bookedup
+
+# Every service restarts on its own and keeps its logs small.
+x-service: &service
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '5'
+
+# Only `web` publishes ports: Docker-published ports bypass ufw.
+services:
+  postgres:
+    <<: *service
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: bookedup
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: bookedup
+    volumes:
+      # Postgres 18 keeps its data under /var/lib/postgresql/18/
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U bookedup -d bookedup']
+      interval: 5s
+      retries: 10
+
+  redis:
+    <<: *service
+    image: redis:7.4.12-alpine
+    # BullMQ needs noeviction
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redisdata:/data
+
+  api:
+    <<: *service
+    image: ${API_IMAGE}
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_URL: https://${DOMAIN}
+      TRUST_PROXY: 1
+      SESSION_COOKIE_SECURE: 'true'
+      NOTIFICATIONS_WORKER: 'true'
+      DATABASE_URL: postgresql://bookedup:${POSTGRES_PASSWORD}@postgres:5432/bookedup?schema=public
+      REDIS_URL: redis://redis:6379
+    # only this file: .env holds the backup keys, which must not reach the API
+    env_file: api.env
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health']
+      interval: 10s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  web:
+    <<: *service
+    image: ${WEB_IMAGE}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

@@ -14,3 +14,6 @@ coverage
 
 /src/generated/prisma
 *.tsbuildinfo
+
+deploy/api.env
+deploy/.backup.lock
