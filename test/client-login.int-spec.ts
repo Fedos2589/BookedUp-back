@@ -27,8 +27,8 @@ afterAll(async () => {
   delete process.env.TELEGRAM_BOT_USERNAME;
 });
 
-const start = (cookie?: string) => {
-  const req = request(app.getHttpServer()).post('/public/client-login').send({ locale: 'ru' });
+const start = (cookie?: string, locale = 'ru') => {
+  const req = request(app.getHttpServer()).post('/public/client-login').send({ locale });
   return cookie === undefined ? req : req.set('Cookie', cookie);
 };
 
@@ -104,7 +104,7 @@ describe('the bot confirms the phone', () => {
     });
   const lastReply = () => call.mock.calls.at(-1)![1] as { chat_id: number; text: string; reply_markup?: object };
   const newLogin = async (locale = 'ru') => {
-    const res = await request(app.getHttpServer()).post('/public/client-login').send({ locale }).expect(201);
+    const res = await start(undefined, locale).expect(201);
     const nonce = (res.body.url as string).split('start=')[1]!;
     return {
       nonce,
@@ -120,7 +120,31 @@ describe('the bot confirms the phone', () => {
     await pressStart(nonce, chatId());
 
     expect(lastReply().text).toContain(`Code: ${code}`);
+    expect(lastReply().text).toContain('localhost');
     expect(lastReply().text).toContain('only if');
+  });
+
+  it('gives the phone to the login whose code the bot showed last, not to the newest one', async () => {
+    const chat = chatId();
+    const own = await newLogin(); // the victim's page
+    const foreign = await newLogin(); // a forwarded link, made later
+    await pressStart(foreign.nonce, chat); // a stranger's code: ignored
+    await pressStart(own.nonce, chat); // the page's code matched
+
+    await share(chat, digits());
+
+    expect((await own.row()).confirmedAt).not.toBeNull();
+    expect(await foreign.row()).toMatchObject({ chatId: null, phone: null, confirmedAt: null });
+  });
+
+  it('does not unbind other logins when the nonce is no good', async () => {
+    const chat = chatId();
+    const own = await newLogin();
+    await pressStart(own.nonce, chat);
+
+    await pressStart('x'.repeat(43), chat);
+
+    expect((await own.row()).chatId).toBe(String(chat));
   });
 
   it('Start asks for the phone with a share button, then the own contact confirms it', async () => {
@@ -221,12 +245,14 @@ describe('GET /public/client-login', () => {
   const confirmed = async () => {
     const res = await start().expect(201);
     const nonce = (res.body.url as string).split('start=')[1]!;
+    const code = res.body.code as string;
     const id = chat();
     const phone = `+995${Math.floor(Math.random() * 900_000_000) + 100_000_000}`;
     const bot = app.get(TelegramUpdatesService);
     await bot.handleUpdate({ message: { text: `/start ${nonce}`, chat: { id, type: 'private' }, from: { id } } });
     return {
       cookie: sessionCookie(res, '__Host-cl')!,
+      code,
       phone,
       id,
       confirm: () =>
@@ -242,7 +268,8 @@ describe('GET /public/client-login', () => {
 
   it('is pending until the contact, then gives the session once and only to this browser', async () => {
     const login = await confirmed();
-    await poll(login.cookie).expect(200, { status: 'pending' });
+    // The code survives a reload of the page: the poll repeats it while the login waits.
+    await poll(login.cookie).expect(200, { status: 'pending', code: login.code });
 
     await login.confirm();
     // Another browser, or none, gets nothing from the same login.

@@ -11,13 +11,21 @@ export class ClientLoginConfirmService {
   constructor(private readonly prisma: PrismaService) {}
 
   // The login's language and code, or null when no live unconfirmed login with this nonce is free for this chat
-  // (unknown, expired, confirmed, or already bound to another chat).
+  // (unknown, expired, confirmed, or already bound to another chat). The chat's other unconfirmed
+  // logins are let go in the same statement: the phone goes to the login whose code the bot just showed,
+  // not to a newer one the person ignored (a forwarded link).
   async begin(nonceHash: string, chatId: string): Promise<{ locale: Locale; code: string } | null> {
     const [login] = await this.prisma.$queryRaw<{ locale: string; code: string }[]>`
-      UPDATE client_logins SET chat_id = ${chatId}
-      WHERE nonce_hash = ${nonceHash} AND confirmed_at IS NULL AND expires_at > now()
-        AND (chat_id IS NULL OR chat_id = ${chatId})
-      RETURNING locale, code`;
+      WITH bound AS (
+        UPDATE client_logins SET chat_id = ${chatId}
+        WHERE nonce_hash = ${nonceHash} AND confirmed_at IS NULL AND expires_at > now()
+          AND (chat_id IS NULL OR chat_id = ${chatId})
+        RETURNING locale, code),
+      released AS (
+        UPDATE client_logins SET chat_id = NULL
+        WHERE chat_id = ${chatId} AND confirmed_at IS NULL AND nonce_hash <> ${nonceHash}
+          AND EXISTS (SELECT 1 FROM bound))
+      SELECT locale, code FROM bound`;
     return login ? { locale: localeSchema.parse(login.locale), code: login.code } : null;
   }
 

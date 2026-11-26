@@ -7,7 +7,14 @@ export const clientLoginStartSchema = telegramLinkSchema.extend({ code: z.string
 export type ClientLoginStartDto = z.infer<typeof clientLoginStartSchema>;
 
 // Where this browser's login stands. `confirmed`: the session cookie is set by this very answer.
-export const clientLoginStatusSchema = z.object({ status: z.enum(['pending', 'confirmed', 'expired']) });
+// `code` is repeated while `pending`, so a reloaded page can still show it.
+export const clientLoginStatusSchema = z.object({
+  status: z.enum(['pending', 'confirmed', 'expired']),
+  code: z
+    .string()
+    .regex(/^\d{4}$/)
+    .optional(),
+});
 export type ClientLoginStatusDto = z.infer<typeof clientLoginStatusSchema>;
 
 // What the front shows on a done screen; null: no live session in this browser.

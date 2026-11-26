@@ -54,7 +54,9 @@ export class ClientLoginsService {
 
   // The browser asks: confirmed → the login is used up and a session token comes back. The delete
   // decides who wins when two polls arrive together; the loser sees `expired`.
-  async take(browserSecret: string | undefined): Promise<{ status: 'pending' | 'expired' } | { sessionToken: string }> {
+  async take(
+    browserSecret: string | undefined,
+  ): Promise<{ status: 'pending'; code: string } | { status: 'expired' } | { sessionToken: string }> {
     if (browserSecret === undefined) return { status: 'expired' };
     const browserHash = hashRandomToken(browserSecret);
     return this.prisma.$transaction(async (tx) => {
@@ -71,8 +73,11 @@ export class ClientLoginsService {
           }),
         };
       }
-      const waiting = await tx.clientLogin.count({ where: { browserHash, expiresAt: { gt: new Date() } } });
-      return { status: waiting > 0 ? 'pending' : 'expired' };
+      const waiting = await tx.clientLogin.findFirst({
+        where: { browserHash, expiresAt: { gt: new Date() } },
+        select: { code: true },
+      });
+      return waiting ? { status: 'pending', code: waiting.code } : { status: 'expired' };
     });
   }
 }

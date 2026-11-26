@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** S11 (or a follow-up) sets row S of the common plan to «done — PR #…».
 
-**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) done on branch `e7b/sign-in-code` (not pushed); front F1 open.
+**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) done, PR #63; front F1 open.
 
 **Common plan** (goal, decisions 1–6, the front's step): `2026-11-23-e7b-client-sign-in.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — its decisions are «D1»…«D6»,

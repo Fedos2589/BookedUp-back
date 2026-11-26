@@ -42,7 +42,7 @@ export class ClientSessionController {
   @Throttle({ default: { limit: 30, ttl: hours(1) } })
   @ApiCreatedResponse({
     description:
-      'Open the link in Telegram and share your phone. This browser gets a cookie that, for 10 minutes, is the only one that can take the session the confirmation opens. A second call replaces the first login.',
+      'Open the link in Telegram and share your phone. This browser gets a cookie that, for 10 minutes, is the only one that can take the session the confirmation opens. A second call replaces the first login. Show `code` next to the link: the bot repeats it, so the person can check that the link is the one from this page.',
     schema: openApi(clientLoginStartSchema),
   })
   @ApiBadRequestResponse({ description: 'The locale is invalid', schema: openApi(validationErrorSchema) })
@@ -65,7 +65,7 @@ export class ClientSessionController {
   @Header('Cache-Control', 'no-store')
   @ApiOkResponse({
     description:
-      "Where this browser's login stands (by its cookie). `confirmed`: the phone is confirmed, the login is used up and the session cookie is set by this answer; asking again gives `expired`. Poll every couple of seconds for up to 10 minutes.",
+      "Where this browser's login stands (by its cookie). `confirmed`: the phone is confirmed, the login is used up and the session cookie is set by this answer; asking again gives `expired`. Poll every couple of seconds for up to 10 minutes. While `pending` the answer repeats `code`, so a reloaded page can show it again.",
     schema: openApi(clientLoginStatusSchema),
   })
   async status(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<ClientLoginStatusDto> {
