@@ -24,17 +24,23 @@ for f in compose.yml Caddyfile .env.example api.env.example backup.sh restore-ch
 done
 
 remote_script() {
+  # Everything is one function called with stdin closed: bash reads a script from the pipe line by line, and
+  # `docker compose exec/run` would otherwise swallow the rest of it and the deploy would stop with exit 0.
   cat <<'REMOTE'
-set -euo pipefail
+main() {
+set -Eeuo pipefail
+umask 077
 cd /opt/bookedup
 api_sha=$1
 web_sha=$2
 dump=none
 
-previous() { tail -n 1 releases.log 2>/dev/null || echo "(none yet)"; }
+previous() { tail -n 1 releases.log; }
 failed() {
-  echo "DEPLOY FAILED. .env still names the release that ran before." >&2
-  echo "roll back with: deploy/deploy.sh <target> $(previous | cut -d' ' -f2-)   (last releases.log line: $(previous))" >&2
+  echo "DEPLOY FAILED. .env still names the release that ran before (compose.yml and Caddyfile are already the new ones)." >&2
+  if [ -s releases.log ]; then
+    echo "roll back with: deploy/deploy.sh <target> $(previous | cut -d' ' -f2-)   (last releases.log line: $(previous))" >&2
+  fi
   echo "Migrations are not rolled back: if the old code can't read the new schema, restore the dump taken by this deploy: $dump" >&2
 }
 
@@ -70,7 +76,7 @@ done
 
 trap failed ERR
 if [ -n "$(docker compose ps -q --status running postgres 2>/dev/null)" ]; then
-  dump=$(./backup.sh | tail -n 1)
+  dump=$(./backup.sh </dev/null | tail -n 1)
   echo "restore point: $dump"
 fi
 
@@ -79,10 +85,13 @@ export API_IMAGE=$new_api WEB_IMAGE=$new_web
 docker compose pull
 docker compose up -d postgres redis
 docker compose run --rm api npx prisma migrate deploy
-docker compose up -d --remove-orphans
+docker compose up -d --remove-orphans --wait --wait-timeout 90
 
+# the first deploy waits longer: Caddy is still getting its certificate
+tries=45
+[ -f releases.log ] || tries=150
 healthy=false
-for _ in $(seq 1 45); do
+for _ in $(seq 1 "$tries"); do
   if curl -fsS "https://$DOMAIN/api/health" >/dev/null 2>&1; then
     healthy=true
     break
@@ -90,7 +99,7 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 $healthy || {
-  echo "no healthy answer from https://$DOMAIN/api/health in 90 s" >&2
+  echo "no healthy answer from https://$DOMAIN/api/health in $((tries * 2)) s" >&2
   false
 }
 
@@ -99,9 +108,11 @@ printf 'API_IMAGE=%s\nWEB_IMAGE=%s\n' "$new_api" "$new_web" >>.env.new
 chmod 600 .env.new
 mv .env.new .env
 echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $api_sha $web_sha" >>releases.log
-docker image prune -f >/dev/null
 trap - ERR
+docker image prune -f >/dev/null || true
 echo "deployed: $api_sha $web_sha"
+}
+main "$@" </dev/null
 REMOTE
 }
 
