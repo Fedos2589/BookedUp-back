@@ -4,3 +4,7 @@ coverage
 .env
 .git
 src/generated
+.github
+docs
+deploy
+test
