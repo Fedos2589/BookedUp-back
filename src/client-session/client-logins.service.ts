@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -6,9 +8,9 @@ import { hashRandomToken, newRandomToken } from '../common/random-token.js';
 import type { Env } from '../config/env.js';
 import { ChannelRegistry } from '../notifications/channels/channel-registry.js';
 import { channelOff } from '../notifications/link-tokens.service.js';
-import type { TelegramLinkDto } from '../notifications/link.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LOGIN_TTL_MS } from './client-cookies.js';
+import type { ClientLoginStartDto } from './client-session.schema.js';
 import { ClientSessionsService } from './client-sessions.service.js';
 
 // A client's sign-in through Telegram (E7b): the page opens the bot with a nonce (`url`), the bot
@@ -27,11 +29,12 @@ export class ClientLoginsService {
   async start(
     locale: Locale,
     previousBrowser: string | undefined,
-  ): Promise<{ link: TelegramLinkDto; browserSecret: string }> {
+  ): Promise<{ login: ClientLoginStartDto; browserSecret: string }> {
     const username = this.config.get('TELEGRAM_BOT_USERNAME', { infer: true });
     if (!this.channels.isOn('TELEGRAM') || username === undefined) throw channelOff();
     const nonce = newRandomToken();
     const browserSecret = newRandomToken();
+    const code = randomInt(10000).toString().padStart(4, '0');
     await this.prisma.$transaction([
       ...(previousBrowser === undefined
         ? []
@@ -41,16 +44,19 @@ export class ClientLoginsService {
           nonceHash: hashRandomToken(nonce),
           browserHash: hashRandomToken(browserSecret),
           locale,
+          code,
           expiresAt: new Date(Date.now() + LOGIN_TTL_MS),
         },
       }),
     ]);
-    return { link: { url: `https://t.me/${username}?start=${nonce}` }, browserSecret };
+    return { login: { url: `https://t.me/${username}?start=${nonce}`, code }, browserSecret };
   }
 
   // The browser asks: confirmed → the login is used up and a session token comes back. The delete
   // decides who wins when two polls arrive together; the loser sees `expired`.
-  async take(browserSecret: string | undefined): Promise<{ status: 'pending' | 'expired' } | { sessionToken: string }> {
+  async take(
+    browserSecret: string | undefined,
+  ): Promise<{ status: 'pending'; code: string } | { status: 'expired' } | { sessionToken: string }> {
     if (browserSecret === undefined) return { status: 'expired' };
     const browserHash = hashRandomToken(browserSecret);
     return this.prisma.$transaction(async (tx) => {
@@ -67,8 +73,11 @@ export class ClientLoginsService {
           }),
         };
       }
-      const waiting = await tx.clientLogin.count({ where: { browserHash, expiresAt: { gt: new Date() } } });
-      return { status: waiting > 0 ? 'pending' : 'expired' };
+      const waiting = await tx.clientLogin.findFirst({
+        where: { browserHash, expiresAt: { gt: new Date() } },
+        select: { code: true },
+      });
+      return waiting ? { status: 'pending', code: waiting.code } : { status: 'expired' };
     });
   }
 }

@@ -35,7 +35,7 @@ const TEXTS: Record<
   {
     connected: string;
     expired: string;
-    sharePhone: (host: string) => string;
+    sharePhone: (host: string, code: string) => string;
     shareButton: string;
     phoneOk: string;
     ownPhone: string;
@@ -44,8 +44,8 @@ const TEXTS: Record<
   en: {
     connected: "Connected: you'll get your bookings here",
     expired: 'This link has expired, open it again',
-    sharePhone: (host) =>
-      `You are signing in on ${host}. If you didn't start it yourself, don't press anything. Share your phone to sign in`,
+    sharePhone: (host, code) =>
+      `You are signing in on ${host}. Code: ${code}. Share your phone only if this is the code on your page; otherwise ignore this message`,
     shareButton: 'Share my phone',
     phoneOk: 'Phone confirmed, go back to the page',
     ownPhone: 'Use the button to share your own phone',
@@ -53,8 +53,8 @@ const TEXTS: Record<
   ru: {
     connected: 'Подключено: записи будут приходить сюда',
     expired: 'Ссылка истекла, откройте её заново',
-    sharePhone: (host) =>
-      `Вы входите на ${host}. Если вход начали не вы, ничего не нажимайте. Поделитесь номером телефона, чтобы войти`,
+    sharePhone: (host, code) =>
+      `Вы входите на ${host}. Код: ${code}. Поделитесь номером телефона, только если это код с вашей страницы; иначе проигнорируйте это сообщение`,
     shareButton: 'Поделиться номером',
     phoneOk: 'Телефон подтверждён, вернитесь на страницу',
     ownPhone: 'Нажмите кнопку, чтобы поделиться своим номером',
@@ -145,10 +145,10 @@ export class TelegramUpdatesService {
 
   // Not a link token: maybe a client's sign-in. Its reply asks for the phone, with the share button.
   private async startLogin(nonceHash: string, chatId: number, spoken: Locale): Promise<string | null> {
-    const locale = await this.logins.begin(nonceHash, String(chatId));
-    if (locale === null) return TEXTS[spoken].expired;
-    const texts = TEXTS[locale];
-    await this.reply(chatId, texts.sharePhone(new URL(this.config.get('APP_URL', { infer: true })).host), {
+    const login = await this.logins.begin(nonceHash, String(chatId));
+    if (login === null) return TEXTS[spoken].expired;
+    const texts = TEXTS[login.locale];
+    await this.reply(chatId, texts.sharePhone(new URL(this.config.get('APP_URL', { infer: true })).host, login.code), {
       keyboard: [[{ text: texts.shareButton, request_contact: true }]],
       one_time_keyboard: true,
       resize_keyboard: true,

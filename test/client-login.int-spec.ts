@@ -27,8 +27,8 @@ afterAll(async () => {
   delete process.env.TELEGRAM_BOT_USERNAME;
 });
 
-const start = (cookie?: string) => {
-  const req = request(app.getHttpServer()).post('/public/client-login').send({ locale: 'ru' });
+const start = (cookie?: string, locale = 'ru') => {
+  const req = request(app.getHttpServer()).post('/public/client-login').send({ locale });
   return cookie === undefined ? req : req.set('Cookie', cookie);
 };
 
@@ -51,6 +51,9 @@ describe('POST /public/client-login', () => {
     expect(row.nonceHash).not.toBe(nonce);
     expect(row.browserHash).not.toBe(secret);
     expect(row).toMatchObject({ locale: 'ru', chatId: null, phone: null, confirmedAt: null });
+    // The page gets the same four digits the row keeps (the bot shows them too).
+    expect(res.body.code).toMatch(/^\d{4}$/);
+    expect(row.code).toBe(res.body.code);
     expect(row.expiresAt.getTime()).toBeGreaterThan(Date.now() + 9 * 60 * 1000);
     expect(row.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000);
   });
@@ -60,9 +63,12 @@ describe('POST /public/client-login', () => {
     const firstCookie = /^(__Host-cl=[^;]+)/.exec(sessionSetCookie(first, '__Host-cl')!)![1]!;
     const before = await prisma.clientLogin.count();
 
-    await start(firstCookie).expect(201);
+    const second = await start(firstCookie).expect(201);
 
     expect(await prisma.clientLogin.count()).toBe(before);
+    const nonce = (second.body.url as string).split('start=')[1]!;
+    const row = await prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } });
+    expect(row.code).toBe(second.body.code);
   });
 
   it('is 404 channelOff when Telegram is not turned on here', async () => {
@@ -97,15 +103,52 @@ describe('the bot confirms the phone', () => {
       },
     });
   const lastReply = () => call.mock.calls.at(-1)![1] as { chat_id: number; text: string; reply_markup?: object };
-  const newLogin = async () => {
-    const res = await start().expect(201);
+  const newLogin = async (locale = 'ru') => {
+    const res = await start(undefined, locale).expect(201);
     const nonce = (res.body.url as string).split('start=')[1]!;
-    return { nonce, row: () => prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } }) };
+    return {
+      nonce,
+      code: res.body.code as string,
+      row: () => prisma.clientLogin.findUniqueOrThrow({ where: { nonceHash: hashRandomToken(nonce) } }),
+    };
   };
   const digits = () => `995${Math.floor(Math.random() * 900_000_000) + 100_000_000}`;
 
+  it("shows the code in the login's language", async () => {
+    const { nonce, code } = await newLogin('en');
+
+    await pressStart(nonce, chatId());
+
+    expect(lastReply().text).toContain(`Code: ${code}`);
+    expect(lastReply().text).toContain('localhost');
+    expect(lastReply().text).toContain('only if');
+  });
+
+  it('gives the phone to the login whose code the bot showed last, not to the newest one', async () => {
+    const chat = chatId();
+    const own = await newLogin(); // the victim's page
+    const foreign = await newLogin(); // a forwarded link, made later
+    await pressStart(foreign.nonce, chat); // a stranger's code: ignored
+    await pressStart(own.nonce, chat); // the page's code matched
+
+    await share(chat, digits());
+
+    expect((await own.row()).confirmedAt).not.toBeNull();
+    expect(await foreign.row()).toMatchObject({ chatId: null, phone: null, confirmedAt: null });
+  });
+
+  it('does not unbind other logins when the nonce is no good', async () => {
+    const chat = chatId();
+    const own = await newLogin();
+    await pressStart(own.nonce, chat);
+
+    await pressStart('x'.repeat(43), chat);
+
+    expect((await own.row()).chatId).toBe(String(chat));
+  });
+
   it('Start asks for the phone with a share button, then the own contact confirms it', async () => {
-    const { nonce, row } = await newLogin();
+    const { nonce, code, row } = await newLogin();
     const chat = chatId();
 
     await pressStart(nonce, chat);
@@ -115,6 +158,9 @@ describe('the bot confirms the phone', () => {
       text: expect.stringContaining('Поделитесь номером телефона'),
       reply_markup: { keyboard: [[{ request_contact: true }]] },
     });
+    // The bot repeats the page's code, so a person can compare the two.
+    expect(lastReply().text).toContain(`Код: ${code}`);
+    expect(lastReply().text).toContain('localhost');
     expect(await row()).toMatchObject({ chatId: String(chat), phone: null, confirmedAt: null });
 
     const phone = digits();
@@ -199,12 +245,14 @@ describe('GET /public/client-login', () => {
   const confirmed = async () => {
     const res = await start().expect(201);
     const nonce = (res.body.url as string).split('start=')[1]!;
+    const code = res.body.code as string;
     const id = chat();
     const phone = `+995${Math.floor(Math.random() * 900_000_000) + 100_000_000}`;
     const bot = app.get(TelegramUpdatesService);
     await bot.handleUpdate({ message: { text: `/start ${nonce}`, chat: { id, type: 'private' }, from: { id } } });
     return {
       cookie: sessionCookie(res, '__Host-cl')!,
+      code,
       phone,
       id,
       confirm: () =>
@@ -220,7 +268,8 @@ describe('GET /public/client-login', () => {
 
   it('is pending until the contact, then gives the session once and only to this browser', async () => {
     const login = await confirmed();
-    await poll(login.cookie).expect(200, { status: 'pending' });
+    // The code survives a reload of the page: the poll repeats it while the login waits.
+    await poll(login.cookie).expect(200, { status: 'pending', code: login.code });
 
     await login.confirm();
     // Another browser, or none, gets nothing from the same login.
