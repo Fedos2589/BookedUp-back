@@ -7,7 +7,7 @@
 >
 > **When the step is merged:** S11 (or a follow-up) sets row S of the common plan to «done — PR #…».
 
-**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) done, PR #63; front F1 open.
+**Status:** S1–S11 merged (#57–#61). Tails of the review of #58 on branch `e7b/tails-58`: limit and `opted_out_at` bug done; S12–S14 (sign-in code) done, merged in PR #63; the front's part is T9.
 
 **Common plan** (goal, decisions 1–6, the front's step): `2026-11-23-e7b-client-sign-in.md` next to this
 file. Open it only if a task leaves a question this file doesn't answer — its decisions are «D1»…«D6»,
@@ -77,7 +77,7 @@ The common plan's «Review focus across repos» 1–6, and:
 
 ## Left from the review of #58
 
-- **Forwarded sign-in link** — split into S12–S14 below; the front's part is F1 (other repo).
+- **Forwarded sign-in link** — split into S12–S14 below; the front's part is T9 in the front's plan.
 - ~~**Rate limit of `POST /public/client-login`**~~ — done: 30 an hour per IP (CGNAT).
 - ~~**A bug in main, `switchClientChannelOff`**~~ — done in `b8f59b7` (takes every row without `opted_out_at`).
 
@@ -330,8 +330,6 @@ server — it is a prompt for a human.
 
 **Check:** `npm run format:check`, the full list from AGENTS.md «Перед PR». Commit `docs(client-session): the sign-in code`.
 
-### Front (other repo, after S12): F1 — show the code
+### Front (other repo, after S12)
 
-Not part of this branch. After S12 merges the front regenerates its API client (`code` in the
-`POST /public/client-login` answer) and, next to the «Open Telegram» button, shows «Code: 4821 — the bot
-will ask you to compare it». Check: Storybook / the sign-in page shows the code; the text is in en and ru.
+Moved to the front's plan as **T9** (`~/work/BookedUp-front/docs/plans/2026-11-25-e7b-client-sign-in-front.md`).
