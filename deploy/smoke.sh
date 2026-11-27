@@ -50,16 +50,14 @@ request "$base/api/docs-json"
 { [ "$code" = 200 ] && has '"openapi"' "$body"; }
 report $? "GET /api/docs-json is 200 with openapi" "got $code"
 
-for path in / /book/smoke-test /sw.js; do
-  request "$base$path"
-  { [ "$code" = 200 ] && has '^cache-control:.*no-cache' "$headers"; }
-  report $? "GET $path is 200 with Cache-Control no-cache" "got $code"
-done
 for path in / /book/smoke-test; do
   request "$base$path"
-  has '^content-type: *text/html' "$headers"
-  report $? "GET $path is text/html" "no text/html"
+  { [ "$code" = 200 ] && has '^cache-control:.*no-cache' "$headers" && has '^content-type: *text/html' "$headers"; }
+  report $? "GET $path is 200 text/html with Cache-Control no-cache" "got $code"
 done
+request "$base/sw.js"
+{ [ "$code" = 200 ] && has '^cache-control:.*no-cache' "$headers"; }
+report $? "GET /sw.js is 200 with Cache-Control no-cache" "got $code"
 
 request "$base/assets/does-not-exist.js"
 [ "$code" = 404 ]
