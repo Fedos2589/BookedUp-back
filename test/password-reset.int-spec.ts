@@ -7,7 +7,7 @@ import { hashRandomToken } from '../src/common/random-token.js';
 import { PasswordResetService } from '../src/auth/password-reset.service.js';
 import { Mailer } from '../src/mail/mailer.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { ownerInput } from './helpers.js';
+import { ownerInput, sessionCookie } from './helpers.js';
 import { createTestApp } from './test-app.js';
 
 let app: INestApplication<App>;
@@ -170,5 +170,87 @@ describe('POST /auth/password-reset', () => {
     send.mockRejectedValueOnce(new Error('Email: no answer'));
 
     await http().post('/auth/password-reset').send({ email }).expect(204);
+  });
+});
+
+describe('POST /auth/password-reset/confirm', () => {
+  const NEW_PASSWORD = 'a brand new password';
+
+  // Signs up, asks for the link and takes the token out of the letter, as the person would.
+  const askedFor = async () => {
+    const body = ownerInput();
+    const signedUp = await http().post('/auth/sign-up').send(body).expect(201);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: body.email } });
+    await http().post('/auth/password-reset').send({ email: body.email }).expect(204);
+    const mail = await letterTo(body.email);
+    const token = /\/reset-password\/([A-Za-z0-9_-]{43})/.exec(mail.text)![1]!;
+    return { ...body, userId: user.id, token, oldCookie: sessionCookie(signedUp)! };
+  };
+
+  const confirm = (token: string, password = NEW_PASSWORD) =>
+    http().post('/auth/password-reset/confirm').send({ token, password });
+
+  it('sets the new password: the old one stops working, the new one signs in', async () => {
+    const { email, password, token } = await askedFor();
+
+    const res = await confirm(token).expect(204);
+
+    expect(res.headers['set-cookie']).toBeUndefined();
+    await http().post('/auth/sign-in').send({ email, password }).expect(401);
+    await http().post('/auth/sign-in').send({ email, password: NEW_PASSWORD }).expect(200);
+  });
+
+  it('ends every earlier session of the user, in any browser', async () => {
+    const { oldCookie, email, password, token } = await askedFor();
+    const other = await http().post('/auth/sign-in').send({ email, password }).expect(200);
+    await http().get('/me').set('Cookie', oldCookie).expect(200);
+
+    await confirm(token).expect(204);
+
+    await http().get('/me').set('Cookie', oldCookie).expect(401);
+    await http().get('/me').set('Cookie', sessionCookie(other)!).expect(401);
+  });
+
+  it('works once: the same token again is a 404 resetLinkInvalid', async () => {
+    const { token, userId } = await askedFor();
+    await confirm(token).expect(204);
+
+    const res = await confirm(token, 'another new password').expect(404);
+
+    expect(res.body).toMatchObject({ code: 'resetLinkInvalid' });
+    expect(await resetsOf(userId)).toHaveLength(0);
+  });
+
+  it('an expired link is the same 404, and the password stays', async () => {
+    const { token, userId, email, password } = await askedFor();
+    await prisma.$executeRaw`UPDATE password_resets SET expires_at = now() - interval '1 second' WHERE user_id = ${userId}::uuid`;
+
+    const res = await confirm(token).expect(404);
+
+    expect(res.body).toMatchObject({ code: 'resetLinkInvalid' });
+    await http().post('/auth/sign-in').send({ email, password }).expect(200);
+  });
+
+  it('an unknown token is the same 404', async () => {
+    const res = await confirm('A'.repeat(43)).expect(404);
+
+    expect(res.body).toMatchObject({ code: 'resetLinkInvalid' });
+  });
+
+  it('two confirms with one token in parallel: one 204, one 404', async () => {
+    const { token } = await askedFor();
+
+    const results = await Promise.all([confirm(token), confirm(token, 'second new password')]);
+
+    expect(results.map((r) => r.status).sort((a, b) => a - b)).toEqual([204, 404]);
+  });
+
+  it('a password under 8 characters or a malformed token is a 400', async () => {
+    const { token } = await askedFor();
+
+    await confirm(token, '1234567').expect(400);
+    await confirm('short').expect(400);
+    // The link was not spent by the refusals.
+    await confirm(token).expect(204);
   });
 });

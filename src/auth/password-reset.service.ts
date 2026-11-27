@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { PasswordHasher } from '@nestjs/authentication';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { type Locale, localeSchema } from '../account/locale.js';
@@ -12,6 +13,14 @@ const LINK_LIFETIME_MS = 60 * 60 * 1000;
 // A user gets at most one letter a minute: a newer request inside it is dropped silently.
 const COOLDOWN_MS = 60 * 1000;
 
+const resetLinkInvalid = () =>
+  new NotFoundException({
+    statusCode: 404,
+    error: 'Not Found',
+    message: 'This link does not work: it is used, expired or wrong',
+    code: 'resetLinkInvalid',
+  });
+
 @Injectable()
 export class PasswordResetService {
   private readonly logger = new Logger(PasswordResetService.name);
@@ -19,6 +28,7 @@ export class PasswordResetService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailer: Mailer,
+    private readonly hasher: PasswordHasher,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -64,5 +74,25 @@ export class PasswordResetService {
     } else {
       this.logger.log({ link }, 'password reset link');
     }
+  }
+
+  // The link is spent by one DELETE … RETURNING, so of two confirms with one token only one gets the row. The new
+  // password replaces the old one, and every session and link of the user goes: whoever knew the old password is out.
+  async confirm(token: string, password: string): Promise<void> {
+    const passwordHash = await this.hasher.hash(password);
+    await this.prisma.$transaction(async (tx) => {
+      const spent = await tx.$queryRaw<{ user_id: string }[]>`
+        DELETE FROM password_resets WHERE token_hash = ${hashRandomToken(token)} AND expires_at > now()
+        RETURNING user_id::text`;
+      const userId = spent[0]?.user_id;
+      if (userId === undefined) throw resetLinkInvalid();
+      await tx.passwordLogin.upsert({
+        where: { userId },
+        create: { userId, passwordHash },
+        update: { passwordHash },
+      });
+      await tx.session.deleteMany({ where: { userId } });
+      await tx.passwordReset.deleteMany({ where: { userId } });
+    });
   }
 }
