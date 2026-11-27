@@ -34,6 +34,7 @@ API сервиса онлайн-записи для малого бизнеса 
 - `src/app.setup.ts` — `configureApp()`: то, что нужно приложению сверх `AppModule` (сейчас `enableCsrfProtection()`). Вызывают и `main.ts`, и `test/test-app.ts`, чтобы тесты шли с тем же, что и прод. Настройку, которую можно выразить провайдером (`APP_PIPE`, `APP_GUARD`), кладём в `AppModule`, а не сюда.
 - `src/notifications/` — события пишутся в транзакции записи (outbox), раз в 30 с задание `notifications` (`NOTIFICATIONS_WORKER`) ставит напоминания, раскладывает события по получателям и отправляет; канал — класс за интерфейсом `Channel`, в разработке всё идёт в лог (`LogChannel`). Как включить Telegram, Web Push, email и WhatsApp, и список шаблонов WhatsApp (`npm run whatsapp:templates`) — `docs/notifications.md`.
 - `src/client-session/` — вход клиента на странице записи по телефону через Telegram-бота и его сессия (`ClientSessionGuard` на `/public/…`); правила кук и срока — скилл `back-auth`.
+- `deploy/` и `docs/deploy.md` — деплой на VPS (compose, Caddy, `deploy.sh`, бэкапы в B2, откат и восстановление, `smoke.sh`). Образы собирает workflow `Release` вручную; сервер только тянет их из GHCR.
 - Очереди — `@nestjs/bullmq`, соединение уже настроено в `AppModule`; новая очередь — `BullModule.registerQueue` в своём модуле.
 - Логи — `nestjs-pino`, не `console.log`. Ошибку кладём под ключ `err` (`logger.warn({ err: error }, …)`): только его pino разбирает в тип, сообщение и стек, под другим ключом `Error` выйдет в лог как `{}`.
 
@@ -63,6 +64,7 @@ API сервиса онлайн-записи для малого бизнеса 
 npm run format:check
 npm run typecheck
 npm run lint
+shellcheck deploy/*.sh   # скрипты деплоя
 npm test
 npm run test:e2e
 npm run test:int   # нужен запущенный Docker

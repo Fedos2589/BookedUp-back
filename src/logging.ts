@@ -21,7 +21,7 @@ const LOGGED_HEADERS = new Set([
 
 // These paths carry a token that is a key by itself (booking management link, invitation link). The database keeps
 // only its hash, so the log must not keep it either.
-const TOKEN_IN_PATH = /\/(invitations|public\/bookings)\/[^/?]+/;
+const TOKEN_IN_PATH = /^\/(invitations|public\/bookings)\/[^/?]+/;
 
 type SerializedRequest = ReturnType<typeof stdSerializers.req>;
 
