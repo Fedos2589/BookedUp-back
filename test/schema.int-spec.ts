@@ -18,6 +18,8 @@ const GLOBAL_TABLES = [
   'users',
   'password_logins',
   'sessions',
+  // A user's one-time reset link, found by its token's hash: no business, like `sessions`.
+  'password_resets',
   'user_channels',
   'channel_link_tokens',
   // A client's phone proved through Telegram, not one business's client: one session works on every page (E7b D9).
@@ -843,5 +845,30 @@ describe('notifications (E9)', () => {
 
     expect(user!.notify_email).toBe(true);
     expect(member!.notify_all_online).toBe(true);
+  });
+});
+
+describe('password_resets', () => {
+  const reset = (userId: string) => ({
+    userId,
+    tokenHash: `hash-${unique()}`,
+    expiresAt: new Date(Date.now() + 3_600_000),
+  });
+
+  it('keep a token hash once', async () => {
+    const user = await createUser();
+    const data = reset(user.id);
+    await prisma.passwordReset.create({ data });
+
+    await expect(prisma.passwordReset.create({ data: { ...data } })).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('go away with the user', async () => {
+    const user = await createUser();
+    const { id } = await prisma.passwordReset.create({ data: reset(user.id) });
+
+    await prisma.user.delete({ where: { id: user.id } });
+
+    expect(await prisma.passwordReset.findUnique({ where: { id } })).toBeNull();
   });
 });

@@ -1,6 +1,8 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
+import { MailModule } from '../mail/mail.module.js';
+
 import { ChannelRegistry } from './channels/channel-registry.js';
 import { EmailChannel } from './channels/email.channel.js';
 import { LogChannel } from './channels/log.channel.js';
@@ -28,7 +30,7 @@ import { NOTIFICATIONS_QUEUE, NotificationsProcessor } from './notifications.pro
 import { RemindersService } from './reminders.service.js';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE })],
+  imports: [BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE }), MailModule],
   controllers: [
     MyNotificationsController,
     MyBusinessNotificationsController,

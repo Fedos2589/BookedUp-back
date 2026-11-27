@@ -1,10 +1,8 @@
 import type { ChannelKind } from '../../generated/prisma/client.js';
+import type { SendResult } from '../../mail/send-result.js';
 import type { MessageInput } from '../messages.js';
 
-// `unreachable`: the address will never work (the chat was left, the push subscription expired), so the
-// caller switches it off. `unknown`: the call got no answer in time, so the message may be out; it is not sent
-// again (a message twice is worse than one lost), and the address stays on. A retryable error is thrown instead.
-export type SendResult = 'sent' | 'unreachable' | 'unknown';
+export type { SendResult } from '../../mail/send-result.js';
 
 // What a channel renders its message from. `url`: where a tap on a push goes (the business's booking page for a
 // client, the cabinet's calendar for staff).
