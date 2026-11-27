@@ -68,6 +68,12 @@ describe('log redaction', () => {
     expect(logs).toContain(`"url":"${logged}"`);
   });
 
+  it('keeps the id of an invitation a manager revokes: it is not a secret', async () => {
+    const logs = await logsOfRequest('/businesses/b1/invitations/0198-an-invitation-id');
+
+    expect(logs).toContain('"url":"/businesses/b1/invitations/0198-an-invitation-id"');
+  });
+
   it('leaves the other paths as they are', async () => {
     const logs = await logsOfRequest('/public/businesses/some-slug/slots');
 
