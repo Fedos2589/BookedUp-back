@@ -62,31 +62,40 @@ dump this deploy took (the deploy prints its path as «restore point») — see 
 ## Restore
 
 **(a) From the server's own dump** (the database is damaged, the server is fine). The deploy's «restore point» or
-the newest `/var/backups/bookedup/bookedup-*.dump`:
+the newest `/var/backups/bookedup/bookedup-*.dump`. First stop the hourly backup: a dump taken in the middle of the
+restore would go to B2 as the newest snapshot.
 
 ```bash
+sudo mv /etc/cron.d/bookedup-backup /root/
 docker compose stop api
 docker compose exec -T postgres dropdb -U bookedup bookedup
 docker compose exec -T postgres createdb -U bookedup bookedup
 docker compose exec -T postgres pg_restore -U bookedup --no-owner --exit-on-error -d bookedup < /var/backups/bookedup/<file>.dump
 docker compose start api
 deploy/smoke.sh <domain>        # laptop
+sudo mv /root/bookedup-backup /etc/cron.d/
 ```
 
-**(b) From B2 onto a new server** (the old one is gone). You need only the password manager entry:
+**(b) From B2 onto a new server** (the old one is gone). You need only the password manager entry. Do **not** restore
+`latest`: once the new server is deployed, its hourly backup sends the empty database to B2, and `latest` is that.
 
 1. Create the server as in R3 and point DNS at it (R4). Run `server-setup.sh` as root (R6).
-2. Put `.env` and `api.env` from the password manager into `/opt/bookedup` (mode 600), then
+2. **Stop the hourly backup now**, before anything else: `ssh deploy@<ip> sudo mv /etc/cron.d/bookedup-backup /root/`.
+3. Put `.env` and `api.env` from the password manager into `/opt/bookedup` (mode 600), then
    `deploy/deploy.sh deploy@<ip> <api-sha> <web-sha>` from the laptop (R9; the shas of the release that ran last).
-3. On the server:
+4. On the server, pick the snapshot **by id**: the newest one from before the failure whose size looks like a real
+   database (an empty one is a few KiB):
 
    ```bash
-   docker compose stop api
-   set -a; . ./.env; set +a
+   cd /opt/bookedup && set -a; . ./.env; set +a
    mkdir -p /tmp/restore
-   docker run --rm --user "$(id -u):$(id -g)" -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID \
-     -e AWS_SECRET_ACCESS_KEY -v /tmp/restore:/restore restic/restic:0.17.3 --no-cache \
-     restore latest --host bookedup --tag db --target /restore
+   restic() {
+     docker run --rm --user "$(id -u):$(id -g)" -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID \
+       -e AWS_SECRET_ACCESS_KEY -v /tmp/restore:/restore restic/restic:0.17.3 --no-cache "$@"
+   }
+   restic snapshots --host bookedup --tag db          # note the id (and the size)
+   restic restore <id> --target /restore
+   docker compose stop api
    docker compose exec -T postgres dropdb -U bookedup bookedup
    docker compose exec -T postgres createdb -U bookedup bookedup
    docker compose exec -T postgres pg_restore -U bookedup --no-owner --exit-on-error -d bookedup < /tmp/restore/backups/<file>.dump
@@ -94,7 +103,8 @@ deploy/smoke.sh <domain>        # laptop
    docker compose start api
    ```
 
-4. Set the Telegram webhook again if the domain changed (R10), then `deploy/smoke.sh <domain>`.
+5. Set the Telegram webhook again if the domain changed (R10), `deploy/smoke.sh <domain>` from the laptop, check
+   a known business in the browser, then turn the backup back on: `sudo mv /root/bookedup-backup /etc/cron.d/`.
 
 **(c) After a break-in.** Rotate the B2 application key first (the attacker has the old one), put the new one in
 `.env` and the password manager. Then restore from a snapshot **older than the break-in**: `restic snapshots` lists
@@ -122,6 +132,9 @@ Cookies and secrets are redacted in the logs, but they still hold IP addresses: 
 **Reboot.** Security updates install by themselves but never reboot. When `/var/run/reboot-required` exists:
 `sudo reboot` at a quiet hour (the sudo password of `deploy` is in the password manager). Containers and Docker
 start by themselves; check with `deploy/smoke.sh <domain>`.
+
+**Running `server-setup.sh` again** is safe, but it also runs `apt-get upgrade`, which can upgrade Docker and restart
+every container: do it at a quiet hour, like a reboot.
 
 ## When something is lost
 

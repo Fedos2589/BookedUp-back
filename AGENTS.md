@@ -64,6 +64,7 @@ API сервиса онлайн-записи для малого бизнеса 
 npm run format:check
 npm run typecheck
 npm run lint
+shellcheck deploy/*.sh   # скрипты деплоя
 npm test
 npm run test:e2e
 npm run test:int   # нужен запущенный Docker
