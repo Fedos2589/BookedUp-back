@@ -76,7 +76,8 @@ done
 
 trap failed ERR
 if [ -n "$(docker compose ps -q --status running postgres 2>/dev/null)" ]; then
-  dump=$(./backup.sh </dev/null | tail -n 1)
+  # the restore point is the local dump: a B2 outage must not block a deploy (it still pings /fail)
+  dump=$(OFFSITE=optional ./backup.sh </dev/null | tail -n 1)
   echo "restore point: $dump"
 fi
 
@@ -109,7 +110,8 @@ chmod 600 .env.new
 mv .env.new .env
 echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $api_sha $web_sha" >>releases.log
 trap - ERR
-docker image prune -f >/dev/null || true
+# every release is a tagged image, which a plain prune keeps; old ones go after a week (a running one never does)
+docker image prune -af --filter until=168h >/dev/null || true
 echo "deployed: $api_sha $web_sha"
 }
 main "$@" </dev/null

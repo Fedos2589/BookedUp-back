@@ -23,10 +23,6 @@ fi
 export RESTIC_REPOSITORY RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 MAX_AGE_MIN=${MAX_AGE_MIN:-120}
 
-# one backup at a time (the hourly one, a deploy's, this prune)
-exec 9>.backup.lock
-flock -w 900 9
-
 tmp=$(mktemp -d)
 cleanup() {
   local rc=$?
@@ -37,10 +33,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# the image runs as root otherwise, and what it restores couldn't be deleted by this user
+# the image runs as root otherwise, and what it restores couldn't be deleted by this user;
+# --retry-lock: a restore or check waits instead of failing when a backup's forget has the repository
 restic() {
   docker run --rm --user "$(id -u):$(id -g)" -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID \
-    -e AWS_SECRET_ACCESS_KEY -v "$tmp:/restore" restic/restic:0.17.3 --no-cache "$@"
+    -e AWS_SECRET_ACCESS_KEY -v "$tmp:/restore" restic/restic:0.17.3 --no-cache --retry-lock 10m "$@"
 }
 
 if [ -z "${RESTIC_REPOSITORY:-}" ]; then
@@ -48,8 +45,9 @@ if [ -z "${RESTIC_REPOSITORY:-}" ]; then
   exit 1
 fi
 
-# seconds since the newest snapshot; empty repository -> fails
-age=$(restic snapshots --host bookedup --tag db --latest 1 --json | python3 -c '
+# seconds since the newest snapshot; empty repository -> fails. (restic's --latest 1 keeps one snapshot per
+# host+path, and every dump has its own path, so it filters nothing: the newest is picked here.)
+age=$(restic snapshots --host bookedup --tag db --json | python3 -c '
 import json, re, sys, time
 from datetime import datetime, timezone
 snaps = json.load(sys.stdin)
@@ -72,7 +70,12 @@ if [ -z "$dump" ]; then
 fi
 ./restore-check.sh "$dump"
 
+# Only the prune takes the backups' lock (it needs the repository to itself, so the hourly backup waits for it).
+# The restore and the check only read: holding the lock through them would make a growing repository skip backups.
+exec 9>.backup.lock
+flock -w 900 9
 restic prune
+exec 9>&-
 restic check
 
 if [ -n "${RESTORE_PING_URL:-}" ]; then
