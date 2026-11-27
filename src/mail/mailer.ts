@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '../config/env.js';
-import type { SendResult } from '../notifications/channels/channel.js';
+import type { SendResult } from './send-result.js';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 

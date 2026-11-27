@@ -117,8 +117,6 @@ model PasswordLogin {
   @@map("password_logins")
 }
 
-/// A signed-in browser, kept by @nestjs/authentication through PrismaSessionStore. The id is
-/// the SHA-256 of the cookie token, never the token; times come from the package's clock.
 /// A one-time link to set a new password (E21 P1). Global, like `sessions`; only the token's hash is stored.
 /// Expired rows go when the user asks again or resets: a tiny table, no purge job.
 model PasswordReset {
@@ -134,6 +132,8 @@ model PasswordReset {
   @@map("password_resets")
 }
 
+/// A signed-in browser, kept by @nestjs/authentication through PrismaSessionStore. The id is
+/// the SHA-256 of the cookie token, never the token; times come from the package's clock.
 model Session {
   id           String           @id
   userId       String           @map("user_id") @db.Uuid

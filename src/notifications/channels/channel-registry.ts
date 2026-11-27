@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '../../config/env.js';
+import { Mailer } from '../../mail/mailer.js';
 import type { ChannelKind } from '../../generated/prisma/client.js';
 import type { AvailableChannels, AvailableStaffChannels } from '../channels.schema.js';
 import type { Channel } from './channel.js';
@@ -28,13 +29,14 @@ export class ChannelRegistry {
     push: PushChannel,
     whatsapp: WhatsappChannel,
     email: EmailChannel,
+    mailer: Mailer,
   ) {
     this.vapidPublicKey = config.get('VAPID_PUBLIC_KEY', { infer: true });
     this.channels = new Map<ChannelKind, Channel>([[log.kind, log]]);
     if (config.get('TELEGRAM_BOT_TOKEN', { infer: true }) !== undefined) this.channels.set(telegram.kind, telegram);
     if (this.vapidPublicKey !== undefined) this.channels.set(push.kind, push);
     if (config.get('WHATSAPP_TOKEN', { infer: true }) !== undefined) this.channels.set(whatsapp.kind, whatsapp);
-    if (config.get('RESEND_API_KEY', { infer: true }) !== undefined) this.channels.set(email.kind, email);
+    if (mailer.isOn()) this.channels.set(email.kind, email);
     this.fallbackToLog = config.get('NODE_ENV', { infer: true }) !== 'production';
     // Told once, at start: email is the one channel a business is likely to forget, and without it nothing falls back to the log.
     if (!this.fallbackToLog && !this.channels.has(email.kind))

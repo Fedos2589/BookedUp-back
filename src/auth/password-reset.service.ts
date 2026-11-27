@@ -9,9 +9,10 @@ import { Mailer } from '../mail/mailer.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { passwordResetLink, passwordResetMail } from './password-reset-mail.js';
 
-const LINK_LIFETIME_MS = 60 * 60 * 1000;
-// A user gets at most one letter a minute: a newer request inside it is dropped silently.
-const COOLDOWN_MS = 60 * 1000;
+// Time is Postgres's, in both places it matters (the cooldown and the expiry): one clock, so the hour in the letter is
+// the hour in the table. A user gets at most one letter a minute: a newer request inside it is dropped silently.
+const LINK_LIFETIME = '1 hour';
+const COOLDOWN = '1 minute';
 
 const resetLinkInvalid = () =>
   new NotFoundException({
@@ -42,19 +43,14 @@ export class PasswordResetService {
     const issued = await this.prisma.$transaction(async (tx) => {
       // Two parallel requests would both pass a read-then-write cooldown and leave two working links.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${user.id}::text, 0))`;
-      const recent = await tx.passwordReset.findFirst({
-        where: { userId: user.id, createdAt: { gt: new Date(Date.now() - COOLDOWN_MS) } },
-        select: { id: true },
-      });
-      if (recent) return false;
+      const recent = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id::text FROM password_resets
+        WHERE user_id = ${user.id}::uuid AND created_at > now() - ${COOLDOWN}::interval`;
+      if (recent.length > 0) return false;
       await tx.passwordReset.deleteMany({ where: { userId: user.id } });
-      await tx.passwordReset.create({
-        data: {
-          userId: user.id,
-          tokenHash: hashRandomToken(token),
-          expiresAt: new Date(Date.now() + LINK_LIFETIME_MS),
-        },
-      });
+      await tx.$executeRaw`
+        INSERT INTO password_resets (user_id, token_hash, expires_at)
+        VALUES (${user.id}::uuid, ${hashRandomToken(token)}, now() + ${LINK_LIFETIME}::interval)`;
       return true;
     });
     if (!issued) return;
@@ -79,13 +75,14 @@ export class PasswordResetService {
   // The link is spent by one DELETE … RETURNING, so of two confirms with one token only one gets the row. The new
   // password replaces the old one, and every session and link of the user goes: whoever knew the old password is out.
   async confirm(token: string, password: string): Promise<void> {
-    const passwordHash = await this.hasher.hash(password);
     await this.prisma.$transaction(async (tx) => {
       const spent = await tx.$queryRaw<{ user_id: string }[]>`
         DELETE FROM password_resets WHERE token_hash = ${hashRandomToken(token)} AND expires_at > now()
         RETURNING user_id::text`;
       const userId = spent[0]?.user_id;
       if (userId === undefined) throw resetLinkInvalid();
+      // Only a link that worked costs a hash: a wrong token must not make the server do the slow work.
+      const passwordHash = await this.hasher.hash(password);
       await tx.passwordLogin.upsert({
         where: { userId },
         create: { userId, passwordHash },
