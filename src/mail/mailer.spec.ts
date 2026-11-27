@@ -52,6 +52,16 @@ describe('Mailer', () => {
     await expect(mailer().send(mail)).rejects.toThrow(/500/);
   });
 
+  it('does not leave the body of a refused answer unread', async () => {
+    const response = new Response('Service down', { status: 500 });
+    const cancel = vi.spyOn(response.body!, 'cancel');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+
+    await expect(mailer().send(mail)).rejects.toThrow(/500/);
+
+    expect(cancel).toHaveBeenCalled();
+  });
+
   it('no answer in time → unknown: the mail may be out, and is not sent again', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('timed out', 'TimeoutError')));
     expect(await mailer().send(mail)).toBe('unknown');

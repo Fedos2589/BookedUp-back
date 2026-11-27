@@ -1,3 +1,4 @@
+import { PasswordHasher } from '@nestjs/authentication';
 import type { INestApplication } from '@nestjs/common';
 import type { MockInstance } from 'vitest';
 import request from 'supertest';
@@ -231,8 +232,12 @@ describe('POST /auth/password-reset/confirm', () => {
     await http().post('/auth/sign-in').send({ email, password }).expect(200);
   });
 
-  it('an unknown token is the same 404', async () => {
+  it('an unknown token is the same 404, and costs no password hash', async () => {
+    const hash = vi.spyOn(app.get(PasswordHasher), 'hash');
+
     const res = await confirm('A'.repeat(43)).expect(404);
+
+    expect(hash).not.toHaveBeenCalled();
 
     expect(res.body).toMatchObject({ code: 'resetLinkInvalid' });
   });

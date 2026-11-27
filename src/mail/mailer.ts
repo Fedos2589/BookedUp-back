@@ -56,6 +56,8 @@ export class Mailer {
       const reply = (await response.json().catch(() => null)) as { message?: unknown } | null;
       if (typeof reply?.message === 'string' && reply.message.includes('`to`')) return 'unreachable';
     }
+    // An unread body holds the socket until the garbage collector comes.
+    await response.body?.cancel().catch(() => undefined);
     throw new Error(`Email: Resend answered ${response.status}`);
   }
 }

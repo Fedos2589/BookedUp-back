@@ -64,7 +64,9 @@ export class PasswordResetService {
   private async deliver(email: string, locale: Locale, token: string): Promise<void> {
     const link = passwordResetLink(this.config.get('APP_URL', { infer: true }), token);
     if (this.mailer.isOn()) {
-      await this.mailer.send({ to: email, ...passwordResetMail(locale, link) });
+      const result = await this.mailer.send({ to: email, ...passwordResetMail(locale, link) });
+      // `unreachable` and `unknown` are not errors, but nobody would learn why the letter didn't come.
+      if (result !== 'sent') this.logger.warn({ result }, 'The password reset letter may not have arrived');
     } else if (this.config.get('NODE_ENV', { infer: true }) === 'production') {
       this.logger.warn('email is off: password reset letter not sent');
     } else {
@@ -72,22 +74,29 @@ export class PasswordResetService {
     }
   }
 
-  // The link is spent by one DELETE … RETURNING, so of two confirms with one token only one gets the row. The new
+  // The slow hash is not done inside the transaction (it would hold a connection and the deleted row, and the
+  // transaction has a 5 s limit), and a wrong token must not cost one: a cheap look at the link first, then the hash,
+  // then the link is spent by one DELETE … RETURNING, so of two confirms with one token only one gets the row. The new
   // password replaces the old one, and every session and link of the user goes: whoever knew the old password is out.
   async confirm(token: string, password: string): Promise<void> {
+    const tokenHash = hashRandomToken(token);
+    const alive = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id::text FROM password_resets WHERE token_hash = ${tokenHash} AND expires_at > now()`;
+    if (alive.length === 0) throw resetLinkInvalid();
+    const passwordHash = await this.hasher.hash(password);
     await this.prisma.$transaction(async (tx) => {
       const spent = await tx.$queryRaw<{ user_id: string }[]>`
-        DELETE FROM password_resets WHERE token_hash = ${hashRandomToken(token)} AND expires_at > now()
+        DELETE FROM password_resets WHERE token_hash = ${tokenHash} AND expires_at > now()
         RETURNING user_id::text`;
       const userId = spent[0]?.user_id;
+      // Lost the race to another confirm (or the link ran out while the password was hashed).
       if (userId === undefined) throw resetLinkInvalid();
-      // Only a link that worked costs a hash: a wrong token must not make the server do the slow work.
-      const passwordHash = await this.hasher.hash(password);
       await tx.passwordLogin.upsert({
         where: { userId },
         create: { userId, passwordHash },
         update: { passwordHash },
       });
+      // The same as PrismaSessionStore.deleteUserSessions, but inside this transaction: change them together.
       await tx.session.deleteMany({ where: { userId } });
       await tx.passwordReset.deleteMany({ where: { userId } });
     });
