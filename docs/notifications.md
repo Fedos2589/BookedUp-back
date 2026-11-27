@@ -14,6 +14,8 @@ log); `GET /public/businesses/:slug` and `GET /me/notifications` tell the front 
    curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=<API>/telegram/webhook&secret_token=<SECRET>"
    ```
 
+   On the server (`docs/deploy.md`) `<API>` is `https://<domain>/api`, so the url is `https://<domain>/api/telegram/webhook`, and the server has its own bot: setting a webhook turns `getUpdates` off, and the dev API polls, so one bot can't serve both.
+
    Telegram sends the secret back in the `X-Telegram-Bot-Api-Secret-Token` header; without it the route answers 401.
 
 4. Development: with the token set, no secret and `NODE_ENV=development` the API polls the bot itself — no webhook.
